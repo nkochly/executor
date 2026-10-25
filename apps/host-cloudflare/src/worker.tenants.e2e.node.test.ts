@@ -44,7 +44,9 @@ describe("cloudflare host multi-tenant e2e", () => {
       vars: {
         EXECUTOR_SECRET_KEY: "test-secret-key-0123456789abcdef",
         ENABLE_DEV_AUTH: "true",
-        TENANTS: JSON.stringify({ acme: { name: "Acme" }, beta: {} }),
+        // Dev auth stands in for sign-in and membership: it acts as the admin of
+        // whichever tenant a request names. Membership reads are unit-tested.
+        TENANT_DIRECTORY_URL: "https://directory.invalid/api/directory",
       },
     });
   }, 120_000);
@@ -59,10 +61,7 @@ describe("cloudflare host multi-tenant e2e", () => {
     const body = (await me.json()) as { organization: { id: string } };
     expect(body.organization.id).toBe("acme");
 
-    const unknown = await worker.fetch("/api/account/me", { headers: { [ORG]: "nope" } });
-    expect(unknown.status).toBe(401);
-
-    // Two tenants exist, so a request that names none is refused.
+    // Dev auth has no membership to pick from, so a request must name one.
     const unnamed = await worker.fetch("/api/account/me");
     expect(unnamed.status).toBe(401);
   }, 60_000);
@@ -107,7 +106,7 @@ describe("cloudflare host multi-tenant e2e", () => {
     expect(await executorTools("beta")).toBe(0);
   }, 60_000);
 
-  it("serves MCP at /<tenant>/mcp and refuses an unknown tenant", async () => {
+  it("serves MCP at /<tenant>/mcp and refuses an unnamed tenant", async () => {
     const initialize = (path: string) =>
       worker.fetch(path, {
         method: "POST",
@@ -130,12 +129,12 @@ describe("cloudflare host multi-tenant e2e", () => {
     expect(ok.status).toBe(200);
     expect(ok.headers.get("mcp-session-id")).toBeTruthy();
 
-    const refused = await initialize("/nope/mcp");
+    const refused = await initialize("/mcp");
     expect(refused.status).toBe(401);
 
     // The challenge points at metadata for the path the client dialed.
     expect(refused.headers.get("www-authenticate")).toContain(
-      "/.well-known/oauth-protected-resource/nope/mcp",
+      "/.well-known/oauth-protected-resource/mcp",
     );
   }, 60_000);
 });

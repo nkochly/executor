@@ -54,7 +54,10 @@ export default {
     }
 
     const serve = await resolveHandler(env);
-    const request = routeTenantRequest(incoming, (env.TENANTS ?? "").trim().length > 0);
+    const request = routeTenantRequest(
+      incoming,
+      (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0,
+    );
     const resource = mcpResourceFromPath(new URL(request.url).pathname);
     if (resource !== null) {
       return serve.mcp(request, env, ctx);

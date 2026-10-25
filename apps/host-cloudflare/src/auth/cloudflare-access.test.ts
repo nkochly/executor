@@ -2,7 +2,7 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { orgWriteAccessForPrincipal } from "@executor-js/host-mcp";
 
-import { parseTenants, type CloudflareConfig } from "../config";
+import type { CloudflareConfig } from "../config";
 import { principalFromAccessClaims } from "./cloudflare-access";
 
 const config: CloudflareConfig = {
@@ -18,7 +18,7 @@ const config: CloudflareConfig = {
   allowLocalNetwork: false,
   webBaseUrl: "https://localhost",
   enableDevAuth: false,
-  tenants: null,
+  directory: null,
 };
 
 describe("principalFromAccessClaims", () => {
@@ -64,49 +64,29 @@ describe("principalFromAccessClaims", () => {
 describe("principalFromAccessClaims in multi-tenant mode", () => {
   const multi: CloudflareConfig = {
     ...config,
-    tenants: parseTenants(
-      JSON.stringify({
-        acme: { name: "Acme", admins: ["lead@acme.com"], members: ["dev@acme.com", "tok.access"] },
-        beta: { members: ["dev@acme.com"] },
-        open: { members: ["*"] },
-      }),
-    ),
+    directory: { url: "https://dir.test/api/directory" },
   };
+  const acme = { slug: "acme", name: "Acme" };
 
-  it("acts in the named tenant with that tenant's role", () => {
-    const admin = principalFromAccessClaims({ sub: "a", email: "Lead@acme.com" }, multi, "acme")!;
+  it("acts in the directory's tenant with that tenant's role", () => {
+    const admin = principalFromAccessClaims({ sub: "a", email: "lead@acme.com" }, multi, {
+      tenant: acme,
+      role: "admin",
+    })!;
     expect(admin.organizationId).toBe("acme");
     expect(admin.organizationName).toBe("Acme");
     expect(orgWriteAccessForPrincipal(admin)).toBe("allowed");
 
-    const member = principalFromAccessClaims({ sub: "d", email: "dev@acme.com" }, multi, "acme")!;
-    expect(member.orgRole).toBe("member");
+    const member = principalFromAccessClaims({ sub: "d", email: "dev@acme.com" }, multi, {
+      tenant: acme,
+      role: "member",
+    })!;
     expect(orgWriteAccessForPrincipal(member)).toBe("denied");
   });
 
-  it("refuses a tenant that does not list the caller, and unknown tenants", () => {
+  it("refuses a caller with no membership, and ignores the global admin list", () => {
     expect(
-      principalFromAccessClaims({ sub: "a", email: "lead@acme.com" }, multi, "beta"),
+      principalFromAccessClaims({ sub: "u", email: "admin@example.com" }, multi, null),
     ).toBeNull();
-    expect(
-      principalFromAccessClaims({ sub: "a", email: "lead@acme.com" }, multi, "nope"),
-    ).toBeNull();
-  });
-
-  it("ignores the global admin list", () => {
-    const p = principalFromAccessClaims({ sub: "u", email: "admin@example.com" }, multi, "open")!;
-    expect(p.orgRole).toBe("member");
-  });
-
-  it("matches service tokens by client id", () => {
-    const p = principalFromAccessClaims({ common_name: "tok.access" }, multi, "acme")!;
-    expect(p.organizationId).toBe("acme");
-  });
-
-  it("needs a tenant named unless the caller is in exactly one", () => {
-    expect(principalFromAccessClaims({ sub: "d", email: "dev@acme.com" }, multi)).toBeNull();
-    const only = principalFromAccessClaims({ sub: "l", email: "lead@acme.com" }, multi);
-    // lead is in acme and, through "*", in open: two tenants, so none is picked.
-    expect(only).toBeNull();
   });
 });

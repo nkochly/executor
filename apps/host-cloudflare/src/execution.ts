@@ -58,7 +58,7 @@ export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<
     oauthCallbackPath: "/api/oauth/callback",
     // Multi-tenant: each tenant's admins approve what its connections may
     // use; a tool no admin approved is unavailable, whatever a toolkit says.
-    ...(config.tenants ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
+    ...(config.directory ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
   });
 
 /**

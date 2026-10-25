@@ -1,13 +1,17 @@
+import { Effect, Option, Schema } from "effect";
+
 import { EXECUTOR_ORG_SELECTOR_HEADER } from "@executor-js/sdk/shared";
 
-import type { CloudflareConfig, TenantEntry } from "./config";
+import type { TenantDirectoryConfig } from "./config";
 
 // ---------------------------------------------------------------------------
 // Multi-tenant routing. The URL names the tenant: MCP clients dial
 // `/<tenant>/mcp` (or `/<tenant>/mcp/toolkits/<toolkit>`), and the console
 // sends the tenant from its own URL in the org selector header. The selector
 // is not a trust boundary: `resolveTenant` admits a caller only when the
-// tenant map lists them, so naming a tenant you are not in gets you nothing.
+// tenant directory lists them there, so naming a tenant you are not in gets
+// you nothing. Sign-in stays with Cloudflare Access; the directory only says
+// which tenants a signed-in identity belongs to.
 //
 // The edge rewrites a tenant-prefixed MCP path to the bare route the session
 // Durable Object serves and carries the tenant in an internal header. Any
@@ -61,36 +65,69 @@ export const tenantSelector = (request: Request): string | null =>
   request.headers.get(TENANT_HEADER) ?? request.headers.get(EXECUTOR_ORG_SELECTOR_HEADER);
 
 export interface TenantMembership {
-  readonly tenant: TenantEntry;
+  readonly tenant: { readonly slug: string; readonly name: string };
   readonly role: "admin" | "member";
 }
 
-const membership = (tenant: TenantEntry, identity: string): TenantMembership | null => {
-  if (identity.length === 0) return null;
-  if (tenant.admins.has(identity)) return { tenant, role: "admin" };
-  if (tenant.members.has(identity) || tenant.members.has("*")) return { tenant, role: "member" };
-  return null;
-};
+const DirectoryMembership = Schema.Struct({
+  tenant: Schema.Struct({ slug: Schema.String, name: Schema.String }),
+  role: Schema.String,
+});
+const decodeOne = Schema.decodeUnknownOption(DirectoryMembership);
+const decodeMany = Schema.decodeUnknownOption(Schema.Array(DirectoryMembership));
+
+// Tenant owners and admins administer the tenant here too; anyone else listed
+// is a member.
+const toMembership = (entry: typeof DirectoryMembership.Type): TenantMembership => ({
+  tenant: entry.tenant,
+  role: entry.role === "owner" || entry.role === "admin" ? "admin" : "member",
+});
+
+const readDirectory = (directory: TenantDirectoryConfig, path: string) =>
+  Effect.tryPromise({
+    try: async () => {
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (directory.clientId && directory.clientSecret) {
+        headers["cf-access-client-id"] = directory.clientId;
+        headers["cf-access-client-secret"] = directory.clientSecret;
+      }
+      const response = await fetch(`${directory.url}${path}`, { headers, redirect: "manual" });
+      return response.ok ? ((await response.json()) as unknown) : null;
+    },
+    catch: () => null,
+  }).pipe(Effect.orElseSucceed(() => null));
 
 /**
  * The tenant this caller acts in. A named tenant must list the caller. With
  * no tenant named, a caller who belongs to exactly one tenant acts in it;
- * anyone else must name one.
+ * anyone else must name one. A directory that cannot be read admits nobody.
  */
 export const resolveTenant = (
-  config: CloudflareConfig,
+  directory: TenantDirectoryConfig,
   identity: string,
   selector: string | null,
-): TenantMembership | null => {
-  const tenants = config.tenants;
-  if (!tenants) return null;
-  const key = identity.toLowerCase();
+): Effect.Effect<TenantMembership | null> => {
+  const subject = encodeURIComponent(identity.trim().toLowerCase());
+  if (subject.length === 0) return Effect.succeed(null);
   if (selector !== null) {
-    const tenant = tenants.get(selector);
-    return tenant ? membership(tenant, key) : null;
+    return readDirectory(
+      directory,
+      `/tenants/${encodeURIComponent(selector)}/members/${subject}`,
+    ).pipe(
+      Effect.map((body) =>
+        Option.match(decodeOne(body), {
+          onNone: () => null,
+          onSome: (entry) => (entry.tenant.slug === selector ? toMembership(entry) : null),
+        }),
+      ),
+    );
   }
-  const all = [...tenants.values()]
-    .map((tenant) => membership(tenant, key))
-    .filter((entry): entry is TenantMembership => entry !== null);
-  return all.length === 1 ? all[0]! : null;
+  return readDirectory(directory, `/members/${subject}`).pipe(
+    Effect.map((body) =>
+      Option.match(decodeMany(body), {
+        onNone: () => null,
+        onSome: (entries) => (entries.length === 1 ? toMembership(entries[0]!) : null),
+      }),
+    ),
+  );
 };

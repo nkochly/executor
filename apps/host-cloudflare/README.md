@@ -31,25 +31,24 @@ without). The SPA's auth context reads `/api/account/me`.
 
 ## Multi-tenant mode
 
-Set `TENANTS` (a JSON var) to serve many tenants from one Worker:
-
-```json
-{ "acme": { "name": "Acme", "admins": ["lead@acme.com"], "members": ["*"] } }
-```
+Set `TENANT_DIRECTORY_URL` to serve many tenants from one Worker. Sign-in stays
+with Cloudflare Access; the directory says which tenants a signed-in identity
+belongs to, read with the `TENANT_DIRECTORY_CLIENT_ID`/`_SECRET` Access service
+token. It must answer `GET <url>/tenants/<slug>/members/<subject>` with
+`{"tenant": {"slug", "name"}, "role"}` (404 when not a member) and
+`GET <url>/members/<subject>` with a list of those.
 
 - The URL names the tenant: MCP at `/<tenant>/mcp`, a connection's own tool set
   at `/<tenant>/mcp/toolkits/<toolkit>`, and the console sends its tenant in the
-  `x-executor-organization` header. A request naming a tenant that does not
-  list the caller is refused. With no tenant named, a caller in exactly one
-  tenant acts in it.
+  `x-executor-organization` header. A caller the directory does not list in
+  that tenant is refused, as is everyone when the directory cannot be read.
+  With no tenant named, a caller in exactly one tenant acts in it.
 - Each tenant is its own catalog partition (integrations, connections,
   secrets, policies, toolkits).
-- Admins (`admins`) edit the tenant's policies; members cannot.
+- Tenant owners and admins edit the tenant's policies; members cannot.
 - Tools are blocked until a tenant admin approves them with an org policy. A
   toolkit narrows the approved set for one connection and can never widen it;
   no personal policy can either.
-- `members` lists emails or Access service-token client ids; `"*"` admits any
-  Access-verified identity.
 
 Unset, the host keeps the single configured org.
 

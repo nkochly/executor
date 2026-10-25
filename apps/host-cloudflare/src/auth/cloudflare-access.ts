@@ -4,7 +4,7 @@ import { Effect, Layer } from "effect";
 import { IdentityProvider, Unauthorized, type Principal } from "@executor-js/api/server";
 
 import type { CloudflareConfig } from "../config";
-import { resolveTenant, tenantSelector } from "../tenancy";
+import { resolveTenant, tenantSelector, type TenantMembership } from "../tenancy";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Access IdentityProvider — the CF-native swap for self-host's
@@ -16,8 +16,9 @@ import { resolveTenant, tenantSelector } from "../tenancy";
 //
 // Single-tenant: every verified principal belongs to the one configured org.
 // Roles come from the admin allowlist + the Access groups claim. Multi-tenant
-// (`TENANTS` set): the principal acts in the tenant the request names, as that
-// tenant's admin or member, and is refused when the tenant does not list it.
+// (a tenant directory configured): the principal acts in the tenant the
+// request names, as that tenant's admin or member, and is refused when the
+// directory does not list it there.
 // ---------------------------------------------------------------------------
 
 /**
@@ -31,7 +32,7 @@ import { resolveTenant, tenantSelector } from "../tenancy";
 export const principalFromAccessClaims = (
   claims: Record<string, unknown>,
   config: CloudflareConfig,
-  selector: string | null = null,
+  membership?: TenantMembership | null,
 ): Principal | null => {
   const email = typeof claims.email === "string" ? claims.email : "";
   const sub = typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : "";
@@ -39,8 +40,8 @@ export const principalFromAccessClaims = (
   const nameClaim = claims[config.accessNameClaim];
   const groupsClaim = claims[config.accessGroupsClaim];
   const groups = Array.isArray(groupsClaim) ? groupsClaim.map(String) : [];
-  if (config.tenants) {
-    const member = resolveTenant(config, email || commonName, selector);
+  if (config.directory) {
+    const member = membership ?? null;
     if (!member) return null;
     const isTenantAdmin = member.role === "admin";
     return {
@@ -107,21 +108,17 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
     orgRole: "admin",
   };
 
+  // Dev auth in multi-tenant mode: the dev admin acts in whichever tenant the
+  // request names, without a directory read.
   const devPrincipalFor = (selector: string | null): Principal | null => {
-    if (!config.tenants) return devPrincipal;
-    const tenant = selector
-      ? config.tenants.get(selector)
-      : config.tenants.size === 1
-        ? [...config.tenants.values()][0]
-        : undefined;
-    return tenant
-      ? {
-          ...devPrincipal,
-          organizationId: tenant.slug,
-          organizationName: tenant.name,
-          organizationSlug: tenant.slug,
-        }
-      : null;
+    if (!config.directory) return devPrincipal;
+    if (!selector) return null;
+    return {
+      ...devPrincipal,
+      organizationId: selector,
+      organizationName: selector,
+      organizationSlug: selector,
+    };
   };
 
   const verify = (request: Request): Effect.Effect<Principal | null> =>
@@ -137,11 +134,16 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
       }).pipe(Effect.orElseSucceed(() => null));
       if (!verified) return null;
 
-      return principalFromAccessClaims(
-        verified.payload as Record<string, unknown>,
-        config,
+      const claims = verified.payload as Record<string, unknown>;
+      if (!config.directory) return principalFromAccessClaims(claims, config);
+      const email = typeof claims.email === "string" ? claims.email : "";
+      const commonName = typeof claims.common_name === "string" ? `svc:${claims.common_name}` : "";
+      const membership = yield* resolveTenant(
+        config.directory,
+        email || commonName,
         tenantSelector(request),
       );
+      return principalFromAccessClaims(claims, config, membership);
     });
 
   return { verify };
