@@ -140,6 +140,7 @@ export type TestConfigOptions<TPlugins extends readonly AnyPlugin[] = readonly [
   readonly orgWrites?: ExecutorConfig<TPlugins>["orgWrites"];
   readonly fetch?: ExecutorConfig<TPlugins>["fetch"];
   readonly waitUntil?: ExecutorConfig<TPlugins>["waitUntil"];
+  readonly toolPolicyCeiling?: ExecutorConfig<TPlugins>["toolPolicyCeiling"];
 };
 
 export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = readonly []>(
@@ -174,6 +175,7 @@ export const makeTestConfig = <const TPlugins extends readonly AnyPlugin[] = rea
     db,
     plugins: options?.plugins,
     coreTools: options?.coreTools,
+    ...(options?.toolPolicyCeiling ? { toolPolicyCeiling: options.toolPolicyCeiling } : {}),
     testDb,
     // Tests default to auto-accepting elicitation prompts.
     onElicitation: "accept-all",

@@ -203,6 +203,7 @@ export {
   type RemoveToolPolicyInput,
   type PolicyMatch,
   type EffectivePolicy,
+  type ToolPolicyCeiling,
   type PolicySource,
 } from "./policies";
 

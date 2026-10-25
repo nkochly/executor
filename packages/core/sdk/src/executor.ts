@@ -161,6 +161,9 @@ import {
   matchPattern,
   positionForNewPattern,
   resolveEffectivePolicy,
+  resolveCeilingPolicy,
+  capPolicy,
+  type ToolPolicyCeiling,
   rowToToolPolicy,
   type CreateToolPolicyInput,
   type EffectivePolicy,
@@ -819,6 +822,12 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * config-revision re-sync still apply).
    */
   readonly toolsSyncTtlMs?: number | null;
+  /**
+   * Workspace-wide ceiling: org-owned policy rows bound every other policy
+   * source, including an active toolkit. Omit for the upstream behaviour,
+   * where an active toolkit replaces the org rows.
+   */
+  readonly toolPolicyCeiling?: ToolPolicyCeiling;
   /**
    * How long a tools read WAITS for stale-catalog rebuilds before answering
    * from the persisted rows. Rebuilds keep running past the deadline (see
@@ -5545,7 +5554,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // Active policy source.
     // ------------------------------------------------------------------
 
-    type ActivePolicyRuleSet =
+    type ActivePolicyRuleSet = (
       | { readonly kind: "global"; readonly rows: readonly ToolPolicyRow[] }
       | {
           readonly kind: "provider";
@@ -5556,7 +5565,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           readonly kind: "prepared";
           readonly resolve: PreparedToolPolicy["resolve"];
           readonly dynamicScope: PreparedToolPolicy["dynamicScope"];
-        };
+        }
+    ) & {
+      /** Org rows bounding a provider's answer under `toolPolicyCeiling`. */
+      readonly ceilingRows?: readonly ToolPolicyRow[];
+    };
 
     const compareProviderPolicyRule = (
       a: ToolPolicyProviderRule,
@@ -5590,6 +5603,15 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     };
 
     const listActivePolicyRuleSet = (): Effect.Effect<ActivePolicyRuleSet, StorageFailure> =>
+      config.toolPolicyCeiling && activeToolPolicyProvider
+        ? Effect.all([listProviderPolicyRuleSet(), core.findMany("tool_policy", {})]).pipe(
+            Effect.map(
+              ([ruleSet, rows]) => ({ ...ruleSet, ceilingRows: rows }) as ActivePolicyRuleSet,
+            ),
+          )
+        : listProviderPolicyRuleSet();
+
+    const listProviderPolicyRuleSet = (): Effect.Effect<ActivePolicyRuleSet, StorageFailure> =>
       activeToolPolicyProvider
         ? // Batched per-operation resolver: fetch all policy + connection state
           // once, then resolve every tool in this operation against that
@@ -5619,7 +5641,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             .findMany("tool_policy", {})
             .pipe(Effect.map((rows) => ({ kind: "global" as const, rows })));
 
-    const resolvePolicyFromRuleSet = (
+    const resolveUncappedPolicyFromRuleSet = (
       toolId: string,
       ruleSet: ActivePolicyRuleSet,
       defaultRequiresApproval?: boolean,
@@ -5638,6 +5660,28 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 defaultRequiresApproval,
               ),
             );
+
+    const ceilingFor = (
+      toolId: string,
+      rows: readonly ToolPolicyRow[] | undefined,
+    ): EffectivePolicy | undefined =>
+      config.toolPolicyCeiling && rows
+        ? resolveCeilingPolicy(toolId, rows, config.toolPolicyCeiling)
+        : undefined;
+
+    const resolvePolicyFromRuleSet = (
+      toolId: string,
+      ruleSet: ActivePolicyRuleSet,
+      defaultRequiresApproval?: boolean,
+    ): Effect.Effect<EffectivePolicy, StorageFailure> =>
+      resolveUncappedPolicyFromRuleSet(toolId, ruleSet, defaultRequiresApproval).pipe(
+        Effect.map((policy) =>
+          capPolicy(
+            policy,
+            ceilingFor(toolId, ruleSet.kind === "global" ? ruleSet.rows : ruleSet.ceilingRows),
+          ),
+        ),
+      );
 
     // ------------------------------------------------------------------
     // Tools (read surface)
@@ -6313,7 +6357,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             requiresApproval = annotations?.requiresApproval;
           }
         }
-        return resolveEffectivePolicy(toolId, policyRows, ownerRankForRow, requiresApproval);
+        return capPolicy(
+          resolveEffectivePolicy(toolId, policyRows, ownerRankForRow, requiresApproval),
+          ceilingFor(toolId, policyRows),
+        );
       });
 
     // ------------------------------------------------------------------

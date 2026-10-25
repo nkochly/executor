@@ -1,3 +1,4 @@
+import { Option, Schema } from "effect";
 import type { D1Database, DurableObjectNamespace, R2Bucket } from "@cloudflare/workers-types";
 
 import { isValidOrgSlug } from "@executor-js/api";
@@ -56,6 +57,16 @@ export interface CloudflareEnv {
    * behind Access, or the instance is wide open.
    */
   readonly ENABLE_DEV_AUTH?: string;
+  /**
+   * Multi-tenant mode. JSON object keyed by tenant slug:
+   * `{"acme": {"name": "Acme", "admins": ["a@x.com"], "members": ["b@x.com"]}}`.
+   * Entries are lowercased emails or Access service-token client ids; `"*"`
+   * in `members` admits every Access-verified identity. When set, the tenant
+   * comes from the URL (`/<tenant>/mcp`, the console's org header), every
+   * request is checked against this map, and tools a tenant's admins have not
+   * approved are blocked. Unset keeps the single configured org.
+   */
+  readonly TENANTS?: string;
 }
 
 export interface CloudflareConfig {
@@ -74,7 +85,56 @@ export interface CloudflareConfig {
    *  static URL — the per-request origin is used instead (see RequestWebOrigin). */
   readonly webBaseUrl?: string;
   readonly enableDevAuth: boolean;
+  /** Tenants by slug; `null` is single-tenant mode. */
+  readonly tenants: ReadonlyMap<string, TenantEntry> | null;
 }
+
+export interface TenantEntry {
+  readonly slug: string;
+  readonly name: string;
+  readonly admins: ReadonlySet<string>;
+  readonly members: ReadonlySet<string>;
+}
+
+const TenantMapSchema = Schema.Record(
+  Schema.String,
+  Schema.Struct({
+    name: Schema.optional(Schema.String),
+    admins: Schema.optional(Schema.Array(Schema.String)),
+    members: Schema.optional(Schema.Array(Schema.String)),
+  }),
+);
+const decodeTenantMap = Schema.decodeUnknownOption(Schema.fromJsonString(TenantMapSchema));
+
+const normalizeIdentities = (values: readonly string[] | undefined): ReadonlySet<string> =>
+  new Set(
+    (values ?? []).map((value) => value.trim().toLowerCase()).filter((value) => value.length > 0),
+  );
+
+export const parseTenants = (raw: string | undefined): ReadonlyMap<string, TenantEntry> | null => {
+  if (raw === undefined || raw.trim().length === 0) return null;
+  const decoded = decodeTenantMap(raw);
+  if (Option.isNone(decoded)) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a malformed tenant map must not boot
+    throw new Error(
+      'TENANTS must be a JSON object keyed by tenant slug: {"<slug>": {"name"?, "admins"?: [..], "members"?: [..]}}',
+    );
+  }
+  const tenants = new Map<string, TenantEntry>();
+  for (const [slug, entry] of Object.entries(decoded.value)) {
+    if (!isValidOrgSlug(slug)) {
+      // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a tenant slug doubles as a URL segment
+      throw new Error(`TENANTS key ${JSON.stringify(slug)} is not usable as a URL slug`);
+    }
+    tenants.set(slug, {
+      slug,
+      name: entry.name && entry.name.length > 0 ? entry.name : slug,
+      admins: normalizeIdentities(entry.admins),
+      members: normalizeIdentities(entry.members),
+    });
+  }
+  return tenants;
+};
 
 type CloudflareConfigEnv = Omit<
   CloudflareEnv,
@@ -174,5 +234,6 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
     // mirroring self-host (gated on enableDevAuth = local `wrangler dev`).
     webBaseUrl,
     enableDevAuth,
+    tenants: parseTenants(env.TENANTS),
   };
 };

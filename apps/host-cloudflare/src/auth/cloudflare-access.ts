@@ -4,6 +4,7 @@ import { Effect, Layer } from "effect";
 import { IdentityProvider, Unauthorized, type Principal } from "@executor-js/api/server";
 
 import type { CloudflareConfig } from "../config";
+import { resolveTenant, tenantSelector } from "../tenancy";
 
 // ---------------------------------------------------------------------------
 // Cloudflare Access IdentityProvider — the CF-native swap for self-host's
@@ -14,7 +15,9 @@ import type { CloudflareConfig } from "../config";
 // store, no password — the IdP is the gate.
 //
 // Single-tenant: every verified principal belongs to the one configured org.
-// Roles come from the admin allowlist + the Access groups claim.
+// Roles come from the admin allowlist + the Access groups claim. Multi-tenant
+// (`TENANTS` set): the principal acts in the tenant the request names, as that
+// tenant's admin or member, and is refused when the tenant does not list it.
 // ---------------------------------------------------------------------------
 
 /**
@@ -28,13 +31,33 @@ import type { CloudflareConfig } from "../config";
 export const principalFromAccessClaims = (
   claims: Record<string, unknown>,
   config: CloudflareConfig,
-): Principal => {
+  selector: string | null = null,
+): Principal | null => {
   const email = typeof claims.email === "string" ? claims.email : "";
   const sub = typeof claims.sub === "string" && claims.sub.length > 0 ? claims.sub : "";
   const commonName = typeof claims.common_name === "string" ? claims.common_name : "";
   const nameClaim = claims[config.accessNameClaim];
   const groupsClaim = claims[config.accessGroupsClaim];
   const groups = Array.isArray(groupsClaim) ? groupsClaim.map(String) : [];
+  if (config.tenants) {
+    const member = resolveTenant(config, email || commonName, selector);
+    if (!member) return null;
+    const isTenantAdmin = member.role === "admin";
+    return {
+      kind: "member",
+      accountId: sub || email || commonName,
+      organizationId: member.tenant.slug,
+      organizationName: member.tenant.name,
+      organizationSlug: member.tenant.slug,
+      email,
+      name: typeof nameClaim === "string" ? nameClaim : commonName || null,
+      avatarUrl: null,
+      roles: isTenantAdmin ? ["admin", ...groups] : groups.length > 0 ? groups : ["member"],
+      orgRoleModel: "organization",
+      orgRole: isTenantAdmin ? "admin" : "member",
+    };
+  }
+
   const isAdmin = email.length > 0 && config.adminEmails.includes(email.toLowerCase());
 
   return {
@@ -84,9 +107,26 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
     orgRole: "admin",
   };
 
+  const devPrincipalFor = (selector: string | null): Principal | null => {
+    if (!config.tenants) return devPrincipal;
+    const tenant = selector
+      ? config.tenants.get(selector)
+      : config.tenants.size === 1
+        ? [...config.tenants.values()][0]
+        : undefined;
+    return tenant
+      ? {
+          ...devPrincipal,
+          organizationId: tenant.slug,
+          organizationName: tenant.name,
+          organizationSlug: tenant.slug,
+        }
+      : null;
+  };
+
   const verify = (request: Request): Effect.Effect<Principal | null> =>
     Effect.gen(function* () {
-      if (config.enableDevAuth) return devPrincipal;
+      if (config.enableDevAuth) return devPrincipalFor(tenantSelector(request));
       if (!jwks) return null;
       const token = request.headers.get("Cf-Access-Jwt-Assertion");
       if (!token) return null;
@@ -97,7 +137,11 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
       }).pipe(Effect.orElseSucceed(() => null));
       if (!verified) return null;
 
-      return principalFromAccessClaims(verified.payload as Record<string, unknown>, config);
+      return principalFromAccessClaims(
+        verified.payload as Record<string, unknown>,
+        config,
+        tenantSelector(request),
+      );
     });
 
   return { verify };

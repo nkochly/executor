@@ -135,6 +135,11 @@ export interface HostConfigShape {
    */
   readonly toolsSyncTtlMs?: number | null;
   /**
+   * Forwarded to `ExecutorConfig.toolPolicyCeiling`: org rows bound every
+   * other policy source, toolkits included. A deployment-wide knob.
+   */
+  readonly toolPolicyCeiling?: ExecutorConfig["toolPolicyCeiling"];
+  /**
    * Forwarded to `ExecutorConfig.waitUntil`: the host's keep-alive
    * for background work that outlives a request (stale tool-catalog rebuilds
    * that keep running after a read stops waiting). Cloud supplies the
@@ -342,6 +347,7 @@ export const makeScopedExecutor = <
       fetch: hostedFetch,
       onIntegrationChange: config.onIntegrationChange,
       ...(config.toolsSyncTtlMs !== undefined ? { toolsSyncTtlMs: config.toolsSyncTtlMs } : {}),
+      ...(config.toolPolicyCeiling ? { toolPolicyCeiling: config.toolPolicyCeiling } : {}),
       ...(waitUntil !== undefined ? { waitUntil } : {}),
       onElicitation: "accept-all",
       ...(options?.orgWrites === undefined ? {} : { orgWrites: options.orgWrites }),

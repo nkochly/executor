@@ -5,6 +5,7 @@ import {
   type CloudflareEnv,
 } from "./config";
 import { mcpResourceFromPath } from "./mcp/resource";
+import { routeTenantRequest } from "./tenancy";
 
 // The MCP Durable Object classes, bound in wrangler.jsonc. They must be exported
 // at the Worker entry module scope for the runtime to find them.
@@ -42,13 +43,18 @@ const accessConfigErrorResponse = (missingVars: readonly string[]): Response =>
   });
 
 export default {
-  fetch: async (request: Request, env: CloudflareEnv, ctx: ExecutionContext): Promise<Response> => {
+  fetch: async (
+    incoming: Request,
+    env: CloudflareEnv,
+    ctx: ExecutionContext,
+  ): Promise<Response> => {
     const missingAccessVars = missingCloudflareAccessVars(env);
     if (missingAccessVars.length > 0) {
       return accessConfigErrorResponse(missingAccessVars);
     }
 
     const serve = await resolveHandler(env);
+    const request = routeTenantRequest(incoming, (env.TENANTS ?? "").trim().length > 0);
     const resource = mcpResourceFromPath(new URL(request.url).pathname);
     if (resource !== null) {
       return serve.mcp(request, env, ctx);

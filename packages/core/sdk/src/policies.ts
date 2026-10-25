@@ -297,6 +297,39 @@ export const resolveEffectivePolicy = (
   return match ? liftUser(match) : liftPlugin(defaultRequiresApproval);
 };
 
+/**
+ * A workspace-wide ceiling over every other policy source. When a host sets
+ * one, the org-owned `tool_policy` rows bound what any toolkit or personal
+ * rule can grant: the effective action is never less restrictive than the
+ * org rows allow. `unmatched: "block"` makes a tool no org row matches
+ * unavailable, so a workspace exposes only what its admins approved.
+ */
+export interface ToolPolicyCeiling {
+  readonly unmatched: "block" | "default";
+}
+
+export const resolveCeilingPolicy = (
+  toolId: string,
+  policies: readonly ToolPolicyRow[],
+  ceiling: ToolPolicyCeiling,
+): EffectivePolicy | undefined => {
+  const match = resolveToolPolicy(
+    toolId,
+    policies.filter((row) => row.owner === "org"),
+    () => 0,
+  );
+  if (match) return liftUser(match);
+  return ceiling.unmatched === "block"
+    ? { action: "block", source: "user", pattern: "*" }
+    : undefined;
+};
+
+/** `policy`, tightened to `ceiling` when the ceiling is more restrictive. */
+export const capPolicy = (
+  policy: EffectivePolicy,
+  ceiling: EffectivePolicy | undefined,
+): EffectivePolicy => (ceiling ? moreRestrictive(policy, ceiling) : policy);
+
 export const effectivePolicyFromSorted = (
   toolId: string,
   sortedPolicies: readonly (Pick<ToolPolicy, "pattern" | "action" | "id"> &

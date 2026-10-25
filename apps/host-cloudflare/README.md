@@ -29,6 +29,30 @@ org. Members and credentials are managed in Cloudflare Access, not in-app.
 everything else is the SPA. Every API/MCP route is gated by the Access JWT (401
 without). The SPA's auth context reads `/api/account/me`.
 
+## Multi-tenant mode
+
+Set `TENANTS` (a JSON var) to serve many tenants from one Worker:
+
+```json
+{ "acme": { "name": "Acme", "admins": ["lead@acme.com"], "members": ["*"] } }
+```
+
+- The URL names the tenant: MCP at `/<tenant>/mcp`, a connection's own tool set
+  at `/<tenant>/mcp/toolkits/<toolkit>`, and the console sends its tenant in the
+  `x-executor-organization` header. A request naming a tenant that does not
+  list the caller is refused. With no tenant named, a caller in exactly one
+  tenant acts in it.
+- Each tenant is its own catalog partition (integrations, connections,
+  secrets, policies, toolkits).
+- Admins (`admins`) edit the tenant's policies; members cannot.
+- Tools are blocked until a tenant admin approves them with an org policy. A
+  toolkit narrows the approved set for one connection and can never widen it;
+  no personal policy can either.
+- `members` lists emails or Access service-token client ids; `"*"` admits any
+  Access-verified identity.
+
+Unset, the host keeps the single configured org.
+
 ## Deploy
 
 ```bash

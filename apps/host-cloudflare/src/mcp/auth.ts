@@ -9,6 +9,7 @@ import {
 
 import { makeAccessVerifier } from "../auth/cloudflare-access";
 import type { CloudflareConfig } from "../config";
+import { ORIGINAL_PATH_HEADER } from "../tenancy";
 
 const PROTECTED_RESOURCE_METADATA_PATH = "/.well-known/oauth-protected-resource";
 const MCP_PROTECTED_RESOURCE_METADATA_PATH = `${PROTECTED_RESOURCE_METADATA_PATH}/mcp`;
@@ -42,11 +43,25 @@ const metadataPathForRequest = (request: Request): string => {
     : MCP_PROTECTED_RESOURCE_METADATA_PATH;
 };
 
+// A tenant-prefixed request was rewritten to the bare route at the edge; the
+// metadata echoes the prefixed form the client dialed (RFC 9728 requires the
+// resource to path-prefix-match it).
+const tenantPrefix = (request: Request): string => {
+  const original = request.headers.get(ORIGINAL_PATH_HEADER);
+  if (!original) return "";
+  const pathname = original.replace(PROTECTED_RESOURCE_METADATA_PATH, "");
+  const segment = pathname.split("/").filter((part) => part.length > 0)[0];
+  return segment ? `/${segment}` : "";
+};
+
 const protectedResourceMetadataResponse = (request: Request): Response => {
   const url = new URL(request.url);
   return new Response(
     JSON.stringify({
-      resource: new URL(resourcePathForRequest(request), url.origin).toString(),
+      resource: new URL(
+        `${tenantPrefix(request)}${resourcePathForRequest(request)}`,
+        url.origin,
+      ).toString(),
       authorization_servers: [],
     }),
     { headers: { "content-type": "application/json" } },
@@ -87,8 +102,17 @@ export const cloudflareAccessMcpAuth = (config: CloudflareConfig): Layer.Layer<M
   ];
   return Layer.succeed(McpAuthProvider)({
     discoveryRoutes,
-    resourceMetadataUrl: (request) =>
-      new URL(metadataPathForRequest(request), new URL(request.url).origin).toString(),
+    resourceMetadataUrl: (request) => {
+      const prefix = tenantPrefix(request);
+      const path = metadataPathForRequest(request);
+      const prefixed = prefix
+        ? path.replace(
+            MCP_PROTECTED_RESOURCE_METADATA_PATH,
+            `${PROTECTED_RESOURCE_METADATA_PATH}${prefix}/mcp`,
+          )
+        : path;
+      return new URL(prefixed, new URL(request.url).origin).toString();
+    },
     authenticate: (request) =>
       verify(request).pipe(
         Effect.map((principal) => (principal ? authenticated(principal) : unauthorized())),
