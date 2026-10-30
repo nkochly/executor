@@ -107,7 +107,7 @@ export type {
   UpdateConnectionInput,
   ValidateConnectionInput,
 } from "./connection";
-export type { Tool, ToolDef, ToolListFilter, ToolAnnotations } from "./tool";
+export type { Tool, ToolDef, ToolListFilter, ToolAnnotations, ToolRisk } from "./tool";
 // Credential providers.
 export type { CredentialProvider, ProviderEntry } from "./provider";
 

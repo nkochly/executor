@@ -21,6 +21,7 @@ import { ToolAddress } from "./ids";
 // leaks a plugin's private bookkeeping to callers.
 export const ToolAnnotationsView = Schema.Struct({
   requiresApproval: Schema.optional(Schema.Boolean),
+  risk: Schema.optional(Schema.Literals(["read", "write", "destructive"])),
   approvalDescription: Schema.optional(Schema.String),
   mayElicit: Schema.optional(Schema.Boolean),
 });

@@ -1439,6 +1439,20 @@ describe("MCP destructiveHint → requiresApproval", () => {
     }),
   );
 
+  it.effect("classifies each tool's risk from its hints", () =>
+    Effect.gen(function* () {
+      const server = yield* serveAnnotationsTestServer;
+      const executor = yield* seedAnnotationsExecutor(server.url);
+
+      const tools = yield* executor.tools.list();
+      const risk = (name: string) => tools.find((t) => String(t.name) === name)?.annotations?.risk;
+
+      expect(risk("list")).toBe("read");
+      expect(risk("delete")).toBe("destructive");
+      expect(risk("ping")).toBe("write");
+    }),
+  );
+
   it.effect("uses annotations.title as approvalDescription when present", () =>
     Effect.gen(function* () {
       const server = yield* serveAnnotationsTestServer;

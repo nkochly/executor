@@ -31,6 +31,7 @@ import {
   type StaticToolSchema,
   type StorageFailure,
   type ToolAnnotations,
+  type ToolRisk,
   type ToolDef,
   ToolName,
 } from "@executor-js/sdk/core";
@@ -536,6 +537,13 @@ const mcpCallToolResultOutputSchema = (structuredContentSchema?: unknown): JsonS
  *  into the persisted annotations so they survive to invokeTool with no
  *  plugin-side store. Executor's `ToolDef` has no `_meta` field of its own, so
  *  the stamp is where a host reads it back. */
+// MCP hints are advisory and default to "may write"; only an explicit hint
+// moves a tool to read or destructive.
+const riskOf = (
+  ann: { readonly readOnlyHint?: boolean; readonly destructiveHint?: boolean } | undefined,
+): ToolRisk =>
+  ann?.readOnlyHint === true ? "read" : ann?.destructiveHint === true ? "destructive" : "write";
+
 const toToolDef = (entry: McpToolManifestEntry): ToolDef => {
   const destructive = entry.annotations?.destructiveHint === true;
   const stamp: McpToolStamp = {
@@ -545,6 +553,7 @@ const toToolDef = (entry: McpToolManifestEntry): ToolDef => {
   };
   const annotations: StampedAnnotations = {
     requiresApproval: destructive,
+    risk: riskOf(entry.annotations),
     ...(destructive ? { approvalDescription: entry.annotations?.title ?? entry.toolName } : {}),
     mcp: stamp,
   };
@@ -1922,10 +1931,11 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           if (ann?.destructiveHint === true) {
             out[String(row.name)] = {
               requiresApproval: true,
+              risk: "destructive",
               approvalDescription: ann.title ?? stamp?.toolName ?? String(row.name),
             };
           } else {
-            out[String(row.name)] = { requiresApproval: false };
+            out[String(row.name)] = { requiresApproval: false, risk: riskOf(ann) };
           }
         }
         return out;

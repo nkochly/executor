@@ -6,10 +6,15 @@ import type { ConnectionName, IntegrationSlug, Owner, ToolAddress, ToolName } fr
  * each with its address and stores it per-connection (option C), and `tools.list`
  * is a read. */
 
+export type ToolRisk = "read" | "write" | "destructive";
+
 /** Default-policy hints a plugin attaches to a tool — enforced by the executor
  *  before the handler runs. */
 export interface ToolAnnotations {
   readonly requiresApproval?: boolean;
+  /** What a call can do: `read` changes nothing, `destructive` may destroy or
+   *  overwrite, `write` is everything else. Absent when the plugin cannot tell. */
+  readonly risk?: ToolRisk;
   readonly approvalDescription?: string;
   readonly mayElicit?: boolean;
 }

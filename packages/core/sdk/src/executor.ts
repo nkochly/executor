@@ -207,7 +207,13 @@ import {
   type ExecutorOwnerPolicyContext,
 } from "./owner-policy";
 import { ToolAnnotationsView, ToolSchemaView, type IntegrationDetectionResult } from "./types";
-import { type Tool, type ToolAnnotations, type ToolDef, type ToolListFilter } from "./tool";
+import {
+  type Tool,
+  type ToolAnnotations,
+  type ToolRisk,
+  type ToolDef,
+  type ToolListFilter,
+} from "./tool";
 import { buildToolTypeScriptPreview } from "./schema-types";
 import { collectReferencedDefinitions } from "./schema-refs";
 import {
@@ -1287,7 +1293,7 @@ const rowToTool = (
 
 // Projects a tool's annotations onto the schema view. Plugins persist extra
 // keys alongside the declared contract (the mcp plugin stores its upstream tool
-// name and `_meta` there so they survive to invokeTool), so the three declared
+// name and `_meta` there so they survive to invokeTool), so the declared
 // fields are picked explicitly rather than spread: a caller reading the view
 // gets the contract in `tool.ts` and nothing a plugin keeps for itself.
 const toolAnnotationsView = (
@@ -1296,12 +1302,14 @@ const toolAnnotationsView = (
   if (!annotations) return undefined;
   const view: {
     requiresApproval?: boolean;
+    risk?: ToolRisk;
     approvalDescription?: string;
     mayElicit?: boolean;
   } = {};
   if (typeof annotations.requiresApproval === "boolean") {
     view.requiresApproval = annotations.requiresApproval;
   }
+  if (annotations.risk !== undefined) view.risk = annotations.risk;
   if (typeof annotations.approvalDescription === "string") {
     view.approvalDescription = annotations.approvalDescription;
   }
