@@ -35,8 +35,8 @@ jobs:
         script: [format:check, lint, typecheck, test]
     env:
       # Upstream runs tests on 16 vCPU; hosted runners have 4, so fewer
-      # packages test at once or the slower discovery tests time out.
-      TURBO_TEST_CONCURRENCY: 2
+      # packages test at once: under contention the cold-start tests (tool discovery, host-cloudflare worker e2e) exceed their 5-10s timeouts.
+      TURBO_TEST_CONCURRENCY: 1
       VITEST_MAX_WORKERS: 2
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
