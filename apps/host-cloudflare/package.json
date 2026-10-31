@@ -37,7 +37,7 @@
     "@executor-js/sdk": "workspace:*",
     "@jitl/quickjs-wasmfile-release-sync": "catalog:",
     "@modelcontextprotocol/sdk": "1.32.2",
-    "@nkochly/presidio-ui": "github:nkochly/presidio-ui#v0.1.0",
+    "@nkochly/presidio-ui": "https://codeload.github.com/nkochly/presidio-ui/tar.gz/3e857da51e40125399384652edae0ef10cfc9638",
     "@tanstack/react-router": "catalog:",
     "drizzle-orm": "catalog:",
     "effect": "catalog:",

@@ -11,7 +11,10 @@ import { cn } from "../lib/utils";
  */
 export function Wordmark(props: { readonly className?: string }) {
   return (
-    <span data-slot="wordmark" className={cn("inline-flex items-baseline gap-1.5", props.className)}>
+    <span
+      data-slot="wordmark"
+      className={cn("inline-flex items-baseline gap-1.5", props.className)}
+    >
       <span className="font-mono text-sm font-medium tracking-tight text-foreground">executor</span>
       <span className="font-mono text-[10px] font-medium uppercase tracking-[0.12em] text-muted-foreground">
         beta
