@@ -98,6 +98,7 @@ class FakeDurableObjectState implements DurableObjectState {
   readonly id: DurableObjectId;
   readonly props: unknown = undefined;
   readonly facets = {} as DurableObjectState["facets"];
+  readonly exports = {} as DurableObjectState["exports"];
   readonly ctx = this;
   private readonly waitUntilPromises: Promise<unknown>[] = [];
 

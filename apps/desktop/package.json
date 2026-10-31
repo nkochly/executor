@@ -43,7 +43,7 @@
     "@executor-js/runtime-quickjs": "workspace:*",
     "@executor-js/sdk": "workspace:*",
     "@jitl/quickjs-wasmfile-release-sync": "catalog:",
-    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "@types/node": "catalog:",
     "@zip.js/zip.js": "^2.8.26",
     "bun-types": "catalog:",

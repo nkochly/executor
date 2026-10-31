@@ -92,8 +92,12 @@ const drainResponse = async (response: Response): Promise<string> => {
 };
 
 const makeExecutionContext = (): ExecutionContext => ({
+  abort: () => {},
+  exports: {} as ExecutionContext["exports"],
+  mapVirtualHost: {} as ExecutionContext["mapVirtualHost"],
   passThroughOnException: () => {},
   props: undefined,
+  tracing: {} as ExecutionContext["tracing"],
   waitUntil: () => {},
 });
 
@@ -117,7 +121,7 @@ const makeNamespace = (ws: FakeWebSocket) => ({
   newUniqueId: () => ({ toString: () => "generated-session" }),
   idFromName: (name: string) => ({ equals: () => true, name, toString: () => name }),
   get: () => ({
-    setName: async () => {},
+    __unsafe_ensureInitialized: async () => {},
     getInitializeRequest: async () => ({}),
     fetch: async () => ({ webSocket: ws }),
   }),

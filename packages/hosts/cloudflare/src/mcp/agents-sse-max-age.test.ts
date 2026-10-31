@@ -18,7 +18,7 @@ type FakeWebSocket = EventTarget & {
 };
 
 type FakeAgentStub = {
-  readonly setName: (name: string, props?: unknown) => Promise<void>;
+  readonly __unsafe_ensureInitialized: (props?: unknown) => Promise<void>;
   readonly getInitializeRequest: () => Promise<unknown>;
   readonly fetch: (request: Request) => Promise<{ readonly webSocket: FakeWebSocket }>;
 };
@@ -198,8 +198,12 @@ const installClosedRejectingTransformStream = () => {
 };
 
 const makeExecutionContext = (): ExecutionContext => ({
+  abort: () => {},
+  exports: {} as ExecutionContext["exports"],
+  mapVirtualHost: {} as ExecutionContext["mapVirtualHost"],
   passThroughOnException: () => {},
   props: undefined,
+  tracing: {} as ExecutionContext["tracing"],
   waitUntil: () => {},
 });
 
@@ -223,7 +227,7 @@ const makeWebSocket = (): FakeWebSocket => {
 };
 
 const makeAgentStub = (ws: FakeWebSocket): FakeAgentStub => ({
-  setName: async () => {},
+  __unsafe_ensureInitialized: async () => {},
   getInitializeRequest: async () => ({}),
   fetch: async () => ({ webSocket: ws }),
 });
