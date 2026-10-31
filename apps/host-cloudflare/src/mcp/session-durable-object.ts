@@ -30,6 +30,7 @@ import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
 import { ensureAgentToolkit } from "../agent";
+import { refreshCatalog } from "../platform";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -148,6 +149,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // QuickJS-WASM must be loaded before the executor layer builds it (the
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
+      const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
       const { engine, executor } = yield* makeExecutionStack(
         sessionMeta.userId,
         sessionMeta.organizationId,
@@ -187,7 +189,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         // connection (`?search_tools=true`). Same restore rule as artifacts.
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
-        directIntegrations: config.firstParty.map((server) => server.slug),
+        directIntegrations: catalog.map((server) => server.slug),
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
         restoredAppsEnabled: sessionMeta.appsEnabled ?? false,
