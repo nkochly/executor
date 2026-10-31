@@ -1,8 +1,7 @@
 diff --git a/dist/shimsWorkerd.cjs b/dist/shimsWorkerd.cjs
-index 29ef3a5b9872dbc934ec094d7419f6c965808e86..4b2dc3e755e5566edbbfd56087587e5c080ade02 100644
 --- a/dist/shimsWorkerd.cjs
 +++ b/dist/shimsWorkerd.cjs
-@@ -7,7 +7,11 @@ const require_cfWorkerProvider = require('./cfWorkerProvider-B3dvjU3F.cjs');
+@@ -7,7 +7,11 @@
  *
  * This file is selected via package.json export conditions when running in workerd.
  */
@@ -16,15 +15,14 @@ index 29ef3a5b9872dbc934ec094d7419f6c965808e86..4b2dc3e755e5566edbbfd56087587e5c
  * Whether `fetch()` may throw `TypeError` due to CORS. CORS is a browser-only concept —
  * in Cloudflare Workers, a `TypeError` from `fetch` is always a real network/configuration
 diff --git a/dist/shimsWorkerd.mjs b/dist/shimsWorkerd.mjs
-index 02d2730aca540adf88d52487ec3f3a9b3f8e80ee..beb9604d2f7f486f711ef4ba7f93a85caf72c2dc 100644
 --- a/dist/shimsWorkerd.mjs
 +++ b/dist/shimsWorkerd.mjs
 @@ -1,4 +1,3 @@
--import { n as preloadSchemas } from "./src-D_zzAWoS.mjs";
- import { t as CfWorkerJsonSchemaValidator } from "./cfWorkerProvider-BylNJ1R5.mjs";
+-import { n as preloadSchemas } from "./src-CeKsbNLO.mjs";
+ import { t as CfWorkerJsonSchemaValidator } from "./cfWorkerProvider-l7BFVI5n.mjs";
  
  //#region src/shimsWorkerd.ts
-@@ -7,7 +6,11 @@ import { t as CfWorkerJsonSchemaValidator } from "./cfWorkerProvider-BylNJ1R5.mj
+@@ -7,7 +6,11 @@
  *
  * This file is selected via package.json export conditions when running in workerd.
  */

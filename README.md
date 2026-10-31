@@ -183,7 +183,6 @@ apps/
   desktop/         the desktop app (Mac, Windows, Linux)
   local/           the local runtime shared by the CLI and desktop
   cloud/           Executor Cloud (the hosted product)
-  host-selfhost/   self-hosted server (Docker)
   host-cloudflare/ Cloudflare Worker deployment
   marketing/       the executor.sh site
   docs/            the docs at executor.sh/docs

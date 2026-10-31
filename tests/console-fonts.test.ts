@@ -15,10 +15,8 @@ const stylesDir = path.join(repoRoot, "packages/react/src/styles");
 const globalsCss = readFileSync(path.join(stylesDir, "globals.css"), "utf-8");
 
 const entryDocuments = [
-  "apps/host-selfhost/web/index.html",
   "apps/host-cloudflare/web/index.html",
   "apps/cloud/src/routes/__root.tsx",
-  "apps/desktop/src/renderer/index.html",
   "packages/app/index.html",
   "packages/onboarding-demo/index.html",
 ];
