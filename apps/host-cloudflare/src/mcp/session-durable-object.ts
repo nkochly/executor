@@ -154,11 +154,15 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
       ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle)));
-      // Multi-tenant: an agent's first connection makes its toolkit, owned by
-      // the person, open to everything the tenant approved. The person narrows
-      // it from the console; the tenant ceiling bounds it either way.
+      // Multi-tenant: an agent's first connection makes its toolkit, open to
+      // everything the tenant approved; an admin's is the tenant's shared agent.
+      // It is narrowed from the console; the tenant ceiling bounds it either way.
       if (config.directory && sessionMeta.resource?.kind === "toolkit") {
-        yield* ensureAgentToolkit(executor.toolkits, sessionMeta.resource.slug);
+        yield* ensureAgentToolkit(
+          executor.toolkits,
+          sessionMeta.resource.slug,
+          sessionMeta.orgRole === "admin",
+        );
       }
       // Browser elicitation mode (the base owns the approval store + the HTTP
       // approval RPCs): a gated execution pauses and returns an approvalUrl into

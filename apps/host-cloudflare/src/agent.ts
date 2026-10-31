@@ -39,7 +39,7 @@ type AgentToolkits = {
     unknown
   >;
   readonly create: (input: {
-    readonly owner: "user";
+    readonly owner: "user" | "org";
     readonly name: string;
     readonly slug: string;
   }) => Effect.Effect<{ readonly id: string }, unknown>;
@@ -49,11 +49,16 @@ type AgentToolkits = {
   ) => Effect.Effect<unknown, unknown>;
 };
 
-/** The agent's toolkit exists once this returns; a lost race keeps the winner's. */
-export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string) =>
+/**
+ * The agent's toolkit exists once this returns; a lost race keeps the winner's.
+ * A tenant admin's first connect makes it the tenant's, so everyone who connects
+ * under that name shares one agent and one tool list. A member's first connect
+ * makes a personal one.
+ */
+export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string, admin = false) =>
   Effect.gen(function* () {
     const existing = yield* toolkits.list();
     if (existing.some((toolkit) => toolkit.slug === slug)) return;
-    const created = yield* toolkits.create({ owner: "user", name: slug, slug });
+    const created = yield* toolkits.create({ owner: admin ? "org" : "user", name: slug, slug });
     yield* toolkits.createConnection(created.id, { pattern: "*" });
   }).pipe(Effect.ignore);

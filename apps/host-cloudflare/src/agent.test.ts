@@ -21,11 +21,11 @@ describe("agent sign-in", () => {
 
   it.effect("makes an agent's toolkit once, open to what the tenant approved", () =>
     Effect.gen(function* () {
-      const made: { slug: string; pattern?: string }[] = [];
+      const made: { slug: string; owner?: string; pattern?: string }[] = [];
       const toolkits = {
         list: () => Effect.succeed(made.map((t, i) => ({ id: `tk${i}`, slug: t.slug }))),
-        create: (input: { slug: string }) => {
-          made.push({ slug: input.slug });
+        create: (input: { slug: string; owner: string }) => {
+          made.push({ slug: input.slug, owner: input.owner });
           return Effect.succeed({ id: `tk${made.length - 1}` });
         },
         createConnection: (id: string, input: { pattern: string }) => {
@@ -34,8 +34,10 @@ describe("agent sign-in", () => {
         },
       };
       yield* ensureAgentToolkit(toolkits, "ai-studio");
-      yield* ensureAgentToolkit(toolkits, "ai-studio");
-      expect(made).toEqual([{ slug: "ai-studio", pattern: "*" }]);
+      yield* ensureAgentToolkit(toolkits, "ai-studio", true);
+      expect(made).toEqual([{ slug: "ai-studio", owner: "user", pattern: "*" }]);
+      yield* ensureAgentToolkit(toolkits, "team", true);
+      expect(made[1]).toEqual({ slug: "team", owner: "org", pattern: "*" });
     }),
   );
 });
