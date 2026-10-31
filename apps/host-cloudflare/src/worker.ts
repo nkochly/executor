@@ -8,6 +8,7 @@ import {
 import type { Principal } from "@executor-js/host-mcp";
 import { mcpResourceFromPath } from "./mcp/resource";
 import { oauthProviderFor } from "./oauth";
+import { handlePlatform, refreshCatalog } from "./platform";
 import { routeTenantRequest } from "./tenancy";
 
 // The MCP Durable Object classes, bound in wrangler.jsonc. They must be exported
@@ -61,6 +62,10 @@ const route = async (
   ctx: ExecutionContext,
   agentSignIn: boolean,
 ): Promise<Response> => {
+  const config = loadConfig(env);
+  await refreshCatalog(env.DB, config);
+  const platform = await handlePlatform(incoming, env.DB, config);
+  if (platform) return platform;
   const serve = await resolveHandler(env);
   const request = routeTenantRequest(incoming, (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0);
   const resource = mcpResourceFromPath(new URL(request.url).pathname);

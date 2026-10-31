@@ -56,7 +56,7 @@ import {
 } from "./errors";
 import { invokeMcpTool, isUnknownToolMessage } from "./invoke";
 import { deriveMcpNamespace, type McpToolManifestEntry } from "./manifest";
-import { mcpPresets } from "./presets";
+import { mcpPresets, type McpRemotePreset } from "./presets";
 import { probeMcpEndpointShape, type McpShapeProbeResult } from "./probe-shape";
 import { recoverSlackConnectFile } from "./slack-connect-file";
 import {
@@ -954,6 +954,12 @@ export interface McpPluginOptions {
    * workspace connection lists no tools and every call on it is refused.
    */
   readonly personalOnlyOrigins?: readonly string[];
+  /**
+   * Remote servers the host offers every workspace, listed first in the add
+   * screen. Listing one adds nothing: a workspace still adds it, connects it
+   * and approves its tools itself.
+   */
+  readonly catalog?: readonly McpRemotePreset[];
 }
 
 /** Whether `endpoint` is on one of `origins` (scheme + host + port). */
@@ -976,11 +982,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
   const connectionPool = createMcpConnectionPool();
 
-  const presetEntries = (
-    allowStdio
+  const presetEntries = [
+    ...(options?.catalog ?? []),
+    ...(allowStdio
       ? mcpPresets
-      : mcpPresets.filter((preset) => !("transport" in preset && preset.transport === "stdio"))
-  ).map((preset) => ({
+      : mcpPresets.filter((preset) => !("transport" in preset && preset.transport === "stdio"))),
+  ].map((preset) => ({
     id: preset.id,
     name: preset.name,
     summary: preset.summary,

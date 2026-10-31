@@ -15,6 +15,7 @@ import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { env } from "cloudflare:workers";
 
 import type { CloudflareConfig } from "./config";
+import { catalogNow, catalogOrigins, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
 
 // ---------------------------------------------------------------------------
@@ -39,9 +40,6 @@ export const CloudflareCodeExecutorProvider: Layer.Layer<CodeExecutorProvider> =
   },
 );
 
-export const firstPartyOrigins = (config: CloudflareConfig): readonly string[] =>
-  config.firstParty.map((server) => new URL(server.endpoint).origin);
-
 export const makeCloudflarePluginsProvider = (
   config: CloudflareConfig,
 ): Layer.Layer<PluginsProvider> =>
@@ -51,7 +49,8 @@ export const makeCloudflarePluginsProvider = (
         activeToolkitSlug:
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
-        personalOnlyOrigins: firstPartyOrigins(config),
+        catalog: catalogPresets(catalogNow(config)),
+        personalOnlyOrigins: catalogOrigins(catalogNow(config)),
       }),
   });
 

@@ -8,6 +8,7 @@ import {
   microsoftGraphAdapter,
 } from "@executor-js/plugin-openapi/providers/microsoft";
 import { mcpHttpPlugin } from "@executor-js/plugin-mcp/api";
+import type { McpPluginOptions } from "@executor-js/plugin-mcp";
 import { graphqlHttpPlugin } from "@executor-js/plugin-graphql/api";
 import { encryptedSecretsPlugin } from "@executor-js/plugin-encrypted-secrets";
 import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
@@ -30,6 +31,8 @@ export const makeCloudflarePlugins = (
     readonly allowLocalNetwork?: boolean;
     /** Origins whose MCP connections must be each person's own. */
     readonly personalOnlyOrigins?: readonly string[];
+    /** The company catalog, listed first on every tenant's add screen. */
+    readonly catalog?: McpPluginOptions["catalog"];
   } = {},
 ) =>
   [
@@ -40,6 +43,7 @@ export const makeCloudflarePlugins = (
     mcpHttpPlugin({
       dangerouslyAllowStdioMCP: false,
       personalOnlyOrigins: options.personalOnlyOrigins,
+      catalog: options.catalog,
     }),
     graphqlHttpPlugin(),
     toolkitsPlugin({ activeToolkitSlug: options.activeToolkitSlug }),
