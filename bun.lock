@@ -155,7 +155,7 @@
         "@executor-js/sdk": "workspace:*",
         "@jitl/quickjs-wasmfile-release-sync": "catalog:",
         "@modelcontextprotocol/sdk": "1.32.2",
-        "@nkochly/presidio-ui": "https://codeload.github.com/nkochly/presidio-ui/tar.gz/3e857da51e40125399384652edae0ef10cfc9638",
+        "@nkochly/presidio-ui": "file:vendor/nkochly-presidio-ui-0.1.0.tgz",
         "@tanstack/react-router": "catalog:",
         "drizzle-orm": "catalog:",
         "effect": "catalog:",
@@ -2072,7 +2072,7 @@
 
     "@neon-rs/load": ["@neon-rs/load@0.0.4", "", {}, "sha512-kTPhdZyTQxB+2wpiRcFWrDcejc4JI6tkPuS7UZCG4l6Zvc5kU/gGQ/ozvHTh1XR5tS+UlfAfGuPajjzQjCiHCw=="],
 
-    "@nkochly/presidio-ui": ["@nkochly/presidio-ui@https://codeload.github.com/nkochly/presidio-ui/tar.gz/3e857da51e40125399384652edae0ef10cfc9638", {}, "sha512-3fmwWf9okcF6VwbMRcaffcmTSvYvj5Qvjj/2WZydeXGN85DiEo8taYhqc/pIbZoCwxpurukzFk47E05i+MuKRw=="],
+    "@nkochly/presidio-ui": ["@nkochly/presidio-ui@vendor/nkochly-presidio-ui-0.1.0.tgz", {}, "sha512-ZmvE8ptmjTS+WPtULkwuWky9mfx7Ozrpik/10qglQnlF4etz1YMnBa6uQZ+sy4lBKgBP0uEgUNISXgXM4DTJnw=="],
 
     "@noble/hashes": ["@noble/hashes@2.4.0", "", {}, "sha512-X5XaVWZIBCT7HHZGm5I7ZQXDwLG+bGXuSrMQAW+7Zvl87h1kmc1ZB1VSRJcpUfoUrGQp4Fkoxm5kZ+Ms+aW+eA=="],
 
