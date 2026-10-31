@@ -148,3 +148,21 @@ export const listMemberships = (
     ),
   );
 };
+
+const DirectoryOperator = Schema.Struct({ subject: Schema.String, operator: Schema.Literal(true) });
+const decodeOperator = Schema.decodeUnknownOption(DirectoryOperator);
+
+/**
+ * Whether the directory lists `identity` as an operator: the one platform admin
+ * list. A directory that cannot be read lists nobody.
+ */
+export const isOperator = (
+  directory: TenantDirectoryConfig,
+  identity: string,
+): Effect.Effect<boolean> => {
+  const subject = encodeURIComponent(identity.trim().toLowerCase());
+  if (subject.length === 0) return Effect.succeed(false);
+  return readDirectory(directory, `/operators/${subject}`).pipe(
+    Effect.map((body) => Option.isSome(decodeOperator(body))),
+  );
+};
