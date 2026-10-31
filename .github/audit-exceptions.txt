@@ -1,0 +1,20 @@
+# Advisories `bun audit` may report without failing CI. Every other advisory,
+# at any severity, fails the `audit` job. Each entry names the package chain
+# and why no upgrade in this repo clears it. Remove an entry the moment its
+# chain has a fixed release; the job does not need it to pass otherwise.
+
+# @executor-js/emulate 0.14.x (test emulators, e2e only).
+# atlas-api-client -> request@2.88.2 (no fixed release) -> uuid@3;
+# @azure/msal-node 5. Fix belongs in the
+# emulate project, consumed here as a published package.
+GHSA-p8p7-x288-28g6
+GHSA-w5hq-g745-h8pq
+GHSA-xcx6-jx8p-x3h5
+
+# @executor-js/motel 0.2.5-executor.1 (e2e trace viewer, latest release).
+# Pins @opentelemetry/sdk-node 0.214 (fix is the 0.300 / core 3 line) and
+# @opentui/core -> jimp -> file-type 16 (fix is ESM-only 21).
+GHSA-8988-4f7v-96qf
+GHSA-q7rr-3cgh-j5r3
+GHSA-45rx-2jwx-cxfr
+GHSA-5v7r-6r5c-r473

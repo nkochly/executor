@@ -9,7 +9,6 @@ import {
   CLOUD_PORT,
   WORKOS_EMULATOR_PORT,
 } from "../targets/cloud";
-import { SELFHOST_PORT } from "../targets/selfhost";
 import { repoRoot } from "../src/ports";
 
 console.log(`preferred e2e ports for ${repoRoot}`);
@@ -17,4 +16,3 @@ console.log(`  cloud           http://127.0.0.1:${CLOUD_PORT}`);
 console.log(`  cloud dev-db    ${CLOUD_DB_PORT}`);
 console.log(`  workos emulator ${WORKOS_EMULATOR_PORT}`);
 console.log(`  autumn emulator ${AUTUMN_EMULATOR_PORT}`);
-console.log(`  selfhost        http://localhost:${SELFHOST_PORT}`);

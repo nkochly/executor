@@ -5,10 +5,8 @@
   "type": "module",
   "scripts": {
     "cli": "bun scripts/cli.ts",
-    "test": "vitest run --project cloud && vitest run --project selfhost",
+    "test": "vitest run --project cloud",
     "test:cloud": "vitest run --project cloud",
-    "test:selfhost": "vitest run --project selfhost",
-    "test:selfhost-docker": "vitest run --project selfhost-docker",
     "test:cloudflare": "vitest run --project cloudflare",
     "test:local": "vitest run --project local",
     "test:ci-shard": "vitest run --config scripts/ci-shard.vitest.config.ts",
@@ -18,7 +16,6 @@
     "viewer:build": "bun scripts/rebuild-viewer.ts",
     "serve": "bun scripts/rebuild-viewer.ts && bun scripts/serve.ts",
     "typecheck": "tsc --noEmit",
-    "test:desktop": "vitest run --project desktop",
     "motel": "MOTEL_OTEL_BASE_URL=http://127.0.0.1:4796 MOTEL_OTEL_DB_PATH=runs/.motel/telemetry.sqlite motel server"
   },
   "dependencies": {
@@ -34,7 +31,7 @@
     "@modelcontextprotocol/sdk": "1.32.2",
     "asciinema-player": "^3.15.1",
     "effect": "catalog:",
-    "monaco-editor": "^0.55.1",
+    "monaco-editor": "^0.57.0",
     "playwright": "^1.60.0",
     "react": "catalog:",
     "react-dom": "catalog:"

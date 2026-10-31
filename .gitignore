@@ -52,8 +52,6 @@ executor.har
 # Belt-and-suspenders: never commit a generated session/at-rest key, wherever it lands.
 secret.key
 
-# desktop app build artifacts
-apps/desktop/resources/
 
 # cloud local dev database
 .pglite
@@ -64,7 +62,6 @@ apps/cloud/.e2e-db/
 # covers ad-hoc variants like .e2e-stub-db-manual from debugging boots)
 e2e/runs/
 apps/cloud/.e2e-stub-db*/
-apps/host-selfhost/.e2e-data*/
 
 # playwright e2e artifacts
 test-results/

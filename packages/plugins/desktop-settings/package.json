@@ -47,6 +47,7 @@
     "react": "catalog:"
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "@types/react": "catalog:",
     "tsup": "catalog:",
     "typescript": "catalog:"
