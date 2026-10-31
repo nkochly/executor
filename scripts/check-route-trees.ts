@@ -38,7 +38,6 @@ const TREES = [
   { dir: "packages/react", tree: "packages/react/src/routes/routeTree.gen.ts" },
   { dir: "packages/app", tree: "packages/app/src/routeTree.gen.ts" },
   { dir: "apps/cloud", tree: "apps/cloud/src/routeTree.gen.ts" },
-  { dir: "apps/host-selfhost", tree: "apps/host-selfhost/web/routeTree.gen.ts" },
   { dir: "apps/host-cloudflare", tree: "apps/host-cloudflare/web/routeTree.gen.ts" },
 ] as const;
 

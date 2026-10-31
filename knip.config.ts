@@ -10,9 +10,6 @@ const config: KnipConfig = {
     "apps/cloud": {
       entry: ["src/server.ts", "src/routes/**/*.tsx", "src/server/*.ts"],
     },
-    "apps/desktop": {
-      entry: ["src/preload.ts"],
-    },
     "apps/marketing": {
       entry: ["src/pages/**/*.astro", "src/pages/**/*.ts"],
     },
