@@ -3,9 +3,10 @@ import { Effect, Option, Schema } from "effect";
 
 import { makeAccessVerifier } from "./auth/cloudflare-access";
 import type { CloudflareConfig, FirstPartyMcp } from "./config";
+import { isOperator } from "./tenancy";
 
 // ---------------------------------------------------------------------------
-// The company's MCP server catalog. Platform admins (ADMIN_EMAILS) add a server
+// The company's MCP server catalog. Platform admins (the wiki's operators) add a server
 // once and every tenant sees it at the top of its add screen. Listing a server
 // gives no tenant anything: a tenant admin still adds it, each person connects
 // it as themselves, and its tools stay blocked until the tenant approves them.
@@ -111,7 +112,13 @@ const platformAdmin = async (
 ): Promise<string | null> => {
   const claims = await Effect.runPromise(makeAccessVerifier(config).verifyClaims(request));
   const email = typeof claims?.email === "string" ? claims.email.toLowerCase() : "";
-  return email && config.adminEmails.includes(email) ? email : null;
+  if (!email) return null;
+  // Multi-tenant: the wiki's operators, the one platform admin list. Single
+  // tenant: ADMIN_EMAILS.
+  const admin = config.directory
+    ? await Effect.runPromise(isOperator(config.directory, email))
+    : config.adminEmails.includes(email);
+  return admin ? email : null;
 };
 
 const PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Company MCP servers</title>

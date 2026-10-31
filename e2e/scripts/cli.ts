@@ -1,6 +1,5 @@
 // The e2e dev CLI: the same primitives scenarios use, interactive.
 //
-//   bun scripts/cli.ts up selfhost [--share] [--keep-data]
 //   bun scripts/cli.ts up cloud    [--share]
 //   bun scripts/cli.ts status
 //   bun scripts/cli.ts identity <target> [--no-org]
@@ -21,7 +20,6 @@
 // emulators run inside the detached runner process this CLI spawns.
 import { spawn } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
-import { networkInterfaces } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -30,7 +28,7 @@ const devDir = join(e2eDir, ".dev");
 const cliPath = fileURLToPath(import.meta.url);
 
 interface InstanceState {
-  readonly target: "selfhost" | "cloud";
+  readonly target: "cloud";
   status: "starting" | "ready" | "failed";
   error?: string;
   readonly runnerPid: number;
@@ -112,17 +110,6 @@ const findTailscale = async (): Promise<string | undefined> => {
   return undefined;
 };
 
-/** This machine's tailnet IPv4 (100.x.y.z), from interfaces — works even
- * when the tailscale CLI is a broken shim. */
-const tailnetIp = (): string | undefined => {
-  for (const addrs of Object.values(networkInterfaces())) {
-    for (const addr of addrs ?? []) {
-      if (addr.family === "IPv4" && addr.address.startsWith("100.")) return addr.address;
-    }
-  }
-  return undefined;
-};
-
 const tailnetDnsName = async (ts: string): Promise<string | undefined> => {
   const { ok, out } = await sh(ts, ["status", "--json"]);
   if (!ok) return undefined;
@@ -137,8 +124,8 @@ const tailnetDnsName = async (ts: string): Promise<string | undefined> => {
 // --- up --------------------------------------------------------------------
 
 const up = async (target: string, flags: ReadonlySet<string>) => {
-  if (target !== "selfhost" && target !== "cloud") {
-    throw new Error(`unknown target ${JSON.stringify(target)} — selfhost | cloud`);
+  if (target !== "cloud") {
+    throw new Error(`unknown target ${JSON.stringify(target)} — cloud`);
   }
   const existing = readState(target);
   if (existing && alive(existing.runnerPid) && existing.status !== "failed") {
@@ -189,7 +176,7 @@ const printInstance = (state: InstanceState) => {
 
 // The detached runner: boots the target, owns it (cloud's emulators live in
 // this process), writes the state file, and tears down on SIGTERM.
-const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => {
+const run = async (target: "cloud", flags: ReadonlySet<string>) => {
   const share = flags.has("--share");
   const logFile = process.env.E2E_CLI_LOG ?? join(devDir, `${target}.log`);
   const base: Omit<InstanceState, "status"> = {
@@ -209,41 +196,7 @@ const run = async (target: "selfhost" | "cloud", flags: ReadonlySet<string>) => 
     // and a concurrently running vitest suite walks to its own block.
     const { claimPorts } = await import("../src/ports");
 
-    if (target === "selfhost") {
-      const { bootSelfhost } = await import("../setup/selfhost.boot");
-      const claim = await claimPorts([
-        { envVar: "E2E_SELFHOST_PORT", offset: 4, label: "selfhost vite dev (cli)" },
-      ]);
-      const port = claim.ports.E2E_SELFHOST_PORT!;
-      const ip = share ? tailnetIp() : undefined;
-      const baseUrl = ip ? `http://${ip}:${port}` : `http://localhost:${port}`;
-      const admin = { email: "admin@e2e.test", password: "e2e-admin-password-123" };
-      const booted = await bootSelfhost({
-        port,
-        webBaseUrl: baseUrl,
-        admin,
-        host: share ? "0.0.0.0" : undefined,
-        fresh: !flags.has("--keep-data"),
-        logFile,
-      });
-      teardown = async () => {
-        await booted.teardown();
-        await claim.release();
-      };
-      state = {
-        ...base,
-        status: "ready",
-        childPids: booted.pids,
-        env: {
-          E2E_TARGET: "selfhost",
-          E2E_SELFHOST_URL: baseUrl,
-          E2E_SELFHOST_ADMIN_EMAIL: admin.email,
-          E2E_SELFHOST_ADMIN_PASSWORD: admin.password,
-        },
-        urls: { app: baseUrl },
-        admin,
-      };
-    } else {
+    {
       const { bootCloud } = await import("../setup/cloud.boot");
       const claim = await claimPorts([
         { envVar: "E2E_CLOUD_PORT", offset: 0, label: "cloud vite dev (cli)" },
@@ -388,7 +341,7 @@ const identity = async (targetName: string, flags: ReadonlySet<string>) => {
 
 const apiCall = async (targetName: string, endpoint: string | undefined, json?: string) => {
   if (!endpoint?.includes(".")) {
-    throw new Error("usage: api <target> <group.endpoint> [json] — e.g. api selfhost tools.list");
+    throw new Error("usage: api <target> <group.endpoint> [json] — e.g. api cloud tools.list");
   }
   const { target } = await loadTarget(targetName);
   const [group, method] = endpoint.split(".", 2) as [string, string];
@@ -548,7 +501,7 @@ const logs = (targetName: string) => {
 
 const HELP = `e2e dev CLI — the scenario primitives, interactive (see e2e/AGENTS.md)
 
-  up <target> [--share]      boot selfhost|cloud; stays up until \`down\`.
+  up <target> [--share]      boot cloud; stays up until \`down\`.
                              --share = reachable over the tailnet
                              (cloud --share fronts app+WorkOS with tailscale HTTPS)
   status                     list running instances
@@ -561,7 +514,7 @@ const HELP = `e2e dev CLI — the scenario primitives, interactive (see e2e/AGEN
 
 Instances live in e2e/.dev/<target>.json — a state file marks a DELIBERATE
 long-lived instance. Use the booted instance for e2e too:
-  E2E_SELFHOST_URL=<app url> vitest run --project selfhost <file>`;
+  E2E_CLOUD_URL=<app url> vitest run --project cloud <file>`;
 
 const main = async () => {
   const [, , command, ...rest] = process.argv;
@@ -569,9 +522,9 @@ const main = async () => {
   const args = rest.filter((a) => !a.startsWith("--"));
   switch (command) {
     case "up":
-      return up(args[0] ?? "selfhost", flags);
+      return up(args[0] ?? "cloud", flags);
     case "__run":
-      return run(args[0] as "selfhost" | "cloud", flags);
+      return run(args[0] as "cloud", flags);
     case "status":
       return await status();
     case "identity":

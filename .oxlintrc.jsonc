@@ -61,7 +61,6 @@
     {
       "files": [
         "apps/cli/src/**/*.{ts,tsx}",
-        "apps/desktop/src/main.ts",
         "scripts/**/*.{ts,js}",
         "apps/*/scripts/**/*.{ts,js}",
         "packages/*/*/scripts/**/*.{ts,js}",
@@ -181,7 +180,6 @@
     "vendor/",
     "emulators/",
     "e2e/runs/",
-    "e2e/desktop-packaged/linux-vm/repro.mjs",
     "node_modules/",
     "packages/core/fumadb/",
     "packages/core/sdk/src/vendor/json-schema-to-typescript/",

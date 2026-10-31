@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import {
   ORIGINAL_PATH_HEADER,
   resolveTenant,
+  isOperator,
   routeTenantRequest,
   TENANT_HEADER,
   tenantRewrite,
@@ -100,6 +101,16 @@ describe("resolveTenant", () => {
         "/members/dev%40acme.com": [acme, { tenant: { slug: "b", name: "B" }, role: "member" }],
       });
       expect(yield* resolveTenant(directory, "dev@acme.com", null)).toBeNull();
+    }),
+  );
+
+  it.effect("reads the operator list, and lists nobody when it cannot be read", () =>
+    Effect.gen(function* () {
+      stub({ "/operators/ops%40acme.com": { subject: "ops@acme.com", operator: true } });
+      expect(yield* isOperator(directory, "Ops@acme.com")).toBe(true);
+      expect(yield* isOperator(directory, "lead@acme.com")).toBe(false);
+      vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
+      expect(yield* isOperator(directory, "ops@acme.com")).toBe(false);
     }),
   );
 
