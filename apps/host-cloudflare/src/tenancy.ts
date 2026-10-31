@@ -131,3 +131,20 @@ export const resolveTenant = (
     ),
   );
 };
+
+/** Every tenant the directory lists `identity` in. */
+export const listMemberships = (
+  directory: TenantDirectoryConfig,
+  identity: string,
+): Effect.Effect<readonly TenantMembership[]> => {
+  const subject = encodeURIComponent(identity.trim().toLowerCase());
+  if (subject.length === 0) return Effect.succeed([]);
+  return readDirectory(directory, `/members/${subject}`).pipe(
+    Effect.map((body) =>
+      Option.match(decodeMany(body), {
+        onNone: () => [],
+        onSome: (entries) => entries.map(toMembership),
+      }),
+    ),
+  );
+};

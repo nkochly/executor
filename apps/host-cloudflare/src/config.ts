@@ -1,4 +1,10 @@
-import type { D1Database, DurableObjectNamespace, R2Bucket } from "@cloudflare/workers-types";
+import type {
+  D1Database,
+  DurableObjectNamespace,
+  KVNamespace,
+  R2Bucket,
+} from "@cloudflare/workers-types";
+import { Option, Schema } from "effect";
 
 import { isValidOrgSlug } from "@executor-js/api";
 import { missingPublicOriginWarning, resolvePublicOrigin } from "@executor-js/sdk/public-origin";
@@ -70,6 +76,20 @@ export interface CloudflareEnv {
   /** Access service token the directory is read with (a `wrangler secret`). */
   readonly TENANT_DIRECTORY_CLIENT_ID?: string;
   readonly TENANT_DIRECTORY_CLIENT_SECRET?: string;
+  /**
+   * Agent sign-in (multi-tenant mode only): the KV namespace Executor's own
+   * OAuth provider keeps clients, grants and tokens in. When bound, `/mcp`
+   * takes only Executor-issued tokens, each carrying one person, one tenant and
+   * one agent, and Cloudflare Access guards only `/authorize` and the console.
+   */
+  readonly OAUTH_KV?: KVNamespace;
+  /**
+   * The first-party MCP servers, as JSON `[{"slug", "name", "endpoint"}]`. Their
+   * tools are served by name next to `execute`, and a connection to them must
+   * be a person's own: a shared org sign-in would let anyone in the tenant act
+   * as whoever signed it in.
+   */
+  readonly FIRST_PARTY_MCP?: string;
 }
 
 export interface CloudflareConfig {
@@ -90,7 +110,30 @@ export interface CloudflareConfig {
   readonly enableDevAuth: boolean;
   /** The tenant membership directory; `null` is single-tenant mode. */
   readonly directory: TenantDirectoryConfig | null;
+  readonly firstParty: readonly FirstPartyMcp[];
 }
+
+export interface FirstPartyMcp {
+  readonly slug: string;
+  readonly name: string;
+  readonly endpoint: string;
+}
+
+const FirstPartyList = Schema.Array(
+  Schema.Struct({ slug: Schema.String, name: Schema.String, endpoint: Schema.String }),
+);
+
+const decodeFirstParty = Schema.decodeUnknownOption(Schema.fromJsonString(FirstPartyList));
+
+const resolveFirstParty = (raw: string | undefined): readonly FirstPartyMcp[] => {
+  if (!raw?.trim()) return [];
+  const decoded = decodeFirstParty(raw);
+  if (Option.isNone(decoded)) {
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a malformed list must not silently drop the personal-only rule
+    throw new Error("FIRST_PARTY_MCP must be a JSON list of {slug, name, endpoint}");
+  }
+  return decoded.value;
+};
 
 export interface TenantDirectoryConfig {
   readonly url: string;
@@ -114,7 +157,7 @@ const resolveDirectory = (env: CloudflareConfigEnv): TenantDirectoryConfig | nul
 
 type CloudflareConfigEnv = Omit<
   CloudflareEnv,
-  "DB" | "BLOBS" | "ASSETS" | "MCP_SESSION" | "MCP_EXECUTION_OWNER"
+  "DB" | "BLOBS" | "ASSETS" | "MCP_SESSION" | "MCP_EXECUTION_OWNER" | "OAUTH_KV"
 >;
 
 type CloudflareAccessEnv = Pick<
@@ -211,5 +254,6 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
     webBaseUrl,
     enableDevAuth,
     directory: resolveDirectory(env),
+    firstParty: resolveFirstParty(env.FIRST_PARTY_MCP),
   };
 };

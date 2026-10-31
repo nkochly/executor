@@ -121,6 +121,22 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
     };
   };
 
+  /** The verified Access claims on a request, without resolving a tenant. */
+  const verifyClaims = (request: Request): Effect.Effect<Record<string, unknown> | null> =>
+    Effect.gen(function* () {
+      if (config.enableDevAuth) {
+        return { sub: devPrincipal.accountId, email: devPrincipal.email, name: devPrincipal.name };
+      }
+      if (!jwks) return null;
+      const token = request.headers.get("Cf-Access-Jwt-Assertion");
+      if (!token) return null;
+      const verified = yield* Effect.tryPromise({
+        try: () => jwtVerify(token, jwks, { issuer, audience: config.accessAud }),
+        catch: () => "invalid access assertion",
+      }).pipe(Effect.orElseSucceed(() => null));
+      return verified ? (verified.payload as Record<string, unknown>) : null;
+    });
+
   const verify = (request: Request): Effect.Effect<Principal | null> =>
     Effect.gen(function* () {
       if (config.enableDevAuth) return devPrincipalFor(tenantSelector(request));
@@ -146,7 +162,7 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
       return principalFromAccessClaims(claims, config, membership);
     });
 
-  return { verify };
+  return { verify, verifyClaims };
 };
 
 export const cloudflareAccessIdentityLayer = (

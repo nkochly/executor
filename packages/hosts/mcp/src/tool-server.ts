@@ -48,6 +48,7 @@ import type {
   ToolFileValue,
   Executor,
   ToolSchemaView,
+  Tool,
 } from "@executor-js/sdk";
 import type * as Tracer from "effect/Tracer";
 import {
@@ -218,6 +219,13 @@ type SharedMcpServerConfig = {
    * rather than silently serving an empty surface.
    */
   readonly tools?: McpToolsPort;
+  /**
+   * Integrations whose tools this session serves as ordinary MCP tools, one
+   * per upstream tool, under the upstream name and description, in either
+   * mode. Each call takes the same path as a passthrough invoke, so policy,
+   * toolkit and approval apply unchanged. Requires `tools`.
+   */
+  readonly directIntegrations?: readonly string[];
   /**
    * Renders an artifact once, server-side, before it is saved — so a component
    * that throws on its first render is refused at create time with the real
@@ -1510,6 +1518,101 @@ const registerPassthroughTools = <E extends Cause.YieldableError>(
   }).pipe(Effect.withSpan("mcp.host.register_search_invoke"));
 
 // ---------------------------------------------------------------------------
+// Direct surface
+// ---------------------------------------------------------------------------
+
+const MCP_TOOL_NAME_LIMIT = 64;
+
+const toolNamePart = (value: string): string => value.replace(/[^A-Za-z0-9_-]+/g, "_");
+
+/**
+ * MCP names for a direct integration's tools: `<integration>_<tool>`, with
+ * the connection added when one integration has tools from several.
+ */
+export const directToolNames = (tools: readonly Tool[]): Map<string, Tool> => {
+  const connections = new Map<string, Set<string>>();
+  for (const tool of tools) {
+    const set = connections.get(String(tool.integration)) ?? new Set<string>();
+    set.add(String(tool.connection));
+    connections.set(String(tool.integration), set);
+  }
+  const named = new Map<string, Tool>();
+  for (const tool of tools) {
+    const several = (connections.get(String(tool.integration))?.size ?? 0) > 1;
+    const name = [
+      toolNamePart(String(tool.integration)),
+      ...(several ? [toolNamePart(String(tool.connection))] : []),
+      toolNamePart(String(tool.name)),
+    ]
+      .join("_")
+      .slice(0, MCP_TOOL_NAME_LIMIT);
+    if (!named.has(name)) named.set(name, tool);
+  }
+  return named;
+};
+
+const directInputSchema = (view: ToolSchemaView | null) => {
+  const schema = view ? passthroughInputSchema(view) : { type: "object", properties: {} };
+  const converted = Effect.runSync(
+    Effect.try({
+      try: () => z.fromJSONSchema(schema as Parameters<typeof z.fromJSONSchema>[0]),
+      catch: () => null,
+    }).pipe(Effect.orElseSucceed(() => null)),
+  );
+  return converted instanceof z.ZodObject ? converted : z.looseObject({});
+};
+
+/** Register each visible tool of the direct integrations as its own MCP tool. */
+const registerDirectTools = <E extends Cause.YieldableError>(
+  server: McpServer,
+  tools: McpToolsPort,
+  integrations: readonly string[],
+  run: (
+    address: ToolAddress,
+    args: unknown,
+    extra: McpRequestJoinKeys,
+  ) => Effect.Effect<McpToolResult, E>,
+): Effect.Effect<void> =>
+  Effect.gen(function* () {
+    const context = yield* Effect.context<never>();
+    const visible: Tool[] = [];
+    for (const integration of integrations) {
+      const listed = yield* tools
+        .list({ integration: IntegrationSlug.make(integration) })
+        .pipe(Effect.orElseSucceed(() => [] as readonly Tool[]));
+      visible.push(...listed.filter((tool) => tool.static !== true));
+    }
+    for (const [name, tool] of directToolNames(visible)) {
+      const view = yield* tools.schema(tool.address).pipe(Effect.orElseSucceed(() => null));
+      const risk = tool.annotations?.risk;
+      yield* Effect.sync(() =>
+        server.registerTool(
+          name,
+          {
+            description: tool.description,
+            inputSchema: directInputSchema(view),
+            annotations: {
+              readOnlyHint: risk === "read",
+              destructiveHint: risk === "destructive",
+              openWorldHint: true,
+            },
+          },
+          (args, extra) =>
+            Effect.runPromiseWith(context)(
+              run(tool.address, args, extra).pipe(
+                Effect.provideService(
+                  CurrentOrgWriteAccess,
+                  makeOrgWriteAccessState(requestOrgWriteAccess(extra)),
+                ),
+                Effect.catchCause((cause) => Effect.succeed(toMcpFailureResult(cause))),
+              ),
+            ),
+        ),
+      );
+    }
+  }).pipe(Effect.withSpan("mcp.host.register_direct_tools"));
+
+// ---------------------------------------------------------------------------
 // Server factory
 // ---------------------------------------------------------------------------
 
@@ -2042,6 +2145,15 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         config.tools,
         config.connections,
         config.integrations,
+        executePassthroughCall,
+      );
+    }
+
+    if (config.tools && config.directIntegrations && config.directIntegrations.length > 0) {
+      yield* registerDirectTools(
+        server,
+        config.tools,
+        config.directIntegrations,
         executePassthroughCall,
       );
     }

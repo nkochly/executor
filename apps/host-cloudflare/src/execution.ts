@@ -39,6 +39,9 @@ export const CloudflareCodeExecutorProvider: Layer.Layer<CodeExecutorProvider> =
   },
 );
 
+export const firstPartyOrigins = (config: CloudflareConfig): readonly string[] =>
+  config.firstParty.map((server) => new URL(server.endpoint).origin);
+
 export const makeCloudflarePluginsProvider = (
   config: CloudflareConfig,
 ): Layer.Layer<PluginsProvider> =>
@@ -48,6 +51,7 @@ export const makeCloudflarePluginsProvider = (
         activeToolkitSlug:
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
+        personalOnlyOrigins: firstPartyOrigins(config),
       }),
   });
 

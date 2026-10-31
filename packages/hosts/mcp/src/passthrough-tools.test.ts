@@ -918,3 +918,64 @@ describe("passthrough mode server", () => {
     expect(outcome).toBeInstanceOf(McpPassthroughUnavailableError);
   });
 });
+
+describe("direct integrations", () => {
+  const WIKI: readonly Tool[] = [
+    projection({
+      integration: "wiki",
+      name: "search_wiki",
+      owner: "user",
+      description: "Search a wiki.",
+      inputSchema: {
+        type: "object",
+        properties: { query: { type: "string" } },
+        required: ["query"],
+      },
+    }),
+    projection({ integration: "wiki", name: "guides", owner: "user", description: "Guides." }),
+    projection({ integration: "github", name: "issues.list" }),
+  ];
+
+  it("serves each direct tool under its own name, alongside execute", async () => {
+    const recording = makeRecordingEngine({ ok: true, data: { hits: 1 } });
+    await withClient(
+      { engine: recording.engine, tools: toolPort(WIKI), directIntegrations: ["wiki"] },
+      async (client) => {
+        const { tools } = await client.listTools();
+        const names = tools.map((tool) => tool.name);
+        expect(names).toContain("wiki_search_wiki");
+        expect(names).toContain("wiki_guides");
+        expect(names).toContain("execute");
+        expect(names.some((name) => name.includes("issues"))).toBe(false);
+        const search = tools.find((tool) => tool.name === "wiki_search_wiki")!;
+        expect(search.description).toBe("Search a wiki.");
+        expect(search.inputSchema.required).toEqual(["query"]);
+
+        const result = await client.callTool({
+          name: "wiki_search_wiki",
+          arguments: { query: "launch" },
+        });
+        expect(result.isError ?? false).toBe(false);
+        expect(recording.executed).toEqual([
+          'return await tools["wiki.user.main.search_wiki"]({"query":"launch"});',
+        ]);
+      },
+    );
+  });
+
+  it("adds the connection to the name when an integration has several", async () => {
+    const recording = makeRecordingEngine();
+    const two = [
+      projection({ integration: "wiki", name: "guides", owner: "user", connection: "acme" }),
+      projection({ integration: "wiki", name: "guides", owner: "user", connection: "beta" }),
+    ];
+    await withClient(
+      { engine: recording.engine, tools: toolPort(two), directIntegrations: ["wiki"] },
+      async (client) => {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        expect(names).toContain("wiki_acme_guides");
+        expect(names).toContain("wiki_beta_guides");
+      },
+    );
+  });
+});

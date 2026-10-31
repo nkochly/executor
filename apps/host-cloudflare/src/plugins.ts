@@ -25,14 +25,22 @@ import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
 
 export const makeCloudflarePlugins = (
   secretKey: string,
-  options: { readonly activeToolkitSlug?: string; readonly allowLocalNetwork?: boolean } = {},
+  options: {
+    readonly activeToolkitSlug?: string;
+    readonly allowLocalNetwork?: boolean;
+    /** Origins whose MCP connections must be each person's own. */
+    readonly personalOnlyOrigins?: readonly string[];
+  } = {},
 ) =>
   [
     openApiHttpPlugin({
       presets: [...googleCatalog, ...microsoftCatalog],
       specFormats: [googleDiscoveryAdapter, microsoftGraphAdapter],
     }),
-    mcpHttpPlugin({ dangerouslyAllowStdioMCP: false }),
+    mcpHttpPlugin({
+      dangerouslyAllowStdioMCP: false,
+      personalOnlyOrigins: options.personalOnlyOrigins,
+    }),
     graphqlHttpPlugin(),
     toolkitsPlugin({ activeToolkitSlug: options.activeToolkitSlug }),
     encryptedSecretsPlugin({ key: secretKey }),

@@ -16,6 +16,7 @@
     "routes:gen": "bun scripts/gen-routes.ts"
   },
   "dependencies": {
+    "@cloudflare/workers-oauth-provider": "1.2.4",
     "@effect/atom-react": "catalog:",
     "@executor-js/api": "workspace:*",
     "@executor-js/app": "workspace:*",

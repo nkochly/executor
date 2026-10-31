@@ -19,6 +19,7 @@ const config: CloudflareConfig = {
   webBaseUrl: "https://localhost",
   enableDevAuth: false,
   directory: null,
+  firstParty: [],
 };
 
 describe("principalFromAccessClaims", () => {

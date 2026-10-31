@@ -29,6 +29,7 @@ import type { ResumeResponse } from "@executor-js/execution";
 import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config";
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
+import { ensureAgentToolkit } from "../agent";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -153,6 +154,12 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
       ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle)));
+      // Multi-tenant: an agent's first connection makes its toolkit, owned by
+      // the person, open to everything the tenant approved. The person narrows
+      // it from the console; the tenant ceiling bounds it either way.
+      if (config.directory && sessionMeta.resource?.kind === "toolkit") {
+        yield* ensureAgentToolkit(executor.toolkits, sessionMeta.resource.slug);
+      }
       // Browser elicitation mode (the base owns the approval store + the HTTP
       // approval RPCs): a gated execution pauses and returns an approvalUrl into
       // the console resume page. The URL origin is the create request's origin
@@ -176,6 +183,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         // connection (`?search_tools=true`). Same restore rule as artifacts.
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
+        directIntegrations: config.firstParty.map((server) => server.slug),
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
         restoredAppsEnabled: sessionMeta.appsEnabled ?? false,

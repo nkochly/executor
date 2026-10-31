@@ -947,7 +947,30 @@ export interface McpPluginOptions {
    */
   readonly dangerouslyAllowStdioMCP?: boolean;
   readonly httpClientLayer?: Layer.Layer<HttpClient.HttpClient>;
+  /**
+   * Origins (`https://host`) of servers that answer as the person who signed
+   * in. A workspace-owned connection to one would let every member act as
+   * whoever authorized it, so only personal connections reach them: a
+   * workspace connection lists no tools and every call on it is refused.
+   */
+  readonly personalOnlyOrigins?: readonly string[];
 }
+
+/** Whether `endpoint` is on one of `origins` (scheme + host + port). */
+export const isPersonalOnlyEndpoint = (
+  endpoint: string,
+  origins: readonly string[] | undefined,
+): boolean => {
+  if (!origins || origins.length === 0) return false;
+  const url = URL.canParse(endpoint) ? new URL(endpoint) : null;
+  return (
+    url !== null &&
+    origins.some((origin) => URL.canParse(origin) && new URL(origin).origin === url.origin)
+  );
+};
+
+const PERSONAL_ONLY_MESSAGE =
+  "This server answers as the person who connected it, so it takes personal connections only. Each person connects it for themselves.";
 
 export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
   const allowStdio = options?.dangerouslyAllowStdioMCP ?? false;
@@ -1577,6 +1600,17 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
       Effect.gen(function* () {
         const parsed = parseMcpIntegrationConfig(config);
         if (!parsed) return { tools: [] as readonly ToolDef[], incomplete: true };
+        if (
+          connection.owner === "org" &&
+          parsed.transport === "remote" &&
+          isPersonalOnlyEndpoint(parsed.endpoint, options?.personalOnlyOrigins)
+        ) {
+          return {
+            tools: [] as readonly ToolDef[],
+            incomplete: true,
+            incompleteReason: PERSONAL_ONLY_MESSAGE,
+          };
+        }
 
         // Discovery tolerates unresolved credentials (an open server lists
         // tools unauthenticated; a bad value just yields zero tools).
@@ -1653,6 +1687,19 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
           return yield* new McpToolDiscoveryError({
             stage: "list_tools",
             message: `Tool "${toolRow.name}" is missing its MCP binding — refresh the connection`,
+          });
+        }
+
+        if (
+          String(credential.owner) === "org" &&
+          parsed.transport === "remote" &&
+          isPersonalOnlyEndpoint(parsed.endpoint, options?.personalOnlyOrigins)
+        ) {
+          return authToolFailure({
+            code: "oauth_connection_missing",
+            message: PERSONAL_ONLY_MESSAGE,
+            integration: { id: String(credential.integration) },
+            credential: { kind: "upstream", label: String(credential.connection) },
           });
         }
 

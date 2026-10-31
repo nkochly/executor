@@ -1,6 +1,7 @@
 import { Effect, Predicate } from "effect";
 
 import {
+  authenticated,
   McpAuthProvider,
   jsonRpcErrorBody,
   orgWriteAccessForPrincipal,
@@ -105,11 +106,20 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
   const serveDefault = McpSessionDO.serve("/mcp", serveOptions);
   const serveToolkit = McpSessionDO.serve("/mcp/toolkits/:slug", serveOptions);
 
-  return async (request: Request, env: CloudflareEnv, ctx: ExecutionContext): Promise<Response> => {
+  // `bound` is a principal the caller already established (Executor's own
+  // OAuth token); without it the request's Access assertion decides.
+  return async (
+    request: Request,
+    env: CloudflareEnv,
+    ctx: ExecutionContext,
+    bound?: Principal,
+  ): Promise<Response> => {
     if (request.method === "OPTIONS") return corsPreflightResponse();
     const sessionId = request.headers.get("mcp-session-id");
 
-    const { auth, outcome } = await Effect.runPromise(authenticate(request, config));
+    const { auth, outcome } = bound
+      ? { auth: null, outcome: authenticated(bound) as AuthOutcome }
+      : await Effect.runPromise(authenticate(request, config));
     if (!Predicate.isTagged(outcome, "Authenticated")) {
       if (Predicate.isTagged(outcome, "Forbidden") && sessionId) {
         await Effect.runPromise(
@@ -120,7 +130,7 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
           ),
         );
       }
-      return renderAuthError(auth, request, outcome);
+      return renderAuthError(auth!, request, outcome);
     }
 
     const resource = mcpResourceFromPath(new URL(request.url).pathname);

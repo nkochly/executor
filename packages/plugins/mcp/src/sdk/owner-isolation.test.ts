@@ -115,4 +115,54 @@ describe("MCP owner isolation", () => {
       );
     }),
   );
+
+  it.effect("a personal-only server serves personal connections and refuses workspace ones", () =>
+    Effect.gen(function* () {
+      const server = yield* serveAuthRecordingMcpServer;
+      const executor = yield* createExecutor(
+        makeTestConfig({
+          plugins: [
+            memoryCredentialsPlugin(),
+            mcpPlugin({ personalOnlyOrigins: [new URL(server.url).origin] }),
+          ] as const,
+        }),
+      );
+      yield* executor.mcp.addServer({
+        name: "Personal MCP",
+        endpoint: server.url,
+        slug: String(INTEG),
+        auth: { kind: "header", headerName: "Authorization", prefix: "Bearer " },
+      });
+      yield* executor.connections.create({
+        owner: "org",
+        name: ConnectionName.make("shared"),
+        integration: INTEG,
+        template: TEMPLATE,
+        value: "token-org",
+      });
+      yield* executor.connections.create({
+        owner: "user",
+        name: ConnectionName.make("mine"),
+        integration: INTEG,
+        template: TEMPLATE,
+        value: "token-user",
+      });
+
+      const tools = yield* executor.tools.list();
+      expect(tools.some((t) => String(t.address) === "tools.iso_mcp.org.shared.whoami")).toBe(
+        false,
+      );
+      expect(tools.some((t) => String(t.address) === "tools.iso_mcp.user.mine.whoami")).toBe(true);
+
+      const userResult = yield* executor.execute(
+        ToolAddress.make("tools.iso_mcp.user.mine.whoami"),
+        { marker: "mine" },
+        { onElicitation: "accept-all" },
+      );
+      expect(userResult).toMatchObject({ ok: true });
+      expect(
+        (yield* server.requests).every((request) => request.authorization !== "Bearer token-org"),
+      ).toBe(true);
+    }),
+  );
 });
