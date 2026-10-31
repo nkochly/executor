@@ -2,8 +2,6 @@ import ReactDOM from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 
 import "@executor-js/react/globals.css";
-// Presidio colors and logo, set on the console's own theme variables.
-import "@nkochly/presidio-ui/executor-theme.css";
 
 import { getRouter } from "./router";
 
