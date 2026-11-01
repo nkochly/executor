@@ -52,7 +52,7 @@ export const cloudflareAccountProvider = (
                 organization: {
                   id: principal.organizationId,
                   name: principal.organizationName,
-                  slug: principal.organizationSlug,
+                  slug: principal.organizationSlug ?? config.organizationSlug,
                 },
               })
             : Effect.fail(new AccountUnauthorized()),

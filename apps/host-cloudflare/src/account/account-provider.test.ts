@@ -29,8 +29,8 @@ describe("cloudflareAccountProvider.me", () => {
     Effect.gen(function* () {
       const provider = yield* AccountProvider;
       const me = yield* provider.me({ [TENANT_HEADER]: "beta" });
-      expect(me.organization.slug).toBe("beta");
-      expect(me.organization.id).toBe("beta");
+      expect(me.organization?.slug).toBe("beta");
+      expect(me.organization?.id).toBe("beta");
     }).pipe(Effect.provide(cloudflareAccountProvider(config))),
   );
 });
