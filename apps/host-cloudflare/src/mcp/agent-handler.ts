@@ -1,5 +1,6 @@
 import { Effect, Predicate } from "effect";
 
+import { loggedMcp } from "./usage";
 import {
   authenticated,
   McpAuthProvider,
@@ -177,6 +178,14 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
       orgWriteAccessForPrincipal(outcome.principal),
     );
     const target = resource.kind === "toolkit" ? serveToolkit : serveDefault;
-    return target.fetch(forwarded, env, ctx);
+    return loggedMcp(
+      {
+        tenant: outcome.principal.organizationSlug ?? outcome.principal.organizationId,
+        agent: resource.kind === "toolkit" ? resource.slug : null,
+        subject: outcome.principal.email || outcome.principal.accountId,
+      },
+      request,
+      () => target.fetch(forwarded, env, ctx),
+    );
   };
 };
