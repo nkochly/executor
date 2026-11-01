@@ -122,13 +122,14 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
     _storedMeta: SessionMeta | null,
   ): Effect.Effect<SessionMeta> {
     // Single-tenant: every Access principal belongs to the one configured org,
-    // so there is nothing to resolve — stamp the configured org name. Nothing
-    // to reuse from the stored meta either; config is already the cheapest and
-    // freshest source there is.
+    // so the configured name and slug stand. Multi-tenant: the token's
+    // organization id is the tenant slug, and it names the org everywhere
+    // (artifact URLs included).
+    const multiTenant = this.cfConfig.directory !== null;
     return Effect.succeed({
       organizationId: token.organizationId,
-      organizationName: this.cfConfig.organizationName,
-      organizationSlug: this.cfConfig.organizationSlug,
+      organizationName: multiTenant ? token.organizationId : this.cfConfig.organizationName,
+      organizationSlug: multiTenant ? token.organizationId : this.cfConfig.organizationSlug,
       ...sessionOrgRoleMetadata(token),
       userId: token.userId,
       resource: token.resource,
