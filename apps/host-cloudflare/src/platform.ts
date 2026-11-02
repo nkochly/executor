@@ -8,8 +8,10 @@ import { isOperator } from "./tenancy";
 // ---------------------------------------------------------------------------
 // The company's MCP server catalog. Platform admins (the wiki's operators) add a server
 // once and every tenant sees it at the top of its add screen. Listing a server
-// gives no tenant anything: a tenant admin still adds it, each person connects
-// it as themselves, and its tools stay blocked until the tenant approves them.
+// gives no tenant anything: a tenant admin still adds it and connects it (as
+// themselves, or for the workspace as the tenant's team agent, which the
+// first-party connect hosts offer to tenant admins), and its tools stay
+// blocked until the tenant approves them.
 // Removing an entry leaves tenants that already added it untouched.
 //
 // FIRST_PARTY_MCP entries are always listed, ahead of the stored ones.
@@ -40,7 +42,7 @@ let cached: { readonly at: number; readonly servers: readonly CatalogServer[] } 
 const fromFirstParty = (server: FirstPartyMcp): CatalogServer => ({
   slug: server.slug,
   name: server.name,
-  summary: `${server.name}, connected as yourself.`,
+  summary: `${server.name}. Connect it for yourself, or for the whole workspace as its team agent.`,
   endpoint: server.endpoint,
 });
 
@@ -84,12 +86,6 @@ export const catalogPresets = (servers: readonly CatalogServer[]) =>
     featured: true,
     family: "Company",
   }));
-
-/** Origins whose connections must be each person's own: every catalog server's. */
-export const catalogOrigins = (servers: readonly CatalogServer[]): readonly string[] =>
-  servers.flatMap((server) =>
-    URL.canParse(server.endpoint) ? [new URL(server.endpoint).origin] : [],
-  );
 
 const AddBody = Schema.Struct({
   slug: Schema.String,
