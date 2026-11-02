@@ -481,15 +481,37 @@ export function IntegrationBrowsePage() {
     [installedKeys],
   );
 
+  // Runtime presets (a deployment's own catalog) list ahead of static ones.
+  const [loadedPresets, setLoadedPresets] = useState<readonly PresetEntry[]>([]);
+  useEffect(() => {
+    let live = true;
+    void Promise.all(
+      integrationPlugins.map(async (plugin) =>
+        plugin.loadPresets
+          ? (await plugin.loadPresets().catch(() => [])).map((preset) => ({
+              preset,
+              pluginKey: plugin.key,
+              pluginLabel: plugin.label,
+            }))
+          : [],
+      ),
+    ).then((lists) => {
+      if (live) setLoadedPresets(lists.flat());
+    });
+    return () => {
+      live = false;
+    };
+  }, [integrationPlugins]);
+
   const allPresets = useMemo(() => {
-    const entries: PresetEntry[] = [];
+    const entries: PresetEntry[] = [...loadedPresets];
     for (const plugin of integrationPlugins) {
       for (const preset of plugin.presets ?? []) {
         entries.push({ preset, pluginKey: plugin.key, pluginLabel: plugin.label });
       }
     }
     return entries;
-  }, [integrationPlugins]);
+  }, [integrationPlugins, loadedPresets]);
 
   const handleDetect = useCallback(async () => {
     const trimmed = query.trim();

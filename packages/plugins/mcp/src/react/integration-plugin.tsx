@@ -3,6 +3,7 @@ import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import type {
   IntegrationPlugin,
+  IntegrationPreset,
   IntegrationQuickAddInput,
   IntegrationQuickAddResult,
 } from "@executor-js/sdk/client";
@@ -81,7 +82,50 @@ export interface McpIntegrationPluginOptions {
    * trusted local contexts where the server has the matching flag set.
    */
   readonly allowStdio?: boolean;
+  /** Same-origin path of the host's server catalog; see `catalogUrl` on the
+   *  server-side plugin. */
+  readonly catalogUrl?: string;
 }
+
+interface CatalogResponse {
+  readonly servers?: ReadonlyArray<{
+    readonly slug?: unknown;
+    readonly name?: unknown;
+    readonly summary?: unknown;
+    readonly endpoint?: unknown;
+  }>;
+}
+
+/** The host's catalog as presets. Not registry-listed, so each keeps its card. */
+export const loadCatalogPresets = async (
+  catalogUrl: string,
+  fetcher: typeof fetch = fetch,
+): Promise<readonly IntegrationPreset[]> => {
+  const response = await fetcher(catalogUrl, {
+    headers: { accept: "application/json" },
+    credentials: "same-origin",
+  });
+  if (!response.ok) return [];
+  const body = (await response.json()) as CatalogResponse;
+  return (body.servers ?? []).flatMap((server) =>
+    typeof server.slug === "string" &&
+    typeof server.name === "string" &&
+    typeof server.endpoint === "string"
+      ? [
+          {
+            id: `catalog-${server.slug}`,
+            name: server.name,
+            summary: typeof server.summary === "string" ? server.summary : "",
+            url: server.endpoint,
+            endpoint: server.endpoint,
+            featured: true,
+            family: "Company",
+            defaultSlug: server.slug,
+          },
+        ]
+      : [],
+  );
+};
 
 export const createMcpIntegrationPlugin = (
   options?: McpIntegrationPluginOptions,
@@ -107,6 +151,12 @@ export const createMcpIntegrationPlugin = (
     editSheet: LazyEditMcpSheet,
     accounts: LazyMcpAccountsPanel,
     presets,
+    ...(options?.catalogUrl
+      ? {
+          loadPresets: () =>
+            loadCatalogPresets(options.catalogUrl!).catch(() => [] as readonly IntegrationPreset[]),
+        }
+      : {}),
     preload: () => {
       void importAdd();
       void importEditSheet();

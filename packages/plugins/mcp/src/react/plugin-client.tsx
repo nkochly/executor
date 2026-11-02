@@ -21,6 +21,8 @@ export interface McpClientConfig {
    * Defaults to false — same default as the server flag.
    */
   readonly allowStdio?: boolean;
+  /** Mirrors `catalogUrl` on the server-side plugin. */
+  readonly catalogUrl?: string;
 }
 
 export default function createMcpClientPlugin(config?: McpClientConfig) {
@@ -28,6 +30,7 @@ export default function createMcpClientPlugin(config?: McpClientConfig) {
     id: "mcp" as const,
     integrationPlugin: createMcpIntegrationPlugin({
       allowStdio: config?.allowStdio ?? false,
+      catalogUrl: config?.catalogUrl,
     }),
   });
 }
