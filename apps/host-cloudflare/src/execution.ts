@@ -15,7 +15,7 @@ import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { env } from "cloudflare:workers";
 
 import type { CloudflareConfig } from "./config";
-import { catalogNow, catalogOrigins, catalogPresets } from "./platform";
+import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
 
 // ---------------------------------------------------------------------------
@@ -50,7 +50,6 @@ export const makeCloudflarePluginsProvider = (
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
         catalog: catalogPresets(catalogNow(config)),
-        personalOnlyOrigins: catalogOrigins(catalogNow(config)),
       }),
   });
 

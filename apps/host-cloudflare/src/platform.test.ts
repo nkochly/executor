@@ -4,7 +4,7 @@ import { describe, expect, it } from "@effect/vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 
 import type { CloudflareConfig } from "./config";
-import { catalogOrigins, catalogPresets, handlePlatform, refreshCatalog } from "./platform";
+import { catalogPresets, handlePlatform, refreshCatalog } from "./platform";
 
 // A D1 stand-in over node:sqlite: the calls platform.ts makes, nothing more.
 const fakeD1 = (): D1Database => {
@@ -60,7 +60,6 @@ describe("company MCP catalog", () => {
       endpoint: "https://jira.example/mcp",
       featured: true,
     });
-    expect(catalogOrigins(listed)).toEqual(["https://wiki.example", "https://jira.example"]);
   });
 
   it("refuses changes from anyone else, and stack-fixed slugs", async () => {
