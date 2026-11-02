@@ -168,6 +168,9 @@ export default function AddMcpIntegration(props: {
   onCancel: () => void;
   initialUrl?: string;
   initialPreset?: string;
+  /** Namespace the host chose for this server (a catalog entry's slug). The
+   *  URL alone cannot name it: servers on one domain would share a name. */
+  initialNamespace?: string;
   initialAuthHeader?: string;
   initialAuthNote?: string;
   initialAuthKind?: string;
@@ -241,9 +244,14 @@ export default function AddMcpIntegration(props: {
   );
   const authMethodList = useAuthMethodList(authMethodSeeds);
 
+  const initialNamespace = props.initialNamespace;
   const remoteIdentity = useIntegrationIdentity({
-    fallbackName:
-      integrationDisplayNameFromUrl(state.url, "MCP") ?? probe?.serverName ?? probe?.name ?? "",
+    fallbackName: initialNamespace
+      ? (probe?.serverName ??
+        probe?.name ??
+        initialNamespace.charAt(0).toUpperCase() + initialNamespace.slice(1))
+      : (integrationDisplayNameFromUrl(state.url, "MCP") ?? probe?.serverName ?? probe?.name ?? ""),
+    ...(initialNamespace ? { fallbackNamespace: initialNamespace } : {}),
   });
   // Agent-visible description: prefilled from the server's `instructions`
   // until the user types (null = untouched, keep deriving from the probe).

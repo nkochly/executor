@@ -157,9 +157,12 @@ type PresetEntry = {
   readonly preset: IntegrationPreset;
   readonly pluginKey: string;
   readonly pluginLabel: string;
+  readonly hostCatalog?: boolean;
 };
 
 interface Row {
+  /** From the host's runtime catalog; such rows lead the list. */
+  readonly hostCatalog?: boolean;
   readonly key: string;
   readonly testId: string;
   readonly title: string;
@@ -492,6 +495,7 @@ export function IntegrationBrowsePage() {
               preset,
               pluginKey: plugin.key,
               pluginLabel: plugin.label,
+              hostCatalog: true,
             }))
           : [],
       ),
@@ -715,7 +719,15 @@ export function IntegrationBrowsePage() {
       void navigate({
         to: "/{-$orgSlug}/integrations/add/$pluginKey",
         params: { pluginKey: entry.pluginKey },
-        search: { preset: entry.preset.id },
+        // A preset only the host knows (its runtime catalog) is not in the
+        // plugin's static list, so carry its URL and slug to the add form.
+        search: {
+          preset: entry.preset.id,
+          ...((entry.preset.url ?? entry.preset.endpoint)
+            ? { url: entry.preset.url ?? entry.preset.endpoint }
+            : {}),
+          ...(entry.preset.defaultSlug ? { namespace: entry.preset.defaultSlug } : {}),
+        },
       });
     },
     [navigate],
@@ -746,6 +758,7 @@ export function IntegrationBrowsePage() {
       const title = withSurface(entry.preset.name, surface);
       const kindKey = entry.pluginKey === "google" ? "openapi" : entry.pluginKey;
       rows.push({
+        ...(entry.hostCatalog ? { hostCatalog: true } : {}),
         key: `preset-${entry.pluginKey}-${entry.preset.id}`,
         testId: `preset-${entry.pluginKey}-${entry.preset.id}`,
         title,
@@ -850,12 +863,15 @@ export function IntegrationBrowsePage() {
   const results = useMemo(() => {
     if (catalog.loading && catalogRows.length === 0 && !catalog.failed) return catalogRows;
     const merged = [...catalogRows];
-    for (const preset of presetRows) {
+    // The host's own catalog leads; other presets interleave by title.
+    const hostRows = presetRows.filter((row) => row.hostCatalog === true);
+    for (const preset of presetRows.filter((row) => row.hostCatalog !== true)) {
       const at = merged.findIndex(
         (row) => row.title.localeCompare(preset.title, undefined, { sensitivity: "base" }) > 0,
       );
       merged.splice(at === -1 ? merged.length : at, 0, preset);
     }
+    merged.unshift(...hostRows);
     // What you already have leads the list — those cards are the ones with a
     // state worth seeing (View). Stable within each half, and fresh
     // quick-adds hold their place until the next visit.
