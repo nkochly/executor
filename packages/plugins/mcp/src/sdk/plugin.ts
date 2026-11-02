@@ -960,6 +960,12 @@ export interface McpPluginOptions {
    * and approves its tools itself.
    */
   readonly catalog?: readonly McpRemotePreset[];
+  /**
+   * Same-origin path the console reads that catalog from at runtime, so the
+   * add screen lists what the host offers now rather than what it offered at
+   * build time. The response is `{ servers: [{ slug, name, summary, endpoint }] }`.
+   */
+  readonly catalogUrl?: string;
 }
 
 /** Whether `endpoint` is on one of `origins` (scheme + host + port). */
@@ -1015,7 +1021,10 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
     integrationPresets: presetEntries,
     // Surfaced to the client bundle via the Vite plugin. The MCP `./client`
     // factory reads `allowStdio` and gates the stdio tab + presets.
-    clientConfig: { allowStdio },
+    clientConfig: {
+      allowStdio,
+      ...(options?.catalogUrl ? { catalogUrl: options.catalogUrl } : {}),
+    },
     storage: () => ({}),
     close: () => connectionPool.close(),
 

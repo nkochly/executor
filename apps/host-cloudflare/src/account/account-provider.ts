@@ -66,7 +66,29 @@ export const cloudflareAccountProvider = (
     listOrgApiKeys: () => Effect.succeed({ apiKeys: [] }),
     createOrgApiKey: () => forbiddenWrite,
     revokeOrgApiKey: () => forbiddenWrite,
-    listMembers: () => Effect.succeed({ members: [] }),
+    // Membership lives in the tenant directory, not here. The console derives
+    // the caller's own role from this list, so it holds the caller, with the
+    // role the directory gave them for this tenant.
+    listMembers: (headers) =>
+      principalFrom(headers).pipe(
+        Effect.map((principal) => ({
+          members: principal
+            ? [
+                {
+                  id: principal.accountId,
+                  userId: principal.accountId,
+                  email: principal.email ?? null,
+                  name: principal.name ?? null,
+                  avatarUrl: principal.avatarUrl ?? null,
+                  role: principal.orgRole ?? "member",
+                  status: "active",
+                  lastActiveAt: null,
+                  isCurrentUser: true,
+                },
+              ]
+            : [],
+        })),
+      ),
     listRoles: () => Effect.succeed({ roles: [] }),
     inviteMember: () => forbiddenWrite,
     removeMember: () => forbiddenWrite,

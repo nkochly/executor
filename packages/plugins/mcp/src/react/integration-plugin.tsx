@@ -3,6 +3,7 @@ import { useAtomSet } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import type {
   IntegrationPlugin,
+  IntegrationPreset,
   IntegrationQuickAddInput,
   IntegrationQuickAddResult,
 } from "@executor-js/sdk/client";
@@ -81,12 +82,70 @@ export interface McpIntegrationPluginOptions {
    * trusted local contexts where the server has the matching flag set.
    */
   readonly allowStdio?: boolean;
+  /** Same-origin path of the host's server catalog; see `catalogUrl` on the
+   *  server-side plugin. */
+  readonly catalogUrl?: string;
 }
+
+interface CatalogResponse {
+  readonly servers?: ReadonlyArray<{
+    readonly slug?: unknown;
+    readonly name?: unknown;
+    readonly summary?: unknown;
+    readonly endpoint?: unknown;
+  }>;
+}
+
+/** The host's catalog as presets. Not registry-listed, so each keeps its card. */
+type CatalogFetch = (url: string, init?: RequestInit) => Promise<Response>;
+
+const readCatalog = async (catalogUrl: string, fetcher: CatalogFetch): Promise<CatalogResponse> => {
+  // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: a browser fetch of the host catalog; any failure means list nothing
+  try {
+    const response = await fetcher(catalogUrl, {
+      headers: { accept: "application/json" },
+      credentials: "same-origin",
+    });
+    return response.ok ? ((await response.json()) as CatalogResponse) : {};
+  } catch {
+    // An unreadable catalog lists nothing; the static presets still show.
+    return {};
+  }
+};
+
+/** The host's catalog as presets. Not registry-listed, so each keeps its card.
+ *  Never fails: an unreadable catalog lists none. */
+export const loadCatalogPresets = async (
+  catalogUrl: string,
+  // oxlint-disable-next-line executor/no-raw-fetch -- boundary: same-origin browser read of the host's catalog route
+  fetcher: CatalogFetch = (url, init) => fetch(url, init),
+): Promise<readonly IntegrationPreset[]> => {
+  const body = await readCatalog(catalogUrl, fetcher);
+  return (body.servers ?? []).flatMap((server) =>
+    typeof server.slug === "string" &&
+    typeof server.name === "string" &&
+    typeof server.endpoint === "string"
+      ? [
+          {
+            id: `catalog-${server.slug}`,
+            name: server.name,
+            summary: typeof server.summary === "string" ? server.summary : "",
+            url: server.endpoint,
+            endpoint: server.endpoint,
+            featured: true,
+            family: "Company",
+            defaultSlug: server.slug,
+          },
+        ]
+      : [],
+  );
+};
 
 export const createMcpIntegrationPlugin = (
   options?: McpIntegrationPluginOptions,
 ): IntegrationPlugin => {
   const allowStdio = options?.allowStdio ?? false;
+  const catalogUrl = options?.catalogUrl;
 
   const AddWithFlag: ComponentType<AddProps> = (props) => (
     <LazyAddMcpIntegration {...props} allowStdio={allowStdio} />
@@ -107,6 +166,7 @@ export const createMcpIntegrationPlugin = (
     editSheet: LazyEditMcpSheet,
     accounts: LazyMcpAccountsPanel,
     presets,
+    ...(catalogUrl ? { loadPresets: () => loadCatalogPresets(catalogUrl) } : {}),
     preload: () => {
       void importAdd();
       void importEditSheet();

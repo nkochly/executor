@@ -29,7 +29,7 @@ export default defineExecutorConfig({
         presets: [...googleCatalog, ...microsoftCatalog],
         specFormats: [googleDiscoveryAdapter, microsoftGraphAdapter],
       }),
-      mcpHttpPlugin({ dangerouslyAllowStdioMCP: false }),
+      mcpHttpPlugin({ dangerouslyAllowStdioMCP: false, catalogUrl: "/api/platform/mcp-servers" }),
       graphqlHttpPlugin(),
       toolkitsPlugin({ activeToolkitSlug }),
       encryptedSecretsPlugin({ key: process.env.EXECUTOR_SECRET_KEY ?? "build-time-placeholder" }),
