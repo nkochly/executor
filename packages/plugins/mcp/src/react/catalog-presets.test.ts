@@ -2,8 +2,8 @@ import { describe, expect, it } from "@effect/vitest";
 
 import { loadCatalogPresets } from "./integration-plugin";
 
-const respond = (status: number, body: unknown): typeof fetch =>
-  (async () => new Response(JSON.stringify(body), { status })) as unknown as typeof fetch;
+const respond = (status: number, body: unknown) => async () =>
+  new Response(JSON.stringify(body), { status });
 
 describe("loadCatalogPresets", () => {
   it("turns the host catalog into add-screen presets", async () => {

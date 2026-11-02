@@ -291,7 +291,7 @@ export interface IntegrationPlugin {
   }>;
   readonly presets?: readonly IntegrationPreset[];
   /** Presets the host decides at runtime (a deployment's own catalog), listed
-   *  ahead of the static ones. A failed load lists none. */
+   *  ahead of the static ones. Must not reject: a failed load resolves to none. */
   readonly loadPresets?: () => Promise<readonly IntegrationPreset[]>;
   /** Trigger early download of the plugin's lazy component chunks (add/edit/etc.).
    *  Call from the host on intent (hover/focus) so the chunks land before the

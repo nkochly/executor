@@ -488,7 +488,7 @@ export function IntegrationBrowsePage() {
     void Promise.all(
       integrationPlugins.map(async (plugin) =>
         plugin.loadPresets
-          ? (await plugin.loadPresets().catch(() => [])).map((preset) => ({
+          ? (await plugin.loadPresets()).map((preset) => ({
               preset,
               pluginKey: plugin.key,
               pluginLabel: plugin.label,
