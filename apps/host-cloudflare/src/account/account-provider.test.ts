@@ -34,3 +34,14 @@ describe("cloudflareAccountProvider.me", () => {
     }).pipe(Effect.provide(cloudflareAccountProvider(config))),
   );
 });
+
+describe("cloudflareAccountProvider.listMembers", () => {
+  it.effect("lists the caller with their tenant role, so the console sees an admin", () =>
+    Effect.gen(function* () {
+      const provider = yield* AccountProvider;
+      const { members } = yield* provider.listMembers({ [TENANT_HEADER]: "beta" });
+      expect(members).toHaveLength(1);
+      expect(members[0]).toMatchObject({ isCurrentUser: true, status: "active", role: "admin" });
+    }).pipe(Effect.provide(cloudflareAccountProvider(config))),
+  );
+});
