@@ -31,6 +31,7 @@ import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
 import { ensureAgentToolkit } from "../agent";
 import { refreshCatalog } from "../platform";
+import { readTeamPage, teamPageInstructions } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -132,6 +133,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       organizationSlug: multiTenant ? token.organizationId : this.cfConfig.organizationSlug,
       ...sessionOrgRoleMetadata(token),
       userId: token.userId,
+      ...(token.email ? { email: token.email } : {}),
       resource: token.resource,
       elicitationMode: token.elicitationMode,
       artifactsEnabled: token.artifactsEnabled,
@@ -151,6 +153,12 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
       const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
+      // Multi-tenant: the tenant's "how we work" page leads the instructions,
+      // read from the wiki as this caller may read it. No page, no block.
+      const teamPage =
+        config.directory && sessionMeta.email
+          ? yield* readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email)
+          : null;
       const { engine, executor } = yield* makeExecutionStack(
         sessionMeta.userId,
         sessionMeta.organizationId,
@@ -190,6 +198,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         // connection (`?search_tools=true`). Same restore rule as artifacts.
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
+        ...(teamPage ? { instructions: teamPageInstructions(teamPage) } : {}),
         directIntegrations: catalog.map((server) => server.slug),
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.

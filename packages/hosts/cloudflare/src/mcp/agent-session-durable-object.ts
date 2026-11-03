@@ -73,6 +73,9 @@ interface McpSessionInitBase {
   /** The organization's URL slug, from the same resolved record. */
   readonly organizationSlug?: string;
   readonly userId: string;
+  /** The caller's email, when the principal carried one. Hosts that look the
+   *  caller up by email elsewhere read it here; it is never an identity check. */
+  readonly email?: string;
   readonly elicitationMode: McpElicitationMode;
   /** Whether this session serves artifacts, read off `?artifacts=` at connect
    *  time. Absent means the default (enabled). */
@@ -155,6 +158,8 @@ interface SessionMetaBase {
    * Pins browser-handoff URLs to the right org's console. */
   readonly organizationSlug?: string;
   readonly userId: string;
+  /** Carried from {@link McpSessionInit}. */
+  readonly email?: string;
   readonly elicitationMode?: McpElicitationMode;
   /** Whether the session serves artifacts (carried from {@link McpSessionInit}).
    *  Absent — including for sessions persisted before the flag existed — means

@@ -213,6 +213,12 @@ type SharedMcpServerConfig = {
    */
   readonly mode?: McpToolMode;
   /**
+   * Host text for the `initialize` result's instructions, in either mode,
+   * after the surface's own. Clients that show server instructions to the
+   * model show it at session start, before any tool call.
+   */
+  readonly instructions?: string;
+  /**
    * The scoped executor's tool catalog, for passthrough mode. Structurally
    * satisfied by `executor.tools`. Hosts that never serve passthrough may
    * leave it unset; a passthrough session without it fails at build time
@@ -1745,6 +1751,12 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         ),
       );
 
+    const serverInstructions = [
+      passthrough ? passthroughInstructions() : "",
+      config.instructions ?? "",
+    ]
+      .filter((part) => part.trim().length > 0)
+      .join("\n\n");
     const server = yield* Effect.sync(
       () =>
         new McpServer(
@@ -1756,11 +1768,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
             // per host.
             capabilities: { resources: {}, tools: {} },
             jsonSchemaValidator: new CfWorkerJsonSchemaValidator(),
-            ...(passthrough
-              ? {
-                  instructions: passthroughInstructions(),
-                }
-              : {}),
+            ...(serverInstructions ? { instructions: serverInstructions } : {}),
           },
         ),
     ).pipe(Effect.withSpan("mcp.host.create_server"));

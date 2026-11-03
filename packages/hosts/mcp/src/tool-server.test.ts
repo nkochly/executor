@@ -68,6 +68,7 @@ type TestServerConfig<E extends Cause.YieldableError> = Pick<
   | "pausedExecutionHooks"
   | "pausedExecutionLeaseMs"
   | "resumeFallback"
+  | "instructions"
 >;
 
 /** Connect a real MCP Client to our executor MCP server over in-memory transports. */
@@ -218,6 +219,25 @@ const makeElicitingEngine = (
 // ---------------------------------------------------------------------------
 // Explicit native elicitation mode
 // ---------------------------------------------------------------------------
+
+describe("MCP host server — instructions", () => {
+  it("serves host instructions at initialize in codemode", async () => {
+    await withClient(
+      makeStubEngine({}),
+      {},
+      async (client) => {
+        expect(client.getInstructions()).toBe("How this team works: follow the page.");
+      },
+      { instructions: "How this team works: follow the page." },
+    );
+  });
+
+  it("serves no instructions in codemode when the host gives none", async () => {
+    await withClient(makeStubEngine({}), {}, async (client) => {
+      expect(client.getInstructions()).toBeUndefined();
+    });
+  });
+});
 
 describe("MCP host server — native elicitation mode", () => {
   it("execute tool calls engine.execute and returns result", async () => {

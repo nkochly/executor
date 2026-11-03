@@ -88,6 +88,7 @@ const propsForPrincipal = (
         organizationId: principal.organizationId,
         ...sessionOrgRoleMetadata(principal),
         userId: principal.accountId,
+        ...(principal.email ? { email: principal.email } : {}),
         elicitationMode: readElicitationMode(request),
         artifactsEnabled: readArtifactsEnabled(request),
         searchToolsEnabled: readSearchToolsEnabled(request),
