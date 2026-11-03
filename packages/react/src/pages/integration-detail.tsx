@@ -1,4 +1,4 @@
-import { Suspense, useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
 import { useAtomValue, useAtomSet, useAtomRefresh } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
@@ -58,6 +58,9 @@ import {
 // the integration's per-owner connections; a tool's policy id is
 // `<integration>.<tool>` (D17). The wire row also carries the owner + the
 // connection name that produced it, so the Tools tab can group by account.
+/** Delays before re-reading the tool list while a connection has no tools yet. */
+const TOOL_SYNC_RETRY_DELAYS_MS = [1500, 3000, 6000, 12000] as const;
+
 type ToolRow = {
   readonly address: ToolAddress;
   readonly integration: string;
@@ -273,6 +276,39 @@ export function IntegrationDetailPage(props: {
       (connection: Connection) => connection.integration === slug,
     );
   }, [connectionsResult, slug]);
+
+  // An interactive sign-in answers before the new connection's tools have been
+  // listed from the upstream server; that listing finishes after the response.
+  // While a connection has no tools, re-read the tool list with backoff so the
+  // page shows them without a manual refresh. A connection that truly has no
+  // tools stops after the last retry.
+  const connectionsWithoutTools = useMemo(() => {
+    if (!AsyncResult.isSuccess(tools)) return "";
+    const withTools = new Set(
+      (tools.value as readonly ToolRow[]).map((tool) => `${tool.owner}/${tool.connection}`),
+    );
+    return integrationConnections
+      .map((connection) => `${connection.owner}/${connection.name}`)
+      .filter((key) => !withTools.has(key))
+      .sort()
+      .join(",");
+  }, [tools, integrationConnections]);
+  const toolSyncRetry = useRef({ key: "", attempts: 0 });
+  useEffect(() => {
+    if (connectionsWithoutTools === "") return;
+    const retry = toolSyncRetry.current;
+    if (retry.key !== connectionsWithoutTools) {
+      retry.key = connectionsWithoutTools;
+      retry.attempts = 0;
+    }
+    const delay = TOOL_SYNC_RETRY_DELAYS_MS[retry.attempts];
+    if (delay === undefined) return;
+    const timer = setTimeout(() => {
+      retry.attempts += 1;
+      refreshTools();
+    }, delay);
+    return () => clearTimeout(timer);
+  }, [connectionsWithoutTools, tools, refreshTools]);
 
   const healthProbeFor = useConnectionsHealth(integrationConnections);
   const toolsHealthIssue = useMemo(() => {
