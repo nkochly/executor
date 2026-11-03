@@ -67,14 +67,21 @@ export const chosenAgent = (
   return AGENT_SLUG.test(slug) ? { slug, name } : null;
 };
 
-/** The agent choices: every workspace agent, then a new one named `suggested`. */
+/**
+ * The agent choices: every workspace agent, then a new one named `suggested`.
+ * The listed agent whose name matches `suggested` starts checked; otherwise a
+ * new agent does, so connecting a new app makes a new agent unless the person
+ * picks one to join. Typing a name selects the new agent.
+ */
 export const agentChoices = (existing: readonly ExistingAgent[], suggested: string): string => {
+  const match = agentSlug(suggested);
+  const joinsExisting = existing.some((agent) => agent.slug === match);
   const rows = existing.map(
-    (agent, i) =>
-      `<label><input type="radio" name="pick" value="${escapeHtml(agent.slug)}"${i === 0 ? " checked" : ""}> ${escapeHtml(agent.name)}</label>`,
+    (agent) =>
+      `<label><input type="radio" name="pick" value="${escapeHtml(agent.slug)}"${agent.slug === match ? " checked" : ""}> ${escapeHtml(agent.name)}</label>`,
   );
   rows.push(
-    `<label><input type="radio" name="pick" value="${NEW_AGENT}"${existing.length === 0 ? " checked" : ""}> New agent named <input type="text" name="agent" maxlength="63" value="${escapeHtml(suggested)}" aria-label="New agent name"></label>`,
+    `<label><input type="radio" name="pick" id="pick-new" value="${NEW_AGENT}"${joinsExisting ? "" : " checked"}> New agent named <input type="text" name="agent" maxlength="63" value="${escapeHtml(suggested)}" aria-label="New agent name" onfocus="document.getElementById('pick-new').checked=true" oninput="document.getElementById('pick-new').checked=true"></label>`,
   );
   return rows.join("");
 };
