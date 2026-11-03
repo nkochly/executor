@@ -420,8 +420,11 @@ const configuredConnectionViews = (
     if (!group) {
       return {
         id: connection.id,
-        title: connection.pattern,
-        subtitle: "Configured pattern",
+        title: connection.pattern === "*" ? "Every connection" : connection.pattern,
+        subtitle:
+          connection.pattern === "*"
+            ? "Remove this to pick connections one by one"
+            : "Configured pattern",
         pattern: connection.pattern,
         integrationId: connection.pattern.split(".")[0] ?? "toolkit",
       };

@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { loadConfig } from "./config";
-import { principalForGrant } from "./oauth";
+import { agentChoices, chosenAgent, principalForGrant } from "./oauth";
 import { readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
 
@@ -97,4 +97,33 @@ describe("company tenancy", () => {
       expect(pages.map((p) => p.wiki)).toEqual(["acme/root", "beta/root"]);
     }),
   );
+});
+
+describe("agent sign-in page", () => {
+  const existing = [
+    { slug: "beta-agent", name: "Beta agent" },
+    { slug: "eichten", name: "Team Eichten" },
+  ];
+
+  it("offers every workspace agent, then a new one", () => {
+    const html = agentChoices(existing, "AI Studio");
+    expect(html).toContain('value="beta-agent" checked> Beta agent');
+    expect(html).toContain('value="eichten"> Team Eichten');
+    expect(html).toContain('value="AI Studio"');
+    expect(agentChoices([], "AI Studio")).toContain('value="+new" checked');
+  });
+
+  it("joins a listed agent, or makes the one typed", () => {
+    expect(chosenAgent({ pick: "eichten", typed: "ignored" }, existing)).toEqual({
+      slug: "eichten",
+      name: "Team Eichten",
+    });
+    expect(chosenAgent({ pick: "+new", typed: " AI Studio " }, existing)).toEqual({
+      slug: "ai-studio",
+      name: "AI Studio",
+    });
+    expect(chosenAgent({ pick: null, typed: "Claude" }, existing)?.slug).toBe("claude");
+    expect(chosenAgent({ pick: "not-listed", typed: "x" }, existing)).toBeNull();
+    expect(chosenAgent({ pick: "+new", typed: "***" }, existing)).toBeNull();
+  });
 });

@@ -41,10 +41,84 @@ const page = (body: string, headers = new Headers(), status = 200): Response => 
 
 type Helpers = OAuthHelpers;
 
+/** A workspace agent someone already connected, offered on the sign-in page. */
+export interface ExistingAgent {
+  readonly slug: string;
+  readonly name: string;
+}
+
+/** The value of the "new agent" choice; never a valid slug. */
+const NEW_AGENT = "+new";
+
+/**
+ * The agent a sign-in form picks: one of the workspace's agents by slug, or a
+ * new one by the name typed. `null` when the pick names no agent.
+ */
+export const chosenAgent = (
+  form: { readonly pick: string | null; readonly typed: string },
+  existing: readonly ExistingAgent[],
+): { readonly slug: string; readonly name: string } | null => {
+  if (form.pick !== null && form.pick !== NEW_AGENT) {
+    const agent = existing.find((candidate) => candidate.slug === form.pick);
+    return agent ? { slug: agent.slug, name: agent.name } : null;
+  }
+  const name = form.typed.trim();
+  const slug = agentSlug(name);
+  return AGENT_SLUG.test(slug) ? { slug, name } : null;
+};
+
+/** The agent choices: every workspace agent, then a new one named `suggested`. */
+export const agentChoices = (existing: readonly ExistingAgent[], suggested: string): string => {
+  const rows = existing.map(
+    (agent, i) =>
+      `<label><input type="radio" name="pick" value="${escapeHtml(agent.slug)}"${i === 0 ? " checked" : ""}> ${escapeHtml(agent.name)}</label>`,
+  );
+  rows.push(
+    `<label><input type="radio" name="pick" value="${NEW_AGENT}"${existing.length === 0 ? " checked" : ""}> New agent named <input type="text" name="agent" maxlength="63" value="${escapeHtml(suggested)}" aria-label="New agent name"></label>`,
+  );
+  return rows.join("");
+};
+
+/**
+ * The workspace's agents as the signed-in person sees them in the console,
+ * read through the app with the same Access sign-in. Empty when they cannot
+ * be read, so the page still offers a new agent.
+ */
+const workspaceAgents = async (
+  request: Request,
+  app: (request: Request) => Promise<Response>,
+): Promise<readonly ExistingAgent[]> => {
+  const headers = new Headers(request.headers);
+  headers.set("accept", "application/json");
+  headers.delete("content-type");
+  headers.delete("content-length");
+  const body = await Effect.runPromise(
+    Effect.tryPromise({
+      try: async () => {
+        const response = await app(
+          new Request(new URL("/api/toolkits", request.url), { method: "GET", headers }),
+        );
+        return response.ok
+          ? ((await response.json()) as {
+              toolkits?: readonly { owner?: string; slug?: string; name?: string }[];
+            })
+          : null;
+      },
+      catch: () => null,
+    }).pipe(Effect.orElseSucceed(() => null)),
+  );
+  return (body?.toolkits ?? []).flatMap((toolkit) =>
+    toolkit.owner === "org" && typeof toolkit.slug === "string"
+      ? [{ slug: toolkit.slug, name: toolkit.name || toolkit.slug }]
+      : [],
+  );
+};
+
 const authorize = async (
   request: Request,
   env: CloudflareEnv & { OAUTH_PROVIDER: Helpers },
   config: CloudflareConfig,
+  app: (request: Request) => Promise<Response>,
 ): Promise<Response> => {
   const directory = config.directory;
   const { verifyClaims } = makeAccessVerifier(config);
@@ -56,23 +130,32 @@ const authorize = async (
   // One company org: everyone Access signs in acts there as themselves, and
   // nobody picks a tenant. Per-tenant: the directory lists the tenants to pick.
   const memberships = directory ? await Effect.runPromise(listMemberships(directory, email)) : [];
+  // One company org: the workspace's agents are picked by name. Per tenant,
+  // the console's list belongs to the tenant the form names, so the name is
+  // typed.
+  const existing = directory ? [] : await workspaceAgents(request, app);
 
   if (request.method === "POST") {
     const form = await request.formData();
     const tenant = directory ? String(form.get("tenant") ?? "") : config.organizationId;
-    const agentName = String(form.get("agent") ?? "").trim();
-    const agent = agentSlug(agentName);
+    const pick = form.get("pick");
+    const chosen = chosenAgent(
+      { pick: typeof pick === "string" ? pick : null, typed: String(form.get("agent") ?? "") },
+      existing,
+    );
     const handle = String(form.get("handle") ?? "");
     if (directory && !memberships.some((m) => m.tenant.slug === tenant)) {
       return page("<p>That tenant is not one you belong to.</p>", undefined, 403);
     }
-    if (!AGENT_SLUG.test(agent)) {
+    if (!chosen) {
       return page(
-        "<p>Give the agent a name with at least one letter or digit.</p>",
+        "<p>Pick an agent, or give a new one a name with at least one letter or digit.</p>",
         undefined,
         400,
       );
     }
+    const agent = chosen.slug;
+    const agentName = chosen.name;
     const approved = await helpers.approveConsent(request, handle);
     const grant: AgentGrant = {
       accountId: typeof claims.sub === "string" && claims.sub ? claims.sub : email,
@@ -117,8 +200,11 @@ const authorize = async (
           `<form method="post"><h2>Tenant</h2>${tenants}`
         : `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}), as one agent, with that agent's tools only.</p>` +
           `<form method="post">`) +
-      `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
-      `<p class="hint">Agents belong to the workspace. Using a name again joins that agent and its tool list; it uses your own sign-ins. A new name starts a new agent.</p>` +
+      (directory
+        ? `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
+          `<p class="hint">Using a name again joins that agent and its tool list. A new name starts a new agent.</p>`
+        : `<h2>Agent</h2>${agentChoices(existing, clientName)}` +
+          `<p class="hint">Agents belong to the workspace. Joining one gives this app that agent's tool list, run with your own sign-ins.</p>`) +
       `<input type="hidden" name="handle" value="${escapeHtml(consent.handle)}"><button type="submit">Connect</button></form>`,
     consent.headers,
   );
@@ -219,7 +305,13 @@ export const oauthProviderFor = (
     defaultHandler: {
       async fetch(request: Request, env: CloudflareEnv, ctx: ExecutionContext) {
         if (new URL(request.url).pathname === "/authorize") {
-          return authorize(request, env as CloudflareEnv & { OAUTH_PROVIDER: Helpers }, config);
+          const serve = await resolve(env);
+          return authorize(
+            request,
+            env as CloudflareEnv & { OAUTH_PROVIDER: Helpers },
+            config,
+            serve.app,
+          );
         }
         return fallback(request, env, ctx);
       },
