@@ -1,6 +1,8 @@
 import { makeCloudflareApp } from "./app";
 import {
+  agentSignInEnabled,
   cloudflareAccessConfigErrorMessage,
+  companyTenancy,
   loadConfig,
   missingCloudflareAccessVars,
   type CloudflareEnv,
@@ -67,7 +69,10 @@ const route = async (
   const platform = await handlePlatform(incoming, env.DB, config);
   if (platform) return platform;
   const serve = await resolveHandler(env);
-  const request = routeTenantRequest(incoming, (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0);
+  const request = routeTenantRequest(
+    incoming,
+    !companyTenancy(env) && (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0,
+  );
   const resource = mcpResourceFromPath(new URL(request.url).pathname);
   if (resource !== null) {
     return agentSignIn ? notFound() : serve.mcp(request, env, ctx);
@@ -86,7 +91,7 @@ export default {
       return accessConfigErrorResponse(missingAccessVars);
     }
 
-    if (env.OAUTH_KV && (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0) {
+    if (agentSignInEnabled(env)) {
       const config = loadConfig(env);
       const provider = oauthProviderFor(
         new URL(incoming.url).host,

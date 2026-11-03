@@ -19,6 +19,8 @@ export interface McpToolManifestEntry {
 
 export interface McpServerMetadata {
   readonly name: string | null;
+  /** The server's display `title` from initialize, when it sent one. */
+  readonly title?: string;
   readonly version: string | null;
   /** The server's `instructions` from initialize, when it sent any. */
   readonly instructions: string | null;
@@ -66,6 +68,7 @@ export interface McpListToolsPage {
 
 const ServerInfo = Schema.Struct({
   name: Schema.optional(Schema.String),
+  title: Schema.optional(Schema.String),
   version: Schema.optional(Schema.String),
 });
 
@@ -125,6 +128,7 @@ export const extractManifestFromListToolsResult = (
     Option.map(
       (info): McpServerMetadata => ({
         name: info.name ?? null,
+        ...(info.title?.trim() ? { title: info.title.trim() } : {}),
         version: info.version ?? null,
         instructions: metadata?.instructions ?? null,
       }),

@@ -36,6 +36,8 @@ const configFor = (
   allowLocalNetwork: false,
   enableDevAuth: true,
   directory: null,
+  operatorDirectory: null,
+  agentSignIn: false,
   firstParty: [{ slug: "wiki", name: "Wiki", endpoint: "https://wiki.example/mcp" }],
   webex,
 });

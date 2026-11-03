@@ -19,6 +19,8 @@ const config: CloudflareConfig = {
   webBaseUrl: "https://localhost",
   enableDevAuth: false,
   directory: null,
+  operatorDirectory: null,
+  agentSignIn: false,
   firstParty: [],
   webex: null,
 };
@@ -67,6 +69,8 @@ describe("principalFromAccessClaims in multi-tenant mode", () => {
   const multi: CloudflareConfig = {
     ...config,
     directory: { url: "https://dir.test/api/directory" },
+    operatorDirectory: { url: "https://dir.test/api/directory" },
+    agentSignIn: false,
   };
   const acme = { slug: "acme", name: "Acme" };
 

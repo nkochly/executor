@@ -21,6 +21,8 @@ const config: CloudflareConfig = {
   webBaseUrl: "https://localhost",
   enableDevAuth: true,
   directory: { url: "https://dir.test/api/directory" },
+  operatorDirectory: { url: "https://dir.test/api/directory" },
+  agentSignIn: false,
   firstParty: [],
   webex: null,
 };

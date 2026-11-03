@@ -16,6 +16,8 @@ const withWebex = (webex: CloudflareConfig["webex"]): CloudflareConfig => ({
   allowLocalNetwork: false,
   enableDevAuth: true,
   directory: null,
+  operatorDirectory: null,
+  agentSignIn: false,
   firstParty: [],
   webex,
 });

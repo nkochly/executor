@@ -2023,10 +2023,12 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         return out;
       }),
 
-    // Liveness-only health check. MCP has no usable identity source (no
-    // id_token/userinfo, no standard whoami), so this answers "is this
-    // credential still alive?" by dialing the server and listing tools (the same
-    // path resolveTools uses); identity stays the user-supplied connection label.
+    // Liveness health check. MCP has no standard whoami, so this answers "is
+    // this credential still alive?" by dialing the server and listing tools
+    // (the same path resolveTools uses). The server's initialize `title`, when
+    // it sends one, is the connection's identity: a server that answers one
+    // account or tenant per connection names it there, which tells several
+    // connections to the same server apart.
     // Only checkHealth is implemented (no candidates/describe/set), so the
     // operation/identity editor stays hidden while the status dot + "Check now"
     // light up.
@@ -2070,10 +2072,14 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         );
 
         return yield* discoverToolsFromInput(connector).pipe(
-          Effect.map(
-            () =>
-              ({ status: "healthy" as const, checkedAt: Date.now() }) satisfies HealthCheckResult,
-          ),
+          Effect.map(({ manifest }) => {
+            const title = manifest.server?.title;
+            return {
+              status: "healthy" as const,
+              checkedAt: Date.now(),
+              ...(title ? { identity: title } : {}),
+            } satisfies HealthCheckResult;
+          }),
           Effect.catchTag("McpToolDiscoveryError", (error) =>
             Effect.succeed({
               status: mcpLivenessFailureStatus(error),

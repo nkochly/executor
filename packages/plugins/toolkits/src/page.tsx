@@ -18,7 +18,11 @@ import {
   type ToolAddress,
   type ToolPolicyAction,
 } from "@executor-js/sdk/shared";
-import { integrationsOptimisticAtom, toolsAllAtom } from "@executor-js/react/api/atoms";
+import {
+  connectionsAllAtom,
+  integrationsOptimisticAtom,
+  toolsAllAtom,
+} from "@executor-js/react/api/atoms";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
 import { useOrganizationSlug } from "@executor-js/react/api/organization-context";
 import {
@@ -191,8 +195,35 @@ type ToolkitConnectionGroup = {
   readonly owner: Owner;
   readonly integration: string;
   readonly connection: string;
+  /** The connection's display label (its account, or the tenant its server names), when it has one. */
+  readonly label?: string;
   readonly patterns: readonly string[];
   readonly tools: readonly ToolRow[];
+};
+
+/** Display labels by `owner:integration:connection`, from the connections list. */
+type ConnectionLabels = ReadonlyMap<string, string>;
+
+const connectionKey = (owner: string, integration: string, connection: string): string =>
+  `${owner}:${integration}:${connection}`;
+
+/** Each connection's display label, so several connections to one server read apart. */
+const useConnectionLabels = (): ConnectionLabels => {
+  const connections = useAtomValue(connectionsAllAtom);
+  return useMemo(() => {
+    const labels = new Map<string, string>();
+    if (!AsyncResult.isSuccess(connections)) return labels;
+    for (const row of connections.value) {
+      const label = row.identityLabel?.trim();
+      if (label) {
+        labels.set(
+          connectionKey(String(row.owner), String(row.integration), String(row.name)),
+          label,
+        );
+      }
+    }
+    return labels;
+  }, [connections]);
 };
 
 type IntegrationMeta = {
@@ -260,7 +291,10 @@ const reducePolicyPatterns = (patterns: readonly string[]): readonly string[] =>
   );
 };
 
-const buildConnectionGroups = (tools: readonly ToolRow[]): readonly ToolkitConnectionGroup[] => {
+const buildConnectionGroups = (
+  tools: readonly ToolRow[],
+  labels: ConnectionLabels = new Map(),
+): readonly ToolkitConnectionGroup[] => {
   const groups = new Map<string, ToolkitConnectionGroup & { tools: ToolRow[] }>();
   for (const tool of tools) {
     const owner = toolOwner(tool);
@@ -270,11 +304,15 @@ const buildConnectionGroups = (tools: readonly ToolRow[]): readonly ToolkitConne
       existing.tools.push(tool);
       continue;
     }
+    const label = labels.get(
+      connectionKey(String(owner), String(tool.integration), toolConnectionName(tool)),
+    );
     groups.set(key, {
       id: key,
       owner,
       integration: String(tool.integration),
       connection: toolConnectionName(tool),
+      ...(label ? { label } : {}),
       patterns: [],
       tools: [tool],
     });
@@ -301,7 +339,10 @@ const connectionTitleForHost = (group: ToolkitConnectionGroup, showOwnerLabels: 
   showOwnerLabels ? connectionTitle(group) : `${group.integration} / ${group.connection}`;
 
 const connectionDisplayTitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
-  group.connection === "built-in" || group.connection === "default" ? meta.name : group.connection;
+  group.label ??
+  (group.connection === "built-in" || group.connection === "default"
+    ? meta.name
+    : group.connection);
 
 const connectionDisplaySubtitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
   group.connection === "built-in" || group.connection === "default"
@@ -465,7 +506,11 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
         : [],
     [toolkit, tools],
   );
-  const connectionGroups = useMemo(() => buildConnectionGroups(visibleTools), [visibleTools]);
+  const connectionLabels = useConnectionLabels();
+  const connectionGroups = useMemo(
+    () => buildConnectionGroups(visibleTools, connectionLabels),
+    [visibleTools, connectionLabels],
+  );
   const connectionRows = AsyncResult.isSuccess(connections) ? connections.value.connections : [];
   const integrationRows = AsyncResult.isSuccess(integrations)
     ? (integrations.value as readonly Integration[])
@@ -1049,7 +1094,11 @@ function ToolkitWorkspace(props: {
     () => props.tools.filter((tool) => toolCanAppearInToolkit(props.toolkit, tool)),
     [props.toolkit, props.tools],
   );
-  const connectionGroups = useMemo(() => buildConnectionGroups(visibleTools), [visibleTools]);
+  const connectionLabels = useConnectionLabels();
+  const connectionGroups = useMemo(
+    () => buildConnectionGroups(visibleTools, connectionLabels),
+    [visibleTools, connectionLabels],
+  );
   const hiddenPersonalConnectionCount = useMemo(() => {
     if (props.toolkit.owner !== "org") return 0;
     return buildConnectionGroups(props.tools.filter((tool) => toolOwner(tool) === "user")).length;

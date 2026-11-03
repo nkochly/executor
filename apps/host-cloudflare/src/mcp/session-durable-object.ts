@@ -32,7 +32,7 @@ import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execut
 import { ensureAgentToolkit } from "../agent";
 import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
-import { readTeamPage, sessionInstructions } from "../tenancy";
+import { readTeamPage, readTeamPages, sessionInstructions } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -154,13 +154,21 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
       const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
-      // The playbook-first rule opens the instructions. In multi-tenant mode the
-      // tenant's "how we work" page follows it, read from the wiki as this
-      // caller may read it. No page, no block.
-      const teamPage =
-        config.directory && sessionMeta.email
-          ? yield* readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email)
-          : null;
+      // The playbook-first rule opens the instructions. The tenant's "how we
+      // work" page follows it, read from the wiki as this caller may read it;
+      // in one company org, the page of every tenant the person is in. No
+      // page, no block.
+      const teamPages = !sessionMeta.email
+        ? []
+        : config.directory
+          ? yield* readTeamPage(
+              config.directory,
+              sessionMeta.organizationId,
+              sessionMeta.email,
+            ).pipe(Effect.map((page) => (page === null ? [] : [page])))
+          : config.operatorDirectory
+            ? yield* readTeamPages(config.operatorDirectory, sessionMeta.email)
+            : [];
       // Calls to wiki and Muster say who is behind them (client, person,
       // agent, guide); read lazily, since `initialize` lands after this build.
       const callMeta = makeAttributionMeta({
@@ -179,14 +187,15 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
           makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB, callMeta),
         ),
       );
-      // Multi-tenant: an agent's first connection makes its toolkit, open to
-      // everything the tenant approved; an admin's is the tenant's shared agent.
-      // It is narrowed from the console; the tenant ceiling bounds it either way.
-      if (config.directory && sessionMeta.resource?.kind === "toolkit") {
+      // An agent's first connection makes its toolkit, narrowed from the
+      // console. One company org: every agent is the person's own, so it sees
+      // their own connections. Per tenant: an admin's is the tenant's shared
+      // agent, and the tenant ceiling bounds it either way.
+      if (config.agentSignIn && sessionMeta.resource?.kind === "toolkit") {
         yield* ensureAgentToolkit(
           executor.toolkits,
           sessionMeta.resource.slug,
-          sessionMeta.orgRole === "admin",
+          config.directory !== null && sessionMeta.orgRole === "admin",
         );
       }
       // Browser elicitation mode (the base owns the approval store + the HTTP
@@ -212,7 +221,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         // connection (`?search_tools=true`). Same restore rule as artifacts.
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
-        instructions: sessionInstructions(teamPage),
+        instructions: sessionInstructions(teamPages),
         directIntegrations: catalog.map((server) => server.slug),
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
