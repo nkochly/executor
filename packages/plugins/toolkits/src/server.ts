@@ -84,6 +84,14 @@ type ToolkitStorage = {
 export interface ToolkitsPluginOptions {
   /** When set, this executor instance enforces only the named toolkit's rules. */
   readonly activeToolkitSlug?: string;
+  /**
+   * Whether a workspace toolkit may pick personal connections. A personal
+   * tool id names a connection, never a person, and resolves against the
+   * caller's own rows, so a workspace toolkit that picks one runs it as
+   * whoever calls, through that caller's own sign-in of that name. Off by
+   * default: a workspace toolkit then reaches workspace connections only.
+   */
+  readonly workspaceToolkitsTakePersonalConnections?: boolean;
 }
 
 const newId = (prefix: string): string =>
@@ -200,19 +208,19 @@ const resolveToolkitPolicy = (
   return pluginDefaultPolicy(defaultRequiresApproval);
 };
 
-// The dynamic-tool prefixes the access patterns can reach. An org toolkit
-// never grants personal tools, so its prefixes are pinned to org rows and
-// user-only prefixes drop out; the per-tool check still enforces the same
-// rule for anything the prefix cannot express.
+// The dynamic-tool prefixes the access patterns can reach. A toolkit held to
+// workspace connections never grants personal tools, so its prefixes are
+// pinned to org rows and user-only prefixes drop out; the per-tool check still
+// enforces the same rule for anything the prefix cannot express.
 const toolkitDynamicScope = (
   rules: ToolkitRuleSnapshot,
-  isOrg: boolean,
+  workspaceOnly: boolean,
 ): readonly DynamicToolScope[] => {
   const scopes: DynamicToolScope[] = [];
   for (const pattern of rules.accessPatterns) {
     const scope = dynamicToolScopeForPattern(pattern);
     if (!scope) continue;
-    if (!isOrg) {
+    if (!workspaceOnly) {
       scopes.push(scope);
       continue;
     }
@@ -273,8 +281,14 @@ const makeToolkitStorage = (pluginStorage: PluginStorageFacade): ToolkitStorage 
   connections: pluginStorage.collection(toolkitConnectionsCollection),
 });
 
-const makeToolkitsExtension = (ctx: PluginCtx<ToolkitStorage>) => {
+const makeToolkitsExtension = (
+  ctx: PluginCtx<ToolkitStorage>,
+  options: Pick<ToolkitsPluginOptions, "workspaceToolkitsTakePersonalConnections"> = {},
+) => {
   const storage = ctx.storage;
+  const takesPersonal = options.workspaceToolkitsTakePersonalConnections === true;
+  /** Whether this toolkit is held to workspace connections only. */
+  const workspaceOnly = (owner: Owner): boolean => owner === "org" && !takesPersonal;
 
   const list = () =>
     storage.toolkits
@@ -549,7 +563,7 @@ const makeToolkitsExtension = (ctx: PluginCtx<ToolkitStorage>) => {
     Effect.gen(function* () {
       const toolkit = yield* getBySlugEntry(slug);
       if (!toolkit) return blockedPolicy();
-      if (toolkit.owner === "org" && isPersonalDynamicToolId(toolId)) return blockedPolicy();
+      if (workspaceOnly(toolkit.owner) && isPersonalDynamicToolId(toolId)) return blockedPolicy();
       const policies = yield* listPoliciesForRecord(toolkit.data.id);
       const connections = yield* listConnectionsForRecord(toolkit.data.id);
       return resolveToolkitPolicy(
@@ -572,21 +586,22 @@ const makeToolkitsExtension = (ctx: PluginCtx<ToolkitStorage>) => {
     Effect.gen(function* () {
       const toolkit = yield* getBySlugEntry(slug);
       if (!toolkit) return { resolve: () => blockedPolicy(), dynamicScope: [] };
-      const isOrg = toolkit.owner === "org";
+      const orgRowsOnly = workspaceOnly(toolkit.owner);
       const policies = yield* listPoliciesForRecord(toolkit.data.id);
       const connections = yield* listConnectionsForRecord(toolkit.data.id);
       const rules = digestToolkitRules(connections, policies);
       return {
         resolve: (input) => {
-          if (isOrg && isPersonalDynamicToolId(input.toolId)) return blockedPolicy();
+          if (orgRowsOnly && isPersonalDynamicToolId(input.toolId)) return blockedPolicy();
           return resolveToolkitPolicy(input.toolId, rules, input.defaultRequiresApproval);
         },
-        dynamicScope: toolkitDynamicScope(rules, isOrg),
+        dynamicScope: toolkitDynamicScope(rules, orgRowsOnly),
       };
     });
 
   return {
     list,
+    workspaceToolkitsTakePersonalConnections: takesPersonal,
     create,
     update,
     remove,
@@ -623,7 +638,10 @@ const ToolkitsHandlers = HttpApiBuilder.group(ExecutorApiWithToolkits, "toolkits
         Effect.gen(function* () {
           const ext = yield* ToolkitsExtensionService;
           const toolkits = yield* ext.list();
-          return { toolkits };
+          return {
+            toolkits,
+            workspaceToolkitsTakePersonalConnections: ext.workspaceToolkitsTakePersonalConnections,
+          };
         }),
       ),
     )
@@ -731,6 +749,9 @@ const makePolicyProvider = (
 
 export const toolkitsPlugin = definePlugin((options: ToolkitsPluginOptions = {}) => {
   const activeToolkitSlug = options.activeToolkitSlug;
+  const extensionOptions = {
+    workspaceToolkitsTakePersonalConnections: options.workspaceToolkitsTakePersonalConnections,
+  };
   return {
     id: "toolkits" as const,
     packageName: "@executor-js/plugin-toolkits",
@@ -740,14 +761,14 @@ export const toolkitsPlugin = definePlugin((options: ToolkitsPluginOptions = {})
       toolkitConnections: toolkitConnectionsCollection,
     },
     storage: ({ pluginStorage }) => makeToolkitStorage(pluginStorage),
-    extension: makeToolkitsExtension,
+    extension: (ctx: PluginCtx<ToolkitStorage>) => makeToolkitsExtension(ctx, extensionOptions),
     routes: () => ToolkitsApi,
     handlers: () => ToolkitsHandlers,
     extensionService: ToolkitsExtensionService,
     ...(activeToolkitSlug
       ? {
           toolPolicyProvider: (ctx: PluginCtx<ToolkitStorage>) =>
-            makePolicyProvider(makeToolkitsExtension(ctx), activeToolkitSlug),
+            makePolicyProvider(makeToolkitsExtension(ctx, extensionOptions), activeToolkitSlug),
         }
       : {}),
   };

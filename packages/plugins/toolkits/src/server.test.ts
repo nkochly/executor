@@ -132,6 +132,40 @@ describe("toolkitsPlugin", () => {
     }),
   );
 
+  it.effect("lets a workspace toolkit pick personal connections when the host allows it", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor({
+        plugins: [toolkitsPlugin({ workspaceToolkitsTakePersonalConnections: true })] as const,
+      });
+      const listed = yield* executor.toolkits.list();
+      expect(listed).toEqual([]);
+      expect(executor.toolkits.workspaceToolkitsTakePersonalConnections).toBe(true);
+
+      const agent = yield* executor.toolkits.create({ owner: "org", name: "Beta Agent" });
+      yield* executor.toolkits.createConnection(agent.id, {
+        pattern: "muster.user.muster-beta.*",
+      });
+      const picked = yield* executor.toolkits.resolvePolicyForSlug(
+        agent.slug,
+        "muster.user.muster-beta.create_task",
+      );
+      expect(picked.action).toBe("approve");
+      const unpicked = yield* executor.toolkits.resolvePolicyForSlug(
+        agent.slug,
+        "muster.user.muster-other.create_task",
+      );
+      expect(unpicked.action).toBe("block");
+
+      const prepared = yield* executor.toolkits.preparePolicyResolverForSlug(agent.slug);
+      expect(prepared.dynamicScope).toEqual([
+        { integration: "muster", owner: "user", connection: "muster-beta" },
+      ]);
+      expect(prepared.resolve({ toolId: "muster.user.muster-beta.create_task" }).action).toBe(
+        "approve",
+      );
+    }),
+  );
+
   it.effect("prepares a dynamic scope from the toolkit's access patterns", () =>
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor({

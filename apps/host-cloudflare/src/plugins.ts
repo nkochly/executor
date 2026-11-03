@@ -22,6 +22,10 @@ import { toolkitsPlugin } from "@executor-js/plugin-toolkits/server";
 //
 // `dangerouslyAllowStdioMCP` is false: a multi-user instance must not let a user
 // spawn arbitrary stdio MCP processes.
+//
+// Agents are workspace toolkits that may pick any connection, personal ones
+// included: a personal pick runs as whoever calls the agent, through that
+// person's own sign-in of that name, so nobody acts as someone else.
 // ---------------------------------------------------------------------------
 
 export const makeCloudflarePlugins = (
@@ -49,7 +53,10 @@ export const makeCloudflarePlugins = (
       callMeta: options.callMeta,
     }),
     graphqlHttpPlugin(),
-    toolkitsPlugin({ activeToolkitSlug: options.activeToolkitSlug }),
+    toolkitsPlugin({
+      activeToolkitSlug: options.activeToolkitSlug,
+      workspaceToolkitsTakePersonalConnections: true,
+    }),
     encryptedSecretsPlugin({ key: secretKey }),
   ] as const;
 

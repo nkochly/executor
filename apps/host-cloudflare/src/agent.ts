@@ -1,6 +1,7 @@
 import { Effect } from "effect";
 
-// An agent is one toolkit in a tenant, owned by the person who connected it.
+// An agent is one workspace toolkit. The person who connects it is who it acts
+// as; the toolkit says which tools it has.
 
 /** What an Executor token carries. */
 export interface AgentGrant {
@@ -35,7 +36,7 @@ export const agentRequest = (request: Request, agent: string): Request => {
 
 type AgentToolkits = {
   readonly list: () => Effect.Effect<
-    readonly { readonly id: string; readonly slug: string }[],
+    readonly { readonly id: string; readonly slug: string; readonly owner: "user" | "org" }[],
     unknown
   >;
   readonly create: (input: {
@@ -43,22 +44,67 @@ type AgentToolkits = {
     readonly name: string;
     readonly slug: string;
   }) => Effect.Effect<{ readonly id: string }, unknown>;
+  readonly remove: (toolkitId: string) => Effect.Effect<unknown, unknown>;
+  readonly listConnections: (
+    toolkitId: string,
+  ) => Effect.Effect<readonly { readonly pattern: string; readonly position: string }[], unknown>;
   readonly createConnection: (
     toolkitId: string,
-    input: { readonly pattern: string },
+    input: { readonly pattern: string; readonly position?: string },
+  ) => Effect.Effect<unknown, unknown>;
+  readonly listPolicies: (toolkitId: string) => Effect.Effect<
+    readonly {
+      readonly pattern: string;
+      readonly action: "approve" | "require_approval" | "block";
+      readonly position: string;
+    }[],
+    unknown
+  >;
+  readonly createPolicy: (
+    toolkitId: string,
+    input: {
+      readonly pattern: string;
+      readonly action: "approve" | "require_approval" | "block";
+      readonly position?: string;
+    },
   ) => Effect.Effect<unknown, unknown>;
 };
 
 /**
- * The agent's toolkit exists once this returns; a lost race keeps the winner's.
- * A tenant admin's first connect makes it the tenant's, so everyone who connects
- * under that name shares one agent and one tool list. A member's first connect
- * makes a personal one.
+ * The agent's workspace toolkit exists once this returns; a lost race keeps
+ * the winner's. Every agent is the workspace's, never someone's personal one:
+ * whoever connects under that name joins the same agent and tool list, and
+ * each person's picks of personal connections run as their own sign-ins.
+ *
+ * A personal toolkit the caller made earlier under the name moves to the
+ * workspace with its connections and rules, so nothing they picked is lost.
  */
-export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string, admin = false) =>
+export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string) =>
   Effect.gen(function* () {
-    const existing = yield* toolkits.list();
-    if (existing.some((toolkit) => toolkit.slug === slug)) return;
-    const created = yield* toolkits.create({ owner: admin ? "org" : "user", name: slug, slug });
-    yield* toolkits.createConnection(created.id, { pattern: "*" });
+    const existing = (yield* toolkits.list()).filter((toolkit) => toolkit.slug === slug);
+    if (existing.some((toolkit) => toolkit.owner === "org")) return;
+    const personal = existing.find((toolkit) => toolkit.owner === "user");
+    if (!personal) {
+      const created = yield* toolkits.create({ owner: "org", name: slug, slug });
+      yield* toolkits.createConnection(created.id, { pattern: "*" });
+      return;
+    }
+    const connections = yield* toolkits.listConnections(personal.id);
+    const policies = yield* toolkits.listPolicies(personal.id);
+    // The slug is unique among visible toolkits, so the personal one goes first.
+    yield* toolkits.remove(personal.id);
+    const created = yield* toolkits.create({ owner: "org", name: slug, slug });
+    for (const connection of connections) {
+      yield* toolkits.createConnection(created.id, {
+        pattern: connection.pattern,
+        position: connection.position,
+      });
+    }
+    for (const policy of policies) {
+      yield* toolkits.createPolicy(created.id, {
+        pattern: policy.pattern,
+        action: policy.action,
+        position: policy.position,
+      });
+    }
   }).pipe(Effect.ignore);

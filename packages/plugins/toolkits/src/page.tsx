@@ -160,8 +160,23 @@ const resolveToolkitPolicy = (
 const toolMatchId = (tool: ToolRow): string =>
   tool.static ? String(tool.address) : String(tool.address).replace(/^tools\./, "");
 
-const toolCanAppearInToolkit = (toolkit: ToolkitResponse, tool: ToolRow): boolean =>
-  toolkit.owner === "user" || tool.static === true || tool.owner !== "user";
+// A workspace toolkit picks personal connections only when the host allows it;
+// each caller then runs a pick through their own sign-in of that name.
+const toolCanAppearInToolkit = (
+  toolkit: ToolkitResponse,
+  tool: ToolRow,
+  takesPersonal: boolean,
+): boolean =>
+  toolkit.owner === "user" || takesPersonal || tool.static === true || tool.owner !== "user";
+
+/** Whether this host lets workspace toolkits pick personal connections. */
+const useWorkspaceTakesPersonal = (): boolean => {
+  const toolkits = useAtomValue(toolkitsAtom);
+  return (
+    AsyncResult.isSuccess(toolkits) &&
+    toolkits.value.workspaceToolkitsTakePersonalConnections === true
+  );
+};
 
 const toolkitUrlFor = (orgSlug: string | undefined, slug: string): string => {
   const path = orgSlug ? `/${orgSlug}/mcp/toolkits/${slug}` : `/mcp/toolkits/${slug}`;
@@ -497,14 +512,15 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
   const integrations = useAtomValue(integrationsOptimisticAtom);
   const connections = useAtomValue(toolkitConnectionsAtom(toolkit.id));
   const integrationPlugins = useIntegrationPlugins();
+  const takesPersonal = useWorkspaceTakesPersonal();
   const visibleTools = useMemo(
     () =>
       AsyncResult.isSuccess(tools)
         ? (tools.value as readonly ToolRow[]).filter((tool) =>
-            toolCanAppearInToolkit(toolkit, tool),
+            toolCanAppearInToolkit(toolkit, tool, takesPersonal),
           )
         : [],
-    [toolkit, tools],
+    [toolkit, tools, takesPersonal],
   );
   const connectionLabels = useConnectionLabels();
   const connectionGroups = useMemo(
@@ -1090,9 +1106,10 @@ function ToolkitWorkspace(props: {
 }) {
   const [addOpen, setAddOpen] = useState(false);
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
+  const takesPersonal = useWorkspaceTakesPersonal();
   const visibleTools = useMemo(
-    () => props.tools.filter((tool) => toolCanAppearInToolkit(props.toolkit, tool)),
-    [props.toolkit, props.tools],
+    () => props.tools.filter((tool) => toolCanAppearInToolkit(props.toolkit, tool, takesPersonal)),
+    [props.toolkit, props.tools, takesPersonal],
   );
   const connectionLabels = useConnectionLabels();
   const connectionGroups = useMemo(
