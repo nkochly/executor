@@ -105,12 +105,27 @@ describe("agent sign-in page", () => {
     { slug: "eichten", name: "Team Eichten" },
   ];
 
-  it("offers every workspace agent, then a new one", () => {
+  it("offers every workspace agent, then a new one, checked unless the name is listed", () => {
     const html = agentChoices(existing, "AI Studio");
-    expect(html).toContain('value="beta-agent" checked> Beta agent');
+    expect(html).toContain('value="beta-agent"> Beta agent');
     expect(html).toContain('value="eichten"> Team Eichten');
+    expect(html).toContain('value="+new" checked');
     expect(html).toContain('value="AI Studio"');
     expect(agentChoices([], "AI Studio")).toContain('value="+new" checked');
+  });
+
+  it("checks the listed agent whose name the app suggests", () => {
+    const html = agentChoices(existing, "Team-Eichten");
+    expect(html).toContain('value="eichten"> Team Eichten');
+    const named = agentChoices(existing, "Beta Agent");
+    expect(named).toContain('value="beta-agent" checked> Beta agent');
+    expect(named).not.toContain('value="+new" checked');
+  });
+
+  it("selects a new agent when a name is typed", () => {
+    const html = agentChoices(existing, "AI Studio");
+    expect(html).toContain(`oninput="document.getElementById('pick-new').checked=true"`);
+    expect(html).toContain('id="pick-new"');
   });
 
   it("joins a listed agent, or makes the one typed", () => {
