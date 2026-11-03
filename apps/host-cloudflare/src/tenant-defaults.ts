@@ -2,7 +2,7 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { Effect } from "effect";
 
 import type { HostConfigShape } from "@executor-js/api/server";
-import type { Executor } from "@executor-js/sdk";
+import { IntegrationSlug, type Executor } from "@executor-js/sdk";
 
 import type { CloudflareConfig } from "./config";
 import type { CloudflarePlugins } from "./plugins";
@@ -11,8 +11,9 @@ import { WEBEX_SERVERS, webexOAuthClients } from "./webex";
 // ---------------------------------------------------------------------------
 // Servers every tenant has without anyone adding them. Each person connects
 // their own account; nobody in the tenant has to add the server or approve its
-// tools first. Webex's servers are the only ones, once the company's Webex
-// integration holds real values.
+// tools first. They are the company's own servers (FIRST_PARTY_MCP: wiki,
+// Muster and the rest), then Webex's once the company's Webex integration
+// holds real values.
 //
 // Each server is added to a tenant once, ever (`tenant_default` in D1 records
 // it), with its tools approved except the ones that delete or remove. After
@@ -44,6 +45,19 @@ const WEBEX_BLOCKED: Readonly<Record<string, readonly string[]>> = {
 const webexDefaults = (): readonly DefaultServer[] =>
   WEBEX_SERVERS.map((server) => ({ ...server, blocked: WEBEX_BLOCKED[server.slug] ?? [] }));
 
+const firstPartyDefaults = (config: CloudflareConfig): readonly DefaultServer[] =>
+  config.firstParty.map((server) => ({
+    slug: server.slug,
+    name: server.name,
+    summary: `${server.name}, as yourself. Each sign-in picks one tenant; connect it again for another.`,
+    endpoint: server.endpoint,
+    blocked: [],
+  }));
+
+/** The name the console gives a server added by URL: its host. */
+const hostOf = (endpoint: string): string | null =>
+  URL.canParse(endpoint) ? new URL(endpoint).host : null;
+
 /** The integration slug the console gives a catalog server: its slug with underscores. */
 export const integrationSlugFor = (slug: string): string => slug.replaceAll("-", "_");
 
@@ -74,7 +88,22 @@ const seed = (executor: Executor, server: DefaultServer): Effect.Effect<void, un
         slug: integrationSlugFor(server.slug),
         auth: { kind: "oauth2" },
       })
-      .pipe(Effect.catchTag("IntegrationAlreadyExistsError", () => Effect.void));
+      .pipe(
+        Effect.catchTag("IntegrationAlreadyExistsError", () =>
+          // Added earlier by URL, it carries the URL's host as its name; give
+          // it the server's. A name an admin chose stands.
+          executor.integrations.get(IntegrationSlug.make(integrationSlugFor(server.slug))).pipe(
+            Effect.flatMap((existing) =>
+              existing && existing.name === hostOf(server.endpoint)
+                ? executor.integrations.update(existing.slug, {
+                    name: server.name,
+                    description: server.summary,
+                  })
+                : Effect.void,
+            ),
+          ),
+        ),
+      );
     for (const rule of defaultPolicies(server)) {
       yield* executor.policies.create({ owner: "org", ...rule });
     }
@@ -85,14 +114,17 @@ export const makeTenantDefaults = (
   db: D1Database,
   config: CloudflareConfig,
 ): HostConfigShape["tenantDefaults"] => {
-  if (config.webex === null) return undefined;
+  if (config.webex === null && config.firstParty.length === 0) return undefined;
   // Tenants this host config has already brought up to date.
   const settled = new Set<string>();
   return (tenant, seeder) =>
     Effect.gen(function* () {
       if (settled.has(tenant)) return;
-      const ready = yield* Effect.promise(() => webexOAuthClients(config));
-      if (ready.length === 0) return;
+      const webexReady =
+        config.webex !== null &&
+        (yield* Effect.promise(() => webexOAuthClients(config))).length > 0;
+      const defaults = [...firstPartyDefaults(config), ...(webexReady ? webexDefaults() : [])];
+      if (defaults.length === 0) return;
       yield* Effect.tryPromise(() => db.prepare(SCHEMA).run());
       const rows = yield* Effect.tryPromise(() =>
         db
@@ -101,7 +133,7 @@ export const makeTenantDefaults = (
           .all<{ item: string }>(),
       );
       const done = new Set(rows.results.map((row) => row.item));
-      const missing = webexDefaults().filter((server) => !done.has(server.slug));
+      const missing = defaults.filter((server) => !done.has(server.slug));
       if (missing.length > 0) {
         const executor = yield* seeder();
         for (const server of missing) {

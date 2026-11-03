@@ -23,7 +23,10 @@ const fakeD1 = (): D1Database => {
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 };
 
-const configWith = (webex: CloudflareConfig["webex"]): CloudflareConfig => ({
+const configWith = (
+  webex: CloudflareConfig["webex"],
+  firstParty: CloudflareConfig["firstParty"] = [],
+): CloudflareConfig => ({
   accessTeamDomain: "team.cloudflareaccess.com",
   accessAud: "aud",
   accessNameClaim: "name",
@@ -38,30 +41,48 @@ const configWith = (webex: CloudflareConfig["webex"]): CloudflareConfig => ({
   directory: null,
   operatorDirectory: null,
   agentSignIn: false,
-  firstParty: [],
+  firstParty,
   webex,
 });
 
 class IntegrationAlreadyExistsError extends Data.TaggedError("IntegrationAlreadyExistsError")<{}> {}
 
 // Records what the host's seeder executor was asked to do.
-const recordingExecutor = (existing: readonly string[] = []) => {
-  const added: string[] = [];
+// `existing` maps an integration slug already present to its name.
+const recordingExecutor = (existing: Readonly<Record<string, string>> | readonly string[] = []) => {
+  const names: Record<string, string> = Array.isArray(existing)
+    ? Object.fromEntries(existing.map((slug) => [slug, slug]))
+    : { ...existing };
+  const added: { slug: string; name: string }[] = [];
+  const renamed: { slug: string; name: string }[] = [];
   const policies: { pattern: string; action: string }[] = [];
   const executor = {
     mcp: {
-      addServer: (input: { slug: string }) =>
-        existing.includes(input.slug)
+      addServer: (input: { slug: string; name: string }) =>
+        input.slug in names
           ? Effect.fail(new IntegrationAlreadyExistsError())
-          : Effect.sync(() => void added.push(input.slug)),
+          : Effect.sync(() => void added.push({ slug: input.slug, name: input.name })),
+    },
+    integrations: {
+      get: (slug: string) => Effect.succeed(slug in names ? { slug, name: names[slug] } : null),
+      update: (slug: string, patch: { name: string }) =>
+        Effect.sync(() => void renamed.push({ slug, name: patch.name })),
     },
     policies: {
       create: (input: { owner: string; pattern: string; action: string }) =>
         Effect.sync(() => void policies.push({ pattern: input.pattern, action: input.action })),
     },
   };
-  // oxlint-disable-next-line executor/no-double-cast -- test boundary: only the surfaces tenant defaults use
-  return { executor: executor as unknown as Executor, added, policies };
+  return {
+    // oxlint-disable-next-line executor/no-double-cast -- test boundary: only the surfaces tenant defaults use
+    executor: executor as unknown as Executor,
+    get added() {
+      return added.map((entry) => entry.slug);
+    },
+    addedNames: added,
+    renamed,
+    policies,
+  };
 };
 
 const ready = { clientId: "cid", clientSecret: "secret" };
@@ -116,6 +137,42 @@ describe("tenant defaults", () => {
       ),
     );
     expect(seeded.added).toEqual(["webex_messaging"]);
+  });
+
+  const firstParty = [
+    { slug: "wiki", name: "Wiki", endpoint: "https://wiki-connect.example.dev/mcp" },
+    { slug: "muster", name: "Muster", endpoint: "https://muster-connect.example.dev/mcp" },
+  ];
+
+  it("adds the company's own servers by their names, with no Webex", async () => {
+    const seeded = recordingExecutor();
+    await Effect.runPromise(
+      makeTenantDefaults(fakeD1(), configWith(null, firstParty))!("acme", () =>
+        Effect.succeed(seeded.executor),
+      ),
+    );
+    expect(seeded.addedNames).toEqual([
+      { slug: "wiki", name: "Wiki" },
+      { slug: "muster", name: "Muster" },
+    ]);
+    expect(seeded.policies).toEqual([
+      { pattern: "wiki.*", action: "approve" },
+      { pattern: "muster.*", action: "approve" },
+    ]);
+  });
+
+  it("names a server added earlier by its URL, and keeps a name an admin chose", async () => {
+    const seeded = recordingExecutor({
+      muster: "muster-connect.example.dev",
+      wiki: "Team wiki",
+    });
+    await Effect.runPromise(
+      makeTenantDefaults(fakeD1(), configWith(null, firstParty))!("beta", () =>
+        Effect.succeed(seeded.executor),
+      ),
+    );
+    expect(seeded.added).toEqual([]);
+    expect(seeded.renamed).toEqual([{ slug: "muster", name: "Muster" }]);
   });
 
   it("puts each block above the approval it narrows", () => {
