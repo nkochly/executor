@@ -15,6 +15,7 @@ import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { env } from "cloudflare:workers";
 
 import type { D1Database } from "@cloudflare/workers-types";
+import type { McpPluginOptions } from "@executor-js/plugin-mcp";
 
 import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
@@ -46,6 +47,7 @@ export const CloudflareCodeExecutorProvider: Layer.Layer<CodeExecutorProvider> =
 
 export const makeCloudflarePluginsProvider = (
   config: CloudflareConfig,
+  callMeta?: McpPluginOptions["callMeta"],
 ): Layer.Layer<PluginsProvider> =>
   Layer.succeed(PluginsProvider)({
     plugins: (context) =>
@@ -55,6 +57,7 @@ export const makeCloudflarePluginsProvider = (
         allowLocalNetwork: config.allowLocalNetwork,
         catalog: catalogPresets(catalogNow(config)),
         personalOnlyOrigins: config.webex ? [WEBEX_MCP_ORIGIN] : [],
+        callMeta,
       }),
   });
 
@@ -90,12 +93,13 @@ export const makeCloudflareExecutionStackLayer = (
   config: CloudflareConfig,
   dbHandle: ExecutorDbHandle,
   db: D1Database,
+  callMeta?: McpPluginOptions["callMeta"],
 ): Layer.Layer<
   DbProvider | PluginsProvider | HostConfig | CodeExecutorProvider | EngineDecorator
 > =>
   Layer.mergeAll(
     dbProviderLayer(Effect.succeed(dbHandle)),
-    makeCloudflarePluginsProvider(config),
+    makeCloudflarePluginsProvider(config, callMeta),
     makeCloudflareHostConfig(config, db),
     CloudflareCodeExecutorProvider,
     EngineDecoratorNoop,

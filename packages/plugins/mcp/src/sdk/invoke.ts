@@ -359,6 +359,7 @@ const useConnection = (
   connection: McpConnection,
   toolName: string,
   args: Record<string, unknown>,
+  meta: Record<string, unknown> | undefined,
   elicit: Elicit,
   onToolListChanged: (() => void) | undefined,
 ): Effect.Effect<unknown, McpInvocationError | McpOAuthReauthorizationRequired> =>
@@ -372,7 +373,7 @@ const useConnection = (
     return yield* Effect.tryPromise({
       try: () =>
         connection.client.callTool(
-          { name: toolName, arguments: args },
+          { name: toolName, arguments: args, ...(meta === undefined ? {} : { _meta: meta }) },
           { signal: deadline.signal, timeout: MCP_SDK_TIMEOUT_BACKSTOP_MS },
         ),
       catch: (cause) => {
@@ -440,6 +441,8 @@ export interface InvokeMcpToolInput {
   /** The real MCP tool name advertised by the server. */
   readonly toolName: string;
   readonly args: unknown;
+  /** Request `_meta` sent with the call, when the host supplies one. */
+  readonly meta?: Record<string, unknown>;
   readonly transport: string;
   /** Dials a fresh connection when no reusable remote session is available. */
   readonly connector: McpConnector;
@@ -463,7 +466,14 @@ export const invokeMcpTool = (
   Effect.gen(function* () {
     const args = argsRecord(input.args);
     const use = (connection: McpConnection) =>
-      useConnection(connection, input.toolName, args, input.elicit, input.onToolListChanged);
+      useConnection(
+        connection,
+        input.toolName,
+        args,
+        input.meta,
+        input.elicit,
+        input.onToolListChanged,
+      );
 
     if (input.connectionPool && input.connectionPoolKey) {
       return yield* input.connectionPool.withConnection(

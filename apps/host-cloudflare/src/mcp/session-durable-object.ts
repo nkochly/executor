@@ -30,6 +30,7 @@ import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
 import { ensureAgentToolkit } from "../agent";
+import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
 import { readTeamPage, sessionInstructions } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
@@ -160,12 +161,24 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         config.directory && sessionMeta.email
           ? yield* readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email)
           : null;
+      // Calls to wiki and Muster say who is behind them (client, person,
+      // agent, guide); read lazily, since `initialize` lands after this build.
+      const callMeta = makeAttributionMeta({
+        origins: config.firstParty.map((server) => server.endpoint),
+        client: () => self.server?.server.getClientVersion(),
+        person: () => sessionMeta.email,
+        agent: sessionMeta.resource?.kind === "toolkit" ? sessionMeta.resource.slug : undefined,
+      });
       const { engine, executor } = yield* makeExecutionStack(
         sessionMeta.userId,
         sessionMeta.organizationId,
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
-      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB)));
+      ).pipe(
+        Effect.provide(
+          makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB, callMeta),
+        ),
+      );
       // Multi-tenant: an agent's first connection makes its toolkit, open to
       // everything the tenant approved; an admin's is the tenant's shared agent.
       // It is narrowed from the console; the tenant ceiling bounds it either way.
