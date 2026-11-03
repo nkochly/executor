@@ -45,7 +45,7 @@ let cached: { readonly at: number; readonly servers: readonly CatalogServer[] } 
 const fromFirstParty = (server: FirstPartyMcp): CatalogServer => ({
   slug: server.slug,
   name: server.name,
-  summary: `${server.name}. Connect it for yourself, or for the whole workspace as its team agent.`,
+  summary: `${server.name}, as yourself. Each sign-in picks one tenant; connect it again for another.`,
   endpoint: server.endpoint,
 });
 
