@@ -56,7 +56,7 @@ export const makeCloudflareApp = async (env: CloudflareEnv) => {
       engine: { codeExecutor: CloudflareCodeExecutorProvider },
       plugins: {
         provider: makeCloudflarePluginsProvider(config),
-        config: makeCloudflareHostConfig(config),
+        config: makeCloudflareHostConfig(config, env.DB),
       },
       errorCapture: ErrorCaptureLive,
       // The account API (`/api/account/*`) backs the shared multiplayer shell's

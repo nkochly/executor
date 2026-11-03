@@ -82,6 +82,7 @@ export {
   makeScopedExecutor,
   makePlatformExecutor,
   HostConfig,
+  TENANT_DEFAULTS_SUBJECT,
   PluginsProvider,
   RequestWebOrigin,
   RequestOrgSlug,

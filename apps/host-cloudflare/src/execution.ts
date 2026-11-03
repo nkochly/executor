@@ -14,9 +14,12 @@ import { makeDynamicWorkerExecutor } from "@executor-js/runtime-dynamic-worker";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { env } from "cloudflare:workers";
 
+import type { D1Database } from "@cloudflare/workers-types";
+
 import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
+import { makeTenantDefaults } from "./tenant-defaults";
 import { WEBEX_MCP_ORIGIN, webexOAuthClients } from "./webex";
 
 // ---------------------------------------------------------------------------
@@ -55,7 +58,10 @@ export const makeCloudflarePluginsProvider = (
       }),
   });
 
-export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<HostConfig> =>
+export const makeCloudflareHostConfig = (
+  config: CloudflareConfig,
+  db: D1Database,
+): Layer.Layer<HostConfig> =>
   Layer.effect(HostConfig)(
     Effect.promise(() => webexOAuthClients(config)).pipe(
       Effect.map((firstPartyOAuthClients) => ({
@@ -64,6 +70,8 @@ export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<
         oauthCallbackPath: "/api/oauth/callback",
         // Host-declared OAuth apps for servers with no dynamic registration.
         firstPartyOAuthClients,
+        // Servers every tenant has without an admin adding them.
+        tenantDefaults: makeTenantDefaults(db, config),
         // Multi-tenant: each tenant's admins approve what its connections may
         // use; a tool no admin approved is unavailable, whatever a toolkit says.
         ...(config.directory ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
@@ -81,13 +89,14 @@ export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<
 export const makeCloudflareExecutionStackLayer = (
   config: CloudflareConfig,
   dbHandle: ExecutorDbHandle,
+  db: D1Database,
 ): Layer.Layer<
   DbProvider | PluginsProvider | HostConfig | CodeExecutorProvider | EngineDecorator
 > =>
   Layer.mergeAll(
     dbProviderLayer(Effect.succeed(dbHandle)),
     makeCloudflarePluginsProvider(config),
-    makeCloudflareHostConfig(config),
+    makeCloudflareHostConfig(config, db),
     CloudflareCodeExecutorProvider,
     EngineDecoratorNoop,
   );

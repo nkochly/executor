@@ -150,7 +150,22 @@ export interface HostConfigShape {
    * request's database after background work finishes.
    */
   readonly waitUntil?: (promise: Promise<unknown>) => void;
+  /**
+   * Host-declared workspace defaults, run each time an executor is bound to a
+   * tenant. The host decides whether the tenant still needs them (and keeps
+   * that answer cheap), and builds them through `seeder`: an executor bound to
+   * the same tenant as the host itself, not as the acting member, so it can
+   * write org rows a member could not. It must not fail the request: the host
+   * absorbs its own errors and tries again on a later request.
+   */
+  readonly tenantDefaults?: (
+    tenant: string,
+    seeder: () => Effect.Effect<Executor, StorageFailure>,
+  ) => Effect.Effect<void>;
 }
+
+/** The subject a host's `tenantDefaults` act as. */
+export const TENANT_DEFAULTS_SUBJECT = "executor-host";
 
 export class HostConfig extends Context.Service<HostConfig, HostConfigShape>()(
   "@executor-js/sdk/HostConfig",
@@ -337,9 +352,8 @@ export const makeScopedExecutor = <
     // The org id is the tenant (catalog partition); the account id is the acting
     // subject (drives `owner: "user"` rows). `organizationName` is no longer part
     // of the executor binding — it stays on `AuthContext` for display.
-    const executor = yield* createExecutor({
+    const base = {
       tenant: Tenant.make(organizationId),
-      subject: Subject.make(accountId),
       db,
       blobs,
       plugins,
@@ -349,7 +363,7 @@ export const makeScopedExecutor = <
       ...(config.toolsSyncTtlMs !== undefined ? { toolsSyncTtlMs: config.toolsSyncTtlMs } : {}),
       ...(config.toolPolicyCeiling ? { toolPolicyCeiling: config.toolPolicyCeiling } : {}),
       ...(waitUntil !== undefined ? { waitUntil } : {}),
-      onElicitation: "accept-all",
+      onElicitation: "accept-all" as const,
       ...(options?.orgWrites === undefined ? {} : { orgWrites: options.orgWrites }),
       redirectUri,
       oauthCallbackStateOrgSlug: orgSlug,
@@ -363,7 +377,14 @@ export const makeScopedExecutor = <
         orgSlug,
         includeProviders: config.exposeCredentialProviders ?? true,
       },
-    });
+    };
+    const executor = yield* createExecutor({ ...base, subject: Subject.make(accountId) });
+    if (config.tenantDefaults) {
+      const { orgWrites: _memberWrites, ...hostBase } = base;
+      yield* config.tenantDefaults(organizationId, () =>
+        createExecutor({ ...hostBase, subject: Subject.make(TENANT_DEFAULTS_SUBJECT) }),
+      );
+    }
     // Record the sighting. THIS is the seam every HTTP request and MCP session
     // on every host passes through, so it is where the `subject` table gets
     // populated: a principal earns a row the first time it authenticates,

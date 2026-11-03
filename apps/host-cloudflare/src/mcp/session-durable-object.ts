@@ -156,7 +156,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         sessionMeta.organizationId,
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
-      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle)));
+      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB)));
       // Multi-tenant: an agent's first connection makes its toolkit, open to
       // everything the tenant approved; an admin's is the tenant's shared agent.
       // It is narrowed from the console; the tenant ceiling bounds it either way.
