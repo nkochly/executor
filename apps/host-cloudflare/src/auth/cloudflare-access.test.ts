@@ -20,6 +20,7 @@ const config: CloudflareConfig = {
   enableDevAuth: false,
   directory: null,
   firstParty: [],
+  webex: null,
 };
 
 describe("principalFromAccessClaims", () => {

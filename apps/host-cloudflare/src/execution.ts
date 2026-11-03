@@ -17,6 +17,7 @@ import { env } from "cloudflare:workers";
 import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
+import { WEBEX_MCP_ORIGIN, webexOAuthClients } from "./webex";
 
 // ---------------------------------------------------------------------------
 // Cloudflare execution-stack seams — the same shape as self-host (QuickJS code
@@ -50,18 +51,25 @@ export const makeCloudflarePluginsProvider = (
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
         catalog: catalogPresets(catalogNow(config)),
+        personalOnlyOrigins: config.webex ? [WEBEX_MCP_ORIGIN] : [],
       }),
   });
 
 export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<HostConfig> =>
-  Layer.succeed(HostConfig)({
-    allowLocalNetwork: config.allowLocalNetwork,
-    webBaseUrl: config.webBaseUrl,
-    oauthCallbackPath: "/api/oauth/callback",
-    // Multi-tenant: each tenant's admins approve what its connections may
-    // use; a tool no admin approved is unavailable, whatever a toolkit says.
-    ...(config.directory ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
-  });
+  Layer.effect(HostConfig)(
+    Effect.promise(() => webexOAuthClients(config)).pipe(
+      Effect.map((firstPartyOAuthClients) => ({
+        allowLocalNetwork: config.allowLocalNetwork,
+        webBaseUrl: config.webBaseUrl,
+        oauthCallbackPath: "/api/oauth/callback",
+        // Host-declared OAuth apps for servers with no dynamic registration.
+        firstPartyOAuthClients,
+        // Multi-tenant: each tenant's admins approve what its connections may
+        // use; a tool no admin approved is unavailable, whatever a toolkit says.
+        ...(config.directory ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
+      })),
+    ),
+  );
 
 /**
  * The five execution-stack seams the shared `makeExecutionStack` reads from,
