@@ -3,6 +3,7 @@ import { Effect, Option, Schema } from "effect";
 import { EXECUTOR_ORG_SELECTOR_HEADER } from "@executor-js/sdk/shared";
 
 import type { TenantDirectoryConfig } from "./config";
+import { PLAYBOOK_RULE } from "./mcp/playbook-rule";
 
 // ---------------------------------------------------------------------------
 // Multi-tenant routing. The URL names the tenant: MCP clients dial
@@ -215,3 +216,11 @@ export const teamPageInstructions = (page: TeamPage): string =>
     "",
     page.body,
   ].join("\n");
+
+/**
+ * The instructions every MCP session starts with: the playbook-first rule,
+ * then the team page when the caller can read one. The rule stands alone when
+ * there is no page, so a session never starts without it.
+ */
+export const sessionInstructions = (page: TeamPage | null): string =>
+  page ? `${PLAYBOOK_RULE}\n\n${teamPageInstructions(page)}` : PLAYBOOK_RULE;
