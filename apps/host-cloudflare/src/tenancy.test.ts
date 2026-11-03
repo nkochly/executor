@@ -5,6 +5,8 @@ import {
   ORIGINAL_PATH_HEADER,
   resolveTenant,
   isOperator,
+  readTeamPage,
+  teamPageInstructions,
   routeTenantRequest,
   TENANT_HEADER,
   tenantRewrite,
@@ -111,6 +113,28 @@ describe("resolveTenant", () => {
       expect(yield* isOperator(directory, "lead@acme.com")).toBe(false);
       vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
       expect(yield* isOperator(directory, "ops@acme.com")).toBe(false);
+    }),
+  );
+
+  it.effect("reads the tenant's team page for the caller, and none when the wiki gives none", () =>
+    Effect.gen(function* () {
+      const page = {
+        wiki: "acme/root",
+        path: "how-we-work.md",
+        starter: false,
+        version: 3,
+        author: "lead@acme.com",
+        body: "<<<TEAM_PAGE>>>\n║ # How we work\n║ Stand-ups go in Muster.\n<<<END_TEAM_PAGE>>>",
+      };
+      stub({ "/tenants/acme/members/dev%40acme.com/team-page": page });
+      const read = yield* readTeamPage(directory, "acme", "Dev@acme.com");
+      expect(read?.version).toBe(3);
+      const text = teamPageInstructions(read!);
+      expect(text).toContain("how-we-work.md in the acme/root wiki, version 3");
+      expect(text.endsWith(page.body)).toBe(true);
+      expect(yield* readTeamPage(directory, "beta", "dev@acme.com")).toBeNull();
+      stub({ "/tenants/acme/members/dev%40acme.com/team-page": { wiki: "acme/root" } });
+      expect(yield* readTeamPage(directory, "acme", "dev@acme.com")).toBeNull();
     }),
   );
 
