@@ -4,6 +4,7 @@ import { Effect, Option, Schema } from "effect";
 import { makeAccessVerifier } from "./auth/cloudflare-access";
 import type { CloudflareConfig, FirstPartyMcp } from "./config";
 import { isOperator } from "./tenancy";
+import { WEBEX_SERVERS, webexOAuthClients } from "./webex";
 
 // ---------------------------------------------------------------------------
 // The company's MCP server catalog. Platform admins (the wiki's operators) add a server
@@ -14,7 +15,9 @@ import { isOperator } from "./tenancy";
 // blocked until the tenant approves them.
 // Removing an entry leaves tenants that already added it untouched.
 //
-// FIRST_PARTY_MCP entries are always listed, ahead of the stored ones.
+// FIRST_PARTY_MCP entries are always listed, ahead of the stored ones, then
+// Webex's servers once the company's Webex integration holds real values. Their
+// slugs stay reserved while the integration is bound at all.
 // ---------------------------------------------------------------------------
 
 export interface CatalogServer {
@@ -54,6 +57,15 @@ const readStored = async (db: D1Database): Promise<readonly CatalogServer[]> => 
   return rows.results;
 };
 
+/** The entries the host config lists, which a platform admin cannot remove. */
+const fixedEntries = (config: CloudflareConfig, webexReady: boolean): readonly CatalogServer[] => [
+  ...config.firstParty.map(fromFirstParty),
+  ...(webexReady ? WEBEX_SERVERS : []),
+];
+
+const reserved = (config: CloudflareConfig, slug: string): boolean =>
+  fixedEntries(config, config.webex !== null).some((f) => f.slug === slug);
+
 /** Refreshes this isolate's copy of the catalog when it is stale. */
 export const refreshCatalog = async (
   db: D1Database,
@@ -65,7 +77,8 @@ export const refreshCatalog = async (
       Effect.orElseSucceed(() => cached?.servers ?? []),
     ),
   );
-  const fixed = config.firstParty.map(fromFirstParty);
+  const webexReady = (await webexOAuthClients(config)).length > 0;
+  const fixed = fixedEntries(config, webexReady);
   const servers = [...fixed, ...stored.filter((s) => !fixed.some((f) => f.slug === s.slug))];
   cached = { at: Date.now(), servers };
   return servers;
@@ -73,7 +86,7 @@ export const refreshCatalog = async (
 
 /** This isolate's copy of the catalog, as of the last refresh. */
 export const catalogNow = (config: CloudflareConfig): readonly CatalogServer[] =>
-  cached?.servers ?? config.firstParty.map(fromFirstParty);
+  cached?.servers ?? fixedEntries(config, false);
 
 /** The catalog as MCP add-screen presets. */
 export const catalogPresets = (servers: readonly CatalogServer[]) =>
@@ -155,7 +168,7 @@ export const handlePlatform = async (
     return json({
       servers: servers.map((s) => ({
         ...s,
-        removable: !config.firstParty.some((f) => f.slug === s.slug),
+        removable: !reserved(config, s.slug),
       })),
     });
   }
@@ -175,7 +188,7 @@ export const handlePlatform = async (
     if (!URL.canParse(endpoint) || new URL(endpoint).protocol !== "https:") {
       return json({ error: "The endpoint must be an https URL." }, 400);
     }
-    if (config.firstParty.some((f) => f.slug === slug)) {
+    if (reserved(config, slug)) {
       return json({ error: `"${slug}" is already listed.` }, 409);
     }
     const inserted = await db

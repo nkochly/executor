@@ -20,7 +20,10 @@ const fakeD1 = (): D1Database => {
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 };
 
-const configFor = (adminEmails: string[]): CloudflareConfig => ({
+const configFor = (
+  adminEmails: string[],
+  webex: CloudflareConfig["webex"] = null,
+): CloudflareConfig => ({
   accessTeamDomain: "team.cloudflareaccess.com",
   accessAud: "aud",
   accessNameClaim: "name",
@@ -34,6 +37,7 @@ const configFor = (adminEmails: string[]): CloudflareConfig => ({
   enableDevAuth: true,
   directory: null,
   firstParty: [{ slug: "wiki", name: "Wiki", endpoint: "https://wiki.example/mcp" }],
+  webex,
 });
 
 const API = "https://executor.example/api/platform/mcp-servers";
@@ -82,6 +86,40 @@ describe("company MCP catalog", () => {
       configFor(["ops@example.com"]),
     );
     expect(plain?.status).toBe(400);
+  });
+
+  it("lists Webex's servers, fixed, once the Webex integration is configured", async () => {
+    const db = fakeD1();
+    const read = async (config: CloudflareConfig) => {
+      const response = await handlePlatform(new Request(API), db, config);
+      const body = (await response?.json()) as {
+        servers: { slug: string; endpoint: string; removable: boolean }[];
+      };
+      return body.servers;
+    };
+    expect((await read(configFor([]))).map((s) => s.slug)).toEqual(["wiki"]);
+    const unset = configFor([], { clientId: "placeholder", clientSecret: "placeholder" });
+    expect((await read(unset)).map((s) => s.slug)).toEqual(["wiki"]);
+    const webex = configFor(["ops@example.com"], { clientId: "id", clientSecret: "secret" });
+    expect(await read(webex)).toEqual([
+      expect.objectContaining({ slug: "wiki" }),
+      expect.objectContaining({
+        slug: "webex-meetings",
+        endpoint: "https://mcp.webexapis.com/mcp/webex-meeting",
+        removable: false,
+      }),
+      expect.objectContaining({
+        slug: "webex-messaging",
+        endpoint: "https://mcp.webexapis.com/mcp/webex-messaging",
+        removable: false,
+      }),
+    ]);
+    const taken = await handlePlatform(
+      add({ slug: "webex-meetings", name: "Mine", endpoint: "https://x.example/mcp" }),
+      db,
+      webex,
+    );
+    expect(taken?.status).toBe(409);
   });
 
   it("leaves other paths alone", async () => {
