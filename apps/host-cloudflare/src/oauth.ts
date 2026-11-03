@@ -6,7 +6,7 @@ import type { Principal } from "@executor-js/host-mcp";
 import { makeAccessVerifier, principalFromAccessClaims } from "./auth/cloudflare-access";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import { AGENT_SLUG, agentRequest, agentSlug, type AgentGrant } from "./agent";
-import { listMemberships, resolveTenant } from "./tenancy";
+import { isOperator, listMemberships, resolveTenant } from "./tenancy";
 
 // ---------------------------------------------------------------------------
 // Executor's own MCP sign-in. A client dials one URL, `/mcp`, and signs in
@@ -46,22 +46,24 @@ const authorize = async (
   env: CloudflareEnv & { OAUTH_PROVIDER: Helpers },
   config: CloudflareConfig,
 ): Promise<Response> => {
-  const directory = config.directory!;
+  const directory = config.directory;
   const { verifyClaims } = makeAccessVerifier(config);
   const claims = await Effect.runPromise(verifyClaims(request));
   const email = typeof claims?.email === "string" ? claims.email.toLowerCase() : "";
   if (!claims || !email)
     return page("<p>Sign in through Cloudflare Access first.</p>", undefined, 401);
   const helpers = env.OAUTH_PROVIDER;
-  const memberships = await Effect.runPromise(listMemberships(directory, email));
+  // One company org: everyone Access signs in acts there as themselves, and
+  // nobody picks a tenant. Per-tenant: the directory lists the tenants to pick.
+  const memberships = directory ? await Effect.runPromise(listMemberships(directory, email)) : [];
 
   if (request.method === "POST") {
     const form = await request.formData();
-    const tenant = String(form.get("tenant") ?? "");
+    const tenant = directory ? String(form.get("tenant") ?? "") : config.organizationId;
     const agentName = String(form.get("agent") ?? "").trim();
     const agent = agentSlug(agentName);
     const handle = String(form.get("handle") ?? "");
-    if (!memberships.some((m) => m.tenant.slug === tenant)) {
+    if (directory && !memberships.some((m) => m.tenant.slug === tenant)) {
       return page("<p>That tenant is not one you belong to.</p>", undefined, 403);
     }
     if (!AGENT_SLUG.test(agent)) {
@@ -82,6 +84,9 @@ const authorize = async (
       clientId: approved.request.clientId,
     };
     const { redirectTo } = await helpers.completeAuthorization({
+      // Each agent a person connects through one client is its own grant;
+      // connecting a second must not sign the first out.
+      revokeExistingGrants: false,
       request: approved.request,
       userId: encodeURIComponent(email),
       metadata: { tenant, agent },
@@ -93,13 +98,13 @@ const authorize = async (
   }
 
   const authRequest = await helpers.parseAuthRequest(request);
-  if (memberships.length === 0) {
+  if (directory && memberships.length === 0) {
     return page("<p>You are not in any tenant yet. Ask a tenant owner to add you.</p>");
   }
   const consent = await helpers.beginConsent(authRequest);
   const client = await helpers.describeConsent(authRequest);
   const clientName = client.clientName ?? "This app";
-  const tenants = memberships
+  const tenants = (directory ? memberships : [])
     .map(
       (m, i) =>
         `<label><input type="radio" name="tenant" value="${escapeHtml(m.tenant.slug)}"${i === 0 ? " checked" : ""}> ${escapeHtml(m.tenant.name)}</label>`,
@@ -107,12 +112,31 @@ const authorize = async (
     .join("");
   return page(
     `<h1>Connect an agent</h1>` +
-      `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}) in one tenant, as one agent, with that agent's tools only.</p>` +
-      `<form method="post"><h2>Tenant</h2>${tenants}` +
+      (directory
+        ? `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}) in one tenant, as one agent, with that agent's tools only.</p>` +
+          `<form method="post"><h2>Tenant</h2>${tenants}`
+        : `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}), as one agent, with that agent's tools only.</p>` +
+          `<form method="post">`) +
       `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
       `<p class="hint">Using a name again reconnects that agent with its tool list. A new name starts a new agent.</p>` +
       `<input type="hidden" name="handle" value="${escapeHtml(consent.handle)}"><button type="submit">Connect</button></form>`,
     consent.headers,
+  );
+};
+
+/**
+ * One company org: whether the person still belongs to the company, read on
+ * every call so removing them ends their agents at once. With a directory,
+ * the wiki must still list them in some tenant or as an operator; which tenant
+ * does not matter here. Without one, Access's sign-in is the only check.
+ */
+const stillListed = (config: CloudflareConfig, email: string): Effect.Effect<boolean> => {
+  const directory = config.operatorDirectory;
+  if (directory === null) return Effect.succeed(true);
+  return listMemberships(directory, email).pipe(
+    Effect.flatMap((memberships) =>
+      memberships.length > 0 ? Effect.succeed(true) : isOperator(directory, email),
+    ),
   );
 };
 
@@ -121,15 +145,26 @@ export const principalForGrant = (
   grant: AgentGrant,
   config: CloudflareConfig,
 ): Effect.Effect<Principal | null> =>
-  resolveTenant(config.directory!, grant.email, grant.tenant).pipe(
-    Effect.map((membership) =>
-      principalFromAccessClaims(
-        { sub: grant.accountId, email: grant.email, name: grant.name ?? undefined },
-        config,
-        membership,
-      ),
-    ),
-  );
+  config.directory === null
+    ? stillListed(config, grant.email).pipe(
+        Effect.map((listed) =>
+          listed
+            ? principalFromAccessClaims(
+                { sub: grant.accountId, email: grant.email, name: grant.name ?? undefined },
+                config,
+              )
+            : null,
+        ),
+      )
+    : resolveTenant(config.directory, grant.email, grant.tenant).pipe(
+        Effect.map((membership) =>
+          principalFromAccessClaims(
+            { sub: grant.accountId, email: grant.email, name: grant.name ?? undefined },
+            config,
+            membership,
+          ),
+        ),
+      );
 
 const unauthorized = (): Response =>
   new Response(
@@ -149,6 +184,9 @@ type Serve = {
     bound?: Principal,
   ) => Promise<Response>;
 };
+
+/** How long an unused agent sign-in lasts, in seconds. */
+export const AGENT_IDLE_TTL = 7 * 86_400;
 
 const providers = new Map<string, OAuthProvider<CloudflareEnv>>();
 
@@ -189,8 +227,11 @@ export const oauthProviderFor = (
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
-    // Access re-checks the person at most a day apart, as its own session does.
-    refreshTokenTTL: 86_400,
+    // An agent stays signed in while it is used and ends after a week idle.
+    // The person is re-checked on every call (membership, or Access's admin
+    // list), so removing them still takes effect at once.
+    refreshTokenTTL: AGENT_IDLE_TTL,
+    refreshTokenIdleTTL: AGENT_IDLE_TTL,
   });
   providers.set(host, provider);
   return provider;

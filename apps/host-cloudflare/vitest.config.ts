@@ -11,5 +11,6 @@ export default defineConfig({
   test: {
     include: ["src/**/*.test.ts"],
     passWithNoTests: true,
+    server: { deps: { inline: ["@cloudflare/workers-oauth-provider"] } },
   },
 });

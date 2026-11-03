@@ -122,10 +122,10 @@ const platformAdmin = async (
   const claims = await Effect.runPromise(makeAccessVerifier(config).verifyClaims(request));
   const email = typeof claims?.email === "string" ? claims.email.toLowerCase() : "";
   if (!email) return null;
-  // Multi-tenant: the wiki's operators, the one platform admin list. Single
-  // tenant: ADMIN_EMAILS.
-  const admin = config.directory
-    ? await Effect.runPromise(isOperator(config.directory, email))
+  // With a directory: the wiki's operators, the one platform admin list.
+  // Without one: ADMIN_EMAILS.
+  const admin = config.operatorDirectory
+    ? await Effect.runPromise(isOperator(config.operatorDirectory, email))
     : config.adminEmails.includes(email);
   return admin ? email : null;
 };

@@ -73,6 +73,15 @@ export interface CloudflareEnv {
    * keeps the single configured org.
    */
   readonly TENANT_DIRECTORY_URL?: string;
+  /**
+   * `company`: one Executor for everyone. The directory then names only the
+   * platform admins (the wiki's operators); every Access identity signs in to
+   * the one configured org as themselves, and each agent it connects is that
+   * person's own toolkit. Tenants appear only where a connected server asks
+   * for one at its own sign-in. Unset or `tenant`: the directory partitions
+   * Executor by tenant, as above.
+   */
+  readonly EXECUTOR_TENANCY?: string;
   /** Access service token the directory is read with (a `wrangler secret`). */
   readonly TENANT_DIRECTORY_CLIENT_ID?: string;
   readonly TENANT_DIRECTORY_CLIENT_SECRET?: string;
@@ -124,6 +133,10 @@ export interface CloudflareConfig {
   readonly enableDevAuth: boolean;
   /** The tenant membership directory; `null` is single-tenant mode. */
   readonly directory: TenantDirectoryConfig | null;
+  /** Where the platform admins (operators) are read; `null` uses ADMIN_EMAILS. */
+  readonly operatorDirectory: TenantDirectoryConfig | null;
+  /** Agent sign-in: Executor's own MCP OAuth issues every `/mcp` token. */
+  readonly agentSignIn: boolean;
   readonly firstParty: readonly FirstPartyMcp[];
   /** The company's Webex integration; `null` when none is configured. */
   readonly webex: WebexIntegration | null;
@@ -161,6 +174,17 @@ export interface TenantDirectoryConfig {
   readonly clientId?: string;
   readonly clientSecret?: string;
 }
+
+/** One Executor for everyone: the directory names only the platform admins. */
+export const companyTenancy = (env: Pick<CloudflareEnv, "EXECUTOR_TENANCY">): boolean =>
+  (env.EXECUTOR_TENANCY ?? "").trim().toLowerCase() === "company";
+
+/** Agent sign-in runs when its KV is bound, with a tenant directory or one company org. */
+export const agentSignInEnabled = (
+  env: Pick<CloudflareEnv, "OAUTH_KV" | "TENANT_DIRECTORY_URL" | "EXECUTOR_TENANCY">,
+): boolean =>
+  env.OAUTH_KV !== undefined &&
+  (companyTenancy(env) || (env.TENANT_DIRECTORY_URL ?? "").trim().length > 0);
 
 const resolveDirectory = (env: CloudflareConfigEnv): TenantDirectoryConfig | null => {
   const url = env.TENANT_DIRECTORY_URL?.trim().replace(/\/+$/, "");
@@ -274,7 +298,9 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
     // mirroring self-host (gated on enableDevAuth = local `wrangler dev`).
     webBaseUrl,
     enableDevAuth,
-    directory: resolveDirectory(env),
+    directory: companyTenancy(env) ? null : resolveDirectory(env),
+    operatorDirectory: resolveDirectory(env),
+    agentSignIn: agentSignInEnabled(env),
     firstParty: resolveFirstParty(env.FIRST_PARTY_MCP),
     webex:
       env.WEBEX_CLIENT_ID && env.WEBEX_CLIENT_SECRET
