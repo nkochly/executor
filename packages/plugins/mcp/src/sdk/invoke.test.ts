@@ -261,6 +261,38 @@ describe("invokeMcpTool", () => {
     expect(await invocation).toBe("failed");
   });
 
+  it.effect("sends the host's request _meta with the call, and none without it", () =>
+    Effect.gen(function* () {
+      const sent: unknown[] = [];
+      const connector: McpConnector = Effect.succeed({
+        // oxlint-disable-next-line executor/no-double-cast -- boundary: minimal fake MCP client implements only invokeMcpTool's surface
+        client: {
+          setRequestHandler: () => undefined,
+          setNotificationHandler: () => undefined,
+          callTool: async (params: unknown) => {
+            sent.push(params);
+            return { content: [] };
+          },
+        } as unknown as McpConnection["client"],
+        close: () => Promise.resolve(),
+      });
+      const base = {
+        toolId: "write",
+        toolName: "write",
+        args: { a: 1 },
+        transport: "streamable-http",
+        connector,
+        elicit: acceptAll,
+      };
+      yield* invokeMcpTool({ ...base, meta: { "example.test/label": { person: "p" } } });
+      yield* invokeMcpTool(base);
+      expect(sent).toEqual([
+        { name: "write", arguments: { a: 1 }, _meta: { "example.test/label": { person: "p" } } },
+        { name: "write", arguments: { a: 1 } },
+      ]);
+    }),
+  );
+
   it("interrupts an elicitation when the MCP connection closes", async () => {
     let requestHandler:
       | ((request: { params: unknown }, context: ClientContext) => Promise<unknown>)

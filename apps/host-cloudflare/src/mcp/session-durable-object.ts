@@ -30,6 +30,7 @@ import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
 import { ensureAgentToolkit } from "../agent";
+import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
 import { preloadQuickJs } from "../quickjs";
 
@@ -56,6 +57,13 @@ type CfSessionDbHandle = ExecutorDbHandle & { readonly end: () => Promise<void> 
 class McpModelResumeForwardError extends Data.TaggedError("McpModelResumeForwardError")<{
   readonly cause: unknown;
 }> {}
+
+/** The signed-in person's email the agent handler put in the session props. */
+const sessionPerson = (props: unknown): string | undefined => {
+  if (typeof props !== "object" || props === null) return undefined;
+  const person = (props as { readonly person?: unknown }).person;
+  return typeof person === "string" && person ? person : undefined;
+};
 
 export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSessionDbHandle> {
   private readonly cfEnv: CloudflareEnv;
@@ -151,12 +159,20 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
       const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
+      // Calls to wiki and Muster say who is behind them (client, person,
+      // agent, guide); read lazily, since `initialize` lands after this build.
+      const callMeta = makeAttributionMeta({
+        origins: config.firstParty.map((server) => server.endpoint),
+        client: () => self.server?.server.getClientVersion(),
+        person: () => sessionPerson(self.props),
+        agent: sessionMeta.resource?.kind === "toolkit" ? sessionMeta.resource.slug : undefined,
+      });
       const { engine, executor } = yield* makeExecutionStack(
         sessionMeta.userId,
         sessionMeta.organizationId,
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
-      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle)));
+      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, callMeta)));
       // Multi-tenant: an agent's first connection makes its toolkit, open to
       // everything the tenant approved; an admin's is the tenant's shared agent.
       // It is narrowed from the console; the tenant ceiling bounds it either way.

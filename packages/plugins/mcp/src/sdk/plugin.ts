@@ -966,6 +966,19 @@ export interface McpPluginOptions {
    * build time. The response is `{ servers: [{ slug, name, summary, endpoint }] }`.
    */
   readonly catalogUrl?: string;
+  /**
+   * Request `_meta` the host adds to one outbound remote `tools/call`, or
+   * undefined for none. Called once per call, before it is sent, with the
+   * server's endpoint and the tool's real name and arguments.
+   */
+  readonly callMeta?: (call: McpCallMetaInput) => Record<string, unknown> | undefined;
+}
+
+/** What `McpPluginOptions.callMeta` is told about one outbound tool call. */
+export interface McpCallMetaInput {
+  readonly endpoint: string;
+  readonly toolName: string;
+  readonly args: unknown;
 }
 
 /** Whether `endpoint` is on one of `origins` (scheme + host + port). */
@@ -1775,10 +1788,16 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
         // tools read re-lists instead of serving the drifted catalog.
         let toolListChanged = false;
 
+        const meta =
+          parsed.transport === "remote"
+            ? options?.callMeta?.({ endpoint: parsed.endpoint, toolName: stamp.toolName, args })
+            : undefined;
+
         const raw = yield* invokeMcpTool({
           toolId: String(toolRow.name),
           toolName: stamp.toolName,
           args,
+          ...(meta === undefined ? {} : { meta }),
           transport,
           connector,
           ...(poolKey === undefined ? {} : { connectionPool, connectionPoolKey: poolKey }),

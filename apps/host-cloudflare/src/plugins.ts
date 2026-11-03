@@ -33,6 +33,8 @@ export const makeCloudflarePlugins = (
     readonly personalOnlyOrigins?: readonly string[];
     /** The company catalog, listed first on every tenant's add screen. */
     readonly catalog?: McpPluginOptions["catalog"];
+    /** Request `_meta` added to outbound MCP calls (write attribution). */
+    readonly callMeta?: McpPluginOptions["callMeta"];
   } = {},
 ) =>
   [
@@ -44,6 +46,7 @@ export const makeCloudflarePlugins = (
       dangerouslyAllowStdioMCP: false,
       personalOnlyOrigins: options.personalOnlyOrigins,
       catalog: options.catalog,
+      callMeta: options.callMeta,
     }),
     graphqlHttpPlugin(),
     toolkitsPlugin({ activeToolkitSlug: options.activeToolkitSlug }),

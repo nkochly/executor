@@ -14,6 +14,8 @@ import { makeDynamicWorkerExecutor } from "@executor-js/runtime-dynamic-worker";
 import { makeQuickJsExecutor } from "@executor-js/runtime-quickjs";
 import { env } from "cloudflare:workers";
 
+import type { McpPluginOptions } from "@executor-js/plugin-mcp";
+
 import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
@@ -42,6 +44,7 @@ export const CloudflareCodeExecutorProvider: Layer.Layer<CodeExecutorProvider> =
 
 export const makeCloudflarePluginsProvider = (
   config: CloudflareConfig,
+  callMeta?: McpPluginOptions["callMeta"],
 ): Layer.Layer<PluginsProvider> =>
   Layer.succeed(PluginsProvider)({
     plugins: (context) =>
@@ -50,6 +53,7 @@ export const makeCloudflarePluginsProvider = (
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
         catalog: catalogPresets(catalogNow(config)),
+        callMeta,
       }),
   });
 
@@ -73,12 +77,13 @@ export const makeCloudflareHostConfig = (config: CloudflareConfig): Layer.Layer<
 export const makeCloudflareExecutionStackLayer = (
   config: CloudflareConfig,
   dbHandle: ExecutorDbHandle,
+  callMeta?: McpPluginOptions["callMeta"],
 ): Layer.Layer<
   DbProvider | PluginsProvider | HostConfig | CodeExecutorProvider | EngineDecorator
 > =>
   Layer.mergeAll(
     dbProviderLayer(Effect.succeed(dbHandle)),
-    makeCloudflarePluginsProvider(config),
+    makeCloudflarePluginsProvider(config, callMeta),
     makeCloudflareHostConfig(config),
     CloudflareCodeExecutorProvider,
     EngineDecoratorNoop,

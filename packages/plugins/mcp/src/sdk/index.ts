@@ -5,6 +5,7 @@ export {
   userFacingProbeMessage,
   type McpPluginExtension,
   type McpPluginOptions,
+  type McpCallMetaInput,
   type McpServerInput,
   type McpRemoteServerInput,
   type McpStdioServerInput,
