@@ -15,7 +15,7 @@ describe("the playbook-first rule", () => {
   });
 
   it("is the whole instructions when the caller has no team page", () => {
-    expect(sessionInstructions(null)).toBe(PLAYBOOK_RULE);
+    expect(sessionInstructions([])).toBe(PLAYBOOK_RULE);
   });
 
   it("opens the instructions, with the team page after it", () => {
@@ -26,7 +26,25 @@ describe("the playbook-first rule", () => {
       version: 3,
       body: "<<<TEAM_PAGE>>>\n║ # How we work\n<<<END_TEAM_PAGE>>>",
     };
-    expect(sessionInstructions(page)).toBe(`${PLAYBOOK_RULE}\n\n${teamPageInstructions(page)}`);
+    expect(sessionInstructions([page])).toBe(`${PLAYBOOK_RULE}\n\n${teamPageInstructions(page)}`);
+  });
+
+  it("keeps one page per team, each named by its wiki, when the person is in several", () => {
+    const page = (wiki: string) => ({
+      wiki,
+      path: "how-we-work.md",
+      starter: true,
+      version: 0,
+      body: `<<<TEAM_PAGE>>>\n║ ${wiki}\n<<<END_TEAM_PAGE>>>`,
+    });
+    expect(sessionInstructions([])).toBe(PLAYBOOK_RULE);
+    expect(sessionInstructions([page("acme/root")])).toBe(
+      `${PLAYBOOK_RULE}\n\n${teamPageInstructions(page("acme/root"))}`,
+    );
+    const both = sessionInstructions([page("acme/root"), page("beta/root")]);
+    expect(both.startsWith(`${PLAYBOOK_RULE}\n\nYou work with 2 teams.`)).toBe(true);
+    expect(both).toContain(teamPageInstructions(page("acme/root")));
+    expect(both).toContain(teamPageInstructions(page("beta/root")));
   });
 
   it("says nothing about shells or running code", () => {

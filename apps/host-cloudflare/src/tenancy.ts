@@ -222,5 +222,36 @@ export const teamPageInstructions = (page: TeamPage): string =>
  * then the team page when the caller can read one. The rule stands alone when
  * there is no page, so a session never starts without it.
  */
-export const sessionInstructions = (page: TeamPage | null): string =>
-  page ? `${PLAYBOOK_RULE}\n\n${teamPageInstructions(page)}` : PLAYBOOK_RULE;
+export const sessionInstructions = (list: readonly TeamPage[]): string => {
+  if (list.length === 0) return PLAYBOOK_RULE;
+  const intro =
+    list.length > 1
+      ? [
+          `You work with ${list.length} teams. Each has its own "how we work" page below, named by its wiki. Follow the page of the team whose wiki or Muster tenant the task is in.`,
+        ]
+      : [];
+  return [PLAYBOOK_RULE, ...intro, ...list.map(teamPageInstructions)].join("\n\n");
+};
+
+/** Most team pages one session reads: one per tenant the person is in. */
+export const MAX_TEAM_PAGES = 5;
+
+/**
+ * One company org: the "how we work" page of every tenant the directory lists
+ * the person in, each read as this person may read it. A tenant whose page
+ * cannot be read is left out.
+ */
+export const readTeamPages = (
+  directory: TenantDirectoryConfig,
+  identity: string,
+): Effect.Effect<readonly TeamPage[]> =>
+  listMemberships(directory, identity).pipe(
+    Effect.flatMap((memberships) =>
+      Effect.forEach(
+        memberships.slice(0, MAX_TEAM_PAGES),
+        (m) => readTeamPage(directory, m.tenant.slug, identity),
+        { concurrency: "unbounded" },
+      ),
+    ),
+    Effect.map((pages) => pages.flatMap((page) => (page === null ? [] : [page]))),
+  );

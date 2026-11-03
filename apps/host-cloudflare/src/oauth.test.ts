@@ -3,6 +3,7 @@ import { Effect } from "effect";
 
 import { loadConfig } from "./config";
 import { principalForGrant } from "./oauth";
+import { readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
 
 const DIRECTORY = "https://dir.test/api/directory";
@@ -71,6 +72,29 @@ describe("company tenancy", () => {
     Effect.gen(function* () {
       stub({ "/members/dev%40acme.com": [] });
       expect(yield* principalForGrant(grant, companyConfig())).toBeNull();
+    }),
+  );
+
+  it.effect("reads the team page of every tenant the person is in", () =>
+    Effect.gen(function* () {
+      const page = (wiki: string) => ({
+        wiki,
+        path: "how-we-work.md",
+        starter: true,
+        version: 0,
+        body: wiki,
+      });
+      stub({
+        "/members/dev%40acme.com": [
+          { tenant: { slug: "acme", name: "Acme" }, role: "member" },
+          { tenant: { slug: "beta", name: "Beta" }, role: "owner" },
+          { tenant: { slug: "gone", name: "Gone" }, role: "member" },
+        ],
+        "/tenants/acme/members/dev%40acme.com/team-page": page("acme/root"),
+        "/tenants/beta/members/dev%40acme.com/team-page": page("beta/root"),
+      });
+      const pages = yield* readTeamPages(companyConfig().operatorDirectory!, "dev@acme.com");
+      expect(pages.map((p) => p.wiki)).toEqual(["acme/root", "beta/root"]);
     }),
   );
 });
