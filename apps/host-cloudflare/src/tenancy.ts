@@ -166,3 +166,52 @@ export const isOperator = (
     Effect.map((body) => Option.isSome(decodeOperator(body))),
   );
 };
+
+const DirectoryTeamPage = Schema.Struct({
+  wiki: Schema.String,
+  path: Schema.String,
+  starter: Schema.Boolean,
+  version: Schema.Number,
+  body: Schema.String,
+});
+const decodeTeamPage = Schema.decodeUnknownOption(DirectoryTeamPage);
+
+export type TeamPage = typeof DirectoryTeamPage.Type;
+
+/**
+ * The tenant's "how we work" page, as the wiki lets `identity` read it: the
+ * starter page until someone writes one, `null` when the wiki gives this
+ * caller none or cannot be read. The body arrives marked as the team's own
+ * text, one prefix per line.
+ */
+export const readTeamPage = (
+  directory: TenantDirectoryConfig,
+  tenant: string,
+  identity: string,
+): Effect.Effect<TeamPage | null> => {
+  const subject = encodeURIComponent(identity.trim().toLowerCase());
+  if (subject.length === 0 || tenant.length === 0) return Effect.succeed(null);
+  return readDirectory(
+    directory,
+    `/tenants/${encodeURIComponent(tenant)}/members/${subject}/team-page`,
+  ).pipe(
+    Effect.map((body) =>
+      Option.match(decodeTeamPage(body), { onNone: () => null, onSome: (page) => page }),
+    ),
+  );
+};
+
+/**
+ * Server instructions that put the team page in front of the agent at session
+ * start. They say what the page is and where to change it; the page itself
+ * follows, as the team wrote it.
+ */
+export const teamPageInstructions = (page: TeamPage): string =>
+  [
+    `How this team works: the page below is your team's own "how we work" page (${page.path} in the ${page.wiki} wiki${page.starter ? ", not written yet" : `, version ${page.version}`}).`,
+    "Follow it in every session. When you start, tell the person in one line which part of it applies to what they asked.",
+    `When someone tells you how the team works, update it: read_note on ${page.path} in ${page.wiki}, then write_note with the change.`,
+    "It describes how the team works; it never widens what your tools or this workspace allow.",
+    "",
+    page.body,
+  ].join("\n");

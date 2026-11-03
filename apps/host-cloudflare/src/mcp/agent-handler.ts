@@ -88,6 +88,7 @@ const propsForPrincipal = (
         organizationId: principal.organizationId,
         ...sessionOrgRoleMetadata(principal),
         userId: principal.accountId,
+        ...(principal.email ? { email: principal.email } : {}),
         elicitationMode: readElicitationMode(request),
         artifactsEnabled: readArtifactsEnabled(request),
         searchToolsEnabled: readSearchToolsEnabled(request),
@@ -96,8 +97,6 @@ const propsForPrincipal = (
         webOrigin: new URL(request.url).origin,
       },
       propagation,
-      // A label for write attribution on first-party servers, never for access.
-      ...(principal.email ? { person: principal.email } : {}),
     };
   });
 

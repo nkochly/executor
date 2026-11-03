@@ -90,6 +90,20 @@ export interface CloudflareEnv {
    * as whoever signed it in.
    */
   readonly FIRST_PARTY_MCP?: string;
+  /**
+   * The company's Webex integration (developer.webex.com), registered with
+   * `<origin>/api/oauth/callback` as its redirect URI. Webex has no dynamic
+   * client registration, so Webex's MCP servers are offered only once both
+   * values are set. Each is a Secrets Store binding (or a plain string in
+   * tests); the store's `placeholder` value counts as unset.
+   */
+  readonly WEBEX_CLIENT_ID?: string | SecretBinding;
+  readonly WEBEX_CLIENT_SECRET?: string | SecretBinding;
+}
+
+/** A Secrets Store secret binding. */
+export interface SecretBinding {
+  readonly get: () => Promise<string>;
 }
 
 export interface CloudflareConfig {
@@ -111,6 +125,13 @@ export interface CloudflareConfig {
   /** The tenant membership directory; `null` is single-tenant mode. */
   readonly directory: TenantDirectoryConfig | null;
   readonly firstParty: readonly FirstPartyMcp[];
+  /** The company's Webex integration; `null` when none is configured. */
+  readonly webex: WebexIntegration | null;
+}
+
+export interface WebexIntegration {
+  readonly clientId: string | SecretBinding;
+  readonly clientSecret: string | SecretBinding;
 }
 
 export interface FirstPartyMcp {
@@ -255,5 +276,9 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
     enableDevAuth,
     directory: resolveDirectory(env),
     firstParty: resolveFirstParty(env.FIRST_PARTY_MCP),
+    webex:
+      env.WEBEX_CLIENT_ID && env.WEBEX_CLIENT_SECRET
+        ? { clientId: env.WEBEX_CLIENT_ID, clientSecret: env.WEBEX_CLIENT_SECRET }
+        : null,
   };
 };

@@ -22,6 +22,7 @@ const config: CloudflareConfig = {
   enableDevAuth: true,
   directory: { url: "https://dir.test/api/directory" },
   firstParty: [],
+  webex: null,
 };
 
 describe("cloudflareAccountProvider.me", () => {

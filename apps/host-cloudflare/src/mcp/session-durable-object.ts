@@ -32,6 +32,7 @@ import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execut
 import { ensureAgentToolkit } from "../agent";
 import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
+import { readTeamPage, teamPageInstructions } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -57,13 +58,6 @@ type CfSessionDbHandle = ExecutorDbHandle & { readonly end: () => Promise<void> 
 class McpModelResumeForwardError extends Data.TaggedError("McpModelResumeForwardError")<{
   readonly cause: unknown;
 }> {}
-
-/** The signed-in person's email the agent handler put in the session props. */
-const sessionPerson = (props: unknown): string | undefined => {
-  if (typeof props !== "object" || props === null) return undefined;
-  const person = (props as { readonly person?: unknown }).person;
-  return typeof person === "string" && person ? person : undefined;
-};
 
 export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSessionDbHandle> {
   private readonly cfEnv: CloudflareEnv;
@@ -140,6 +134,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       organizationSlug: multiTenant ? token.organizationId : this.cfConfig.organizationSlug,
       ...sessionOrgRoleMetadata(token),
       userId: token.userId,
+      ...(token.email ? { email: token.email } : {}),
       resource: token.resource,
       elicitationMode: token.elicitationMode,
       artifactsEnabled: token.artifactsEnabled,
@@ -159,12 +154,18 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
       const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
+      // Multi-tenant: the tenant's "how we work" page leads the instructions,
+      // read from the wiki as this caller may read it. No page, no block.
+      const teamPage =
+        config.directory && sessionMeta.email
+          ? yield* readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email)
+          : null;
       // Calls to wiki and Muster say who is behind them (client, person,
       // agent, guide); read lazily, since `initialize` lands after this build.
       const callMeta = makeAttributionMeta({
         origins: config.firstParty.map((server) => server.endpoint),
         client: () => self.server?.server.getClientVersion(),
-        person: () => sessionPerson(self.props),
+        person: () => sessionMeta.email,
         agent: sessionMeta.resource?.kind === "toolkit" ? sessionMeta.resource.slug : undefined,
       });
       const { engine, executor } = yield* makeExecutionStack(
@@ -172,7 +173,11 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         sessionMeta.organizationId,
         sessionMeta.organizationName,
         { mcpResource: sessionMeta.resource, orgWrites: "request" },
-      ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, callMeta)));
+      ).pipe(
+        Effect.provide(
+          makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB, callMeta),
+        ),
+      );
       // Multi-tenant: an agent's first connection makes its toolkit, open to
       // everything the tenant approved; an admin's is the tenant's shared agent.
       // It is narrowed from the console; the tenant ceiling bounds it either way.
@@ -206,6 +211,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         // connection (`?search_tools=true`). Same restore rule as artifacts.
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
+        ...(teamPage ? { instructions: teamPageInstructions(teamPage) } : {}),
         directIntegrations: catalog.map((server) => server.slug),
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
