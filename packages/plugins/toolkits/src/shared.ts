@@ -86,7 +86,11 @@ const ToolkitErrors = [InternalError, ToolkitError] as const;
 export const ToolkitsApi = HttpApiGroup.make("toolkits")
   .add(
     HttpApiEndpoint.get("list", "/toolkits", {
-      success: Schema.Struct({ toolkits: Schema.Array(ToolkitResponse) }),
+      success: Schema.Struct({
+        toolkits: Schema.Array(ToolkitResponse),
+        /** Whether a workspace toolkit may pick personal connections (each caller's own). */
+        workspaceToolkitsTakePersonalConnections: Schema.optional(Schema.Boolean),
+      }),
       error: ToolkitErrors,
     }),
   )

@@ -19,25 +19,68 @@ describe("agent sign-in", () => {
     expect(request.method).toBe("POST");
   });
 
-  it.effect("makes an agent's toolkit once, open to what the tenant approved", () =>
+  const fakeToolkits = (
+    seed: { slug: string; owner: "user" | "org"; patterns: string[]; policies: string[] }[] = [],
+  ) => {
+    const rows = new Map(seed.map((row, i) => [`seed${i}`, { ...row }]));
+    let next = 0;
+    return {
+      rows,
+      api: {
+        list: () =>
+          Effect.succeed([...rows].map(([id, row]) => ({ id, slug: row.slug, owner: row.owner }))),
+        create: (input: { slug: string; owner: "user" | "org" }) => {
+          const id = `tk${next++}`;
+          rows.set(id, { slug: input.slug, owner: input.owner, patterns: [], policies: [] });
+          return Effect.succeed({ id });
+        },
+        remove: (id: string) => Effect.sync(() => rows.delete(id)),
+        listConnections: (id: string) =>
+          Effect.succeed(rows.get(id)!.patterns.map((pattern) => ({ pattern, position: "a0" }))),
+        createConnection: (id: string, input: { pattern: string }) =>
+          Effect.sync(() => rows.get(id)!.patterns.push(input.pattern)),
+        listPolicies: (id: string) =>
+          Effect.succeed(
+            rows
+              .get(id)!
+              .policies.map((pattern) => ({ pattern, action: "block" as const, position: "a0" })),
+          ),
+        createPolicy: (id: string, input: { pattern: string }) =>
+          Effect.sync(() => rows.get(id)!.policies.push(input.pattern)),
+      },
+    };
+  };
+
+  it.effect("makes every agent a workspace toolkit, once", () =>
     Effect.gen(function* () {
-      const made: { slug: string; owner?: string; pattern?: string }[] = [];
-      const toolkits = {
-        list: () => Effect.succeed(made.map((t, i) => ({ id: `tk${i}`, slug: t.slug }))),
-        create: (input: { slug: string; owner: string }) => {
-          made.push({ slug: input.slug, owner: input.owner });
-          return Effect.succeed({ id: `tk${made.length - 1}` });
+      const { rows, api } = fakeToolkits();
+      yield* ensureAgentToolkit(api, "ai-studio");
+      yield* ensureAgentToolkit(api, "ai-studio");
+      expect([...rows.values()]).toEqual([
+        { slug: "ai-studio", owner: "org", patterns: ["*"], policies: [] },
+      ]);
+    }),
+  );
+
+  it.effect("moves an earlier personal agent to the workspace with its picks", () =>
+    Effect.gen(function* () {
+      const { rows, api } = fakeToolkits([
+        {
+          slug: "beta-agent",
+          owner: "user",
+          patterns: ["muster.user.muster-beta.*"],
+          policies: ["muster.user.muster-beta.delete_task"],
         },
-        createConnection: (id: string, input: { pattern: string }) => {
-          made[Number(id.slice(2))]!.pattern = input.pattern;
-          return Effect.void;
+      ]);
+      yield* ensureAgentToolkit(api, "beta-agent");
+      expect([...rows.values()]).toEqual([
+        {
+          slug: "beta-agent",
+          owner: "org",
+          patterns: ["muster.user.muster-beta.*"],
+          policies: ["muster.user.muster-beta.delete_task"],
         },
-      };
-      yield* ensureAgentToolkit(toolkits, "ai-studio");
-      yield* ensureAgentToolkit(toolkits, "ai-studio", true);
-      expect(made).toEqual([{ slug: "ai-studio", owner: "user", pattern: "*" }]);
-      yield* ensureAgentToolkit(toolkits, "team", true);
-      expect(made[1]).toEqual({ slug: "team", owner: "org", pattern: "*" });
+      ]);
     }),
   );
 });

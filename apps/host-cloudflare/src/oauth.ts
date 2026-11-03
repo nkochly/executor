@@ -118,7 +118,7 @@ const authorize = async (
         : `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}), as one agent, with that agent's tools only.</p>` +
           `<form method="post">`) +
       `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
-      `<p class="hint">Using a name again reconnects that agent with its tool list. A new name starts a new agent.</p>` +
+      `<p class="hint">Agents belong to the workspace. Using a name again joins that agent and its tool list; it uses your own sign-ins. A new name starts a new agent.</p>` +
       `<input type="hidden" name="handle" value="${escapeHtml(consent.handle)}"><button type="submit">Connect</button></form>`,
     consent.headers,
   );
