@@ -241,6 +241,8 @@ import { isUnauthorizedToolFailure } from "./auth-tool-failure";
 
 const PLUGIN_STORAGE_DELETE_KEY_BATCH_SIZE = 90;
 const MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS = 4_000;
+// Per-tool storage reads `tools.schemas` keeps in flight at once.
+const TOOL_SCHEMAS_CONCURRENCY = 8;
 
 // ---------------------------------------------------------------------------
 // In-flight OAuth refresh gate — a CROSS-STACK resource.
@@ -514,6 +516,13 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   readonly tools: {
     readonly list: (filter?: ToolListFilter) => Effect.Effect<readonly Tool[], StorageFailure>;
     readonly schema: (address: ToolAddress) => Effect.Effect<ToolSchemaView | null, StorageFailure>;
+    /** `schema` for many tools against one policy snapshot, keyed by address.
+     *  `typeScript: false` skips the TypeScript previews, for callers that
+     *  read only the JSON schemas. */
+    readonly schemas: (
+      addresses: readonly ToolAddress[],
+      options?: { readonly typeScript?: boolean },
+    ) => Effect.Effect<ReadonlyMap<string, ToolSchemaView | null>, StorageFailure>;
   };
 
   readonly providers: {
@@ -6010,8 +6019,34 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const toolSchema = (
       address: ToolAddress,
     ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
+      listActivePolicyRuleSet().pipe(
+        Effect.flatMap((policyRules) => toolSchemaWithRules(policyRules, address, true)),
+      );
+
+    // Many schemas against one policy snapshot. The rule set is read once, not
+    // once per tool, and the per-tool reads run side by side: a host that
+    // serves a whole integration as MCP tools at session start otherwise pays
+    // every storage round trip of every tool in sequence.
+    const toolSchemas = (
+      addresses: readonly ToolAddress[],
+      options?: { readonly typeScript?: boolean },
+    ): Effect.Effect<ReadonlyMap<string, ToolSchemaView | null>, StorageFailure> =>
       Effect.gen(function* () {
         const policyRules = yield* listActivePolicyRuleSet();
+        const views = yield* Effect.forEach(
+          addresses,
+          (address) => toolSchemaWithRules(policyRules, address, options?.typeScript ?? true),
+          { concurrency: TOOL_SCHEMAS_CONCURRENCY },
+        );
+        return new Map(addresses.map((address, i) => [String(address), views[i] ?? null]));
+      });
+
+    const toolSchemaWithRules = (
+      policyRules: ActivePolicyRuleSet,
+      address: ToolAddress,
+      typeScript: boolean,
+    ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
+      Effect.gen(function* () {
         const staticEntry = staticTools.get(String(address));
         if (staticEntry) {
           const tool = staticToolToTool(staticEntry);
@@ -6021,16 +6056,21 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             tool.annotations?.requiresApproval,
           );
           if (effective.action === "block") return null;
-          const preview = yield* Effect.tryPromise({
-            try: () =>
-              buildToolTypeScriptPreview({
-                inputSchema: tool.inputSchema,
-                outputSchema: tool.outputSchema,
-                defs: new Map(),
-              }),
-            catch: (cause) =>
-              storageFailureFromUnknown("Failed to build static tool TypeScript preview", cause),
-          }).pipe(Effect.option);
+          const preview = !typeScript
+            ? Option.none()
+            : yield* Effect.tryPromise({
+                try: () =>
+                  buildToolTypeScriptPreview({
+                    inputSchema: tool.inputSchema,
+                    outputSchema: tool.outputSchema,
+                    defs: new Map(),
+                  }),
+                catch: (cause) =>
+                  storageFailureFromUnknown(
+                    "Failed to build static tool TypeScript preview",
+                    cause,
+                  ),
+              }).pipe(Effect.option);
           return ToolSchemaView.make({
             address,
             name: tool.name,
@@ -6120,16 +6160,18 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // map per node), so passing the connection's full component set made a
         // single describe of a large spec cost seconds of CPU on the shared
         // session isolate. Unreferenced definitions never appear in the output.
-        const preview = yield* Effect.tryPromise({
-          try: () =>
-            buildToolTypeScriptPreview({
-              inputSchema,
-              outputSchema: effectiveOutputSchema,
-              defs: new Map(Object.entries(referenced)),
-            }),
-          catch: (cause) =>
-            storageFailureFromUnknown("Failed to build tool TypeScript preview", cause),
-        }).pipe(Effect.option);
+        const preview = !typeScript
+          ? Option.none()
+          : yield* Effect.tryPromise({
+              try: () =>
+                buildToolTypeScriptPreview({
+                  inputSchema,
+                  outputSchema: effectiveOutputSchema,
+                  defs: new Map(Object.entries(referenced)),
+                }),
+              catch: (cause) =>
+                storageFailureFromUnknown("Failed to build tool TypeScript preview", cause),
+            }).pipe(Effect.option);
 
         const view = preview;
         return ToolSchemaView.make({
@@ -7486,6 +7528,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       tools: {
         list: toolsList,
         schema: toolSchema,
+        schemas: toolSchemas,
       },
       providers: {
         list: providersList,

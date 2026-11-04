@@ -343,7 +343,8 @@ export type McpIntegrationsPort = {
 };
 
 /** The same list and schema APIs used by codemode discovery. */
-export type McpToolsPort = Pick<Executor["tools"], "list" | "schema">;
+export type McpToolsPort = Pick<Executor["tools"], "list" | "schema"> &
+  Partial<Pick<Executor["tools"], "schemas">>;
 
 /** A passthrough session was requested but the host gave the factory no
  *  catalog to serve. A configuration defect, not a runtime condition. */
@@ -1588,15 +1589,35 @@ const registerDirectTools = <E extends Cause.YieldableError>(
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
-    const visible: Tool[] = [];
-    for (const integration of integrations) {
-      const listed = yield* tools
-        .list({ integration: IntegrationSlug.make(integration) })
-        .pipe(Effect.orElseSucceed(() => [] as readonly Tool[]));
-      visible.push(...listed.filter((tool) => tool.static !== true));
-    }
-    for (const [name, tool] of directToolNames(visible)) {
-      const view = yield* tools.schema(tool.address).pipe(Effect.orElseSucceed(() => null));
+    const listed = yield* Effect.forEach(
+      integrations,
+      (integration) =>
+        tools
+          .list({ integration: IntegrationSlug.make(integration) })
+          .pipe(Effect.orElseSucceed(() => [] as readonly Tool[])),
+      { concurrency: "unbounded" },
+    );
+    const visible = listed.flat().filter((tool) => tool.static !== true);
+    const named = [...directToolNames(visible)];
+    // One policy snapshot for every tool, reads side by side, no TypeScript
+    // previews (MCP clients read only the JSON input schema). Every session
+    // pays this before `initialize` answers.
+    const oneByOne = Effect.forEach(named, ([, tool]) =>
+      tools.schema(tool.address).pipe(
+        Effect.orElseSucceed(() => null),
+        Effect.map((view) => [String(tool.address), view] as const),
+      ),
+    ).pipe(Effect.map((entries): ReadonlyMap<string, ToolSchemaView | null> => new Map(entries)));
+    const views = tools.schemas
+      ? yield* tools
+          .schemas(
+            named.map(([, tool]) => tool.address),
+            { typeScript: false },
+          )
+          .pipe(Effect.catch(() => oneByOne))
+      : yield* oneByOne;
+    for (const [name, tool] of named) {
+      const view = views.get(String(tool.address)) ?? null;
       const risk = tool.annotations?.risk;
       yield* Effect.sync(() =>
         server.registerTool(

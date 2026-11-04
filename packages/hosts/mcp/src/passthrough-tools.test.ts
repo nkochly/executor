@@ -963,6 +963,34 @@ describe("direct integrations", () => {
     );
   });
 
+  it("reads every direct tool's schema in one batch, without TypeScript previews", async () => {
+    const recording = makeRecordingEngine();
+    const singleReads: string[] = [];
+    const base = toolPort(WIKI, singleReads);
+    const batches: { addresses: string[]; typeScript: boolean | undefined }[] = [];
+    const port: McpToolsPort = {
+      ...base,
+      schemas: (addresses, options) =>
+        Effect.gen(function* () {
+          batches.push({ addresses: addresses.map(String), typeScript: options?.typeScript });
+          const views = yield* Effect.forEach(addresses, (address) => base.schema(address));
+          return new Map(addresses.map((address, i) => [String(address), views[i] ?? null]));
+        }),
+    };
+    await withClient(
+      { engine: recording.engine, tools: port, directIntegrations: ["wiki"] },
+      async (client) => {
+        const { tools } = await client.listTools();
+        const search = tools.find((tool) => tool.name === "wiki_search_wiki")!;
+        expect(search.inputSchema.required).toEqual(["query"]);
+      },
+    );
+    expect(batches).toHaveLength(1);
+    expect(batches[0]!.typeScript).toBe(false);
+    expect(batches[0]!.addresses).toContain("tools.wiki.user.main.search_wiki");
+    expect(singleReads).toEqual(batches[0]!.addresses);
+  });
+
   it("adds the connection to the name when an integration has several", async () => {
     const recording = makeRecordingEngine();
     const two = [
