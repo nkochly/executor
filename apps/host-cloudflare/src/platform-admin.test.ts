@@ -1,6 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { connectionPattern, pickables, toolRulePattern, type ToolView } from "./platform-admin";
+import {
+  agentPeople,
+  connectionPattern,
+  pickables,
+  toolRulePattern,
+  type GrantStore,
+  type ToolView,
+} from "./platform-admin";
 
 const tool = (over: Partial<ToolView>): ToolView => ({
   address: "tools.wiki.org.teamWiki.search",
@@ -77,5 +84,28 @@ describe("platform admin page", () => {
       },
       { pattern: "wiki.org.teamWiki.*", label: "Wiki · team-eichten", personal: false, team: true },
     ]);
+  });
+
+  it("names the people who connected each agent", async () => {
+    const grants: Record<string, unknown> = {
+      "grant:ann%40example.com:a1": { userId: "ann%40example.com", metadata: { agent: "sales" } },
+      "grant:bo%40example.com:b1": { userId: "bo%40example.com", metadata: { agent: "sales" } },
+      "grant:bo%40example.com:b2": { userId: "bo%40example.com", metadata: { agent: "ops" } },
+      "grant:bo%40example.com:b3": { userId: "bo%40example.com", metadata: { agent: "ops" } },
+      "grant:cy%40example.com:c1": { userId: "cy%40example.com", metadata: {} },
+    };
+    const kv: GrantStore = {
+      list: async () => ({
+        keys: Object.keys(grants).map((name) => ({ name })),
+        list_complete: true,
+      }),
+      get: async (name) => grants[name] ?? null,
+    };
+    const people = await agentPeople(kv);
+    expect(Object.fromEntries(people)).toEqual({
+      sales: ["ann@example.com", "bo@example.com"],
+      ops: ["bo@example.com"],
+    });
+    expect((await agentPeople(undefined)).size).toBe(0);
   });
 });

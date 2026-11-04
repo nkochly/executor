@@ -22,6 +22,8 @@ button.act{background:var(--brand);color:#fff;border-color:var(--brand);cursor:p
 details{border-bottom:1px solid var(--line)}summary{display:flex;justify-content:space-between;align-items:center;padding:.5rem .25rem;cursor:pointer;gap:1rem}
 .tool{display:flex;justify-content:space-between;gap:1rem;padding:.35rem .25rem .35rem 1.5rem}.tool small{color:var(--muted);display:block}
 .tag{font-size:.75rem;color:var(--muted);border:1px solid var(--line);border-radius:999px;padding:0 .45rem;margin-left:.4rem}
+small.who{display:block;color:var(--muted);font-size:.8rem}
+.filters{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;align-items:center;margin-bottom:.25rem}.filters label{display:flex;gap:.4rem;align-items:center}
 #msg{min-height:1.4rem;color:var(--muted)}a{color:var(--brand)}
 `;
 
@@ -44,10 +46,26 @@ async function setTool(integration,tool,setting){say('Saving…');await call('/a
 async function loadHidden(){const d=await call('/api/platform/admin/tools');const box=$('#hidden-list');box.textContent='';
  for(const s of d.servers){const sum=el('summary',{},el('span',{},s.name,el('span',{className:'tag',textContent:s.tools.length+' tools'})));const sel=settingSelect(s.setting,false,v=>setTool(s.integration,null,v));sel.onclick=e=>e.stopPropagation();sum.append(sel);
   const det=el('details',{},sum);for(const t of s.tools){det.append(el('div',{className:'tool'},el('span',{},t.name,el('small',{textContent:t.description})),settingSelect(t.setting,true,v=>setTool(s.integration,t.name,v))))}box.append(det)}}
-async function loadGrid(){const d=await call('/api/platform/admin/workspaces');const t=$('#grid');t.textContent='';
- const head=el('tr',{},el('th',{textContent:'Workspace'}));for(const c of d.connections)head.append(el('th',{className:'col',textContent:c.label}));head.append(el('th',{className:'col',textContent:'Every connection'}));t.append(el('thead',{},head));
- const body=el('tbody');for(const w of d.workspaces){const has=new Set(w.patterns);const name=el('a',{href:d.consolePath+'/'+encodeURIComponent(w.slug),textContent:w.name});const tr=el('tr',{},el('td',{},name,w.startingSet?el('span',{className:'tag',textContent:'starting set'}):''));
-  for(const p of [...d.connections.map(c=>c.pattern),'*']){const cb=el('input',{type:'checkbox',checked:has.has(p),title:p});cb.onchange=()=>pick(w.id,p,cb.checked);tr.append(el('td',{className:'tick'},cb))}body.append(tr)}t.append(body)}
+const store={get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
+let gridData=null;
+async function loadGrid(){gridData=await call('/api/platform/admin/workspaces');const people=[...new Set(gridData.workspaces.flatMap(w=>w.people))].sort();
+ const ps=$('#grid-person');ps.textContent='';ps.append(el('option',{value:'',textContent:'Everyone'}));for(const p of people)ps.append(el('option',{value:p,textContent:p===gridData.me?p+' (you)':p}));ps.append(el('option',{value:'-',textContent:'Nobody has connected yet'}));
+ const saved=store.get('grid-person');ps.value=saved!==null&&[...ps.options].some(o=>o.value===saved)?saved:(people.includes(gridData.me)?gridData.me:'');
+ $('#grid-all').checked=store.get('grid-all')==='1';fillWorkspaces();drawGrid()}
+function personRows(){const p=$('#grid-person').value;return gridData.workspaces.filter(w=>p===''||(p==='-'?w.people.length===0&&!w.startingSet:w.people.includes(p)))}
+function fillWorkspaces(){const ws=$('#grid-workspace');const keep=ws.value;ws.textContent='';ws.append(el('option',{value:'',textContent:'All of them'}));for(const w of personRows())ws.append(el('option',{value:w.id,textContent:w.name}));ws.value=[...ws.options].some(o=>o.value===keep)?keep:''}
+function drawGrid(){const t=$('#grid');t.textContent='';const d=gridData;const wid=$('#grid-workspace').value;const rows=personRows().filter(w=>!wid||w.id===wid);
+ const used=new Set(rows.flatMap(w=>w.patterns));const all=$('#grid-all').checked;const cols=[...d.connections.map(c=>[c.pattern,c.label]),['*','Every connection']].filter(([p])=>all||used.has(p));
+ $('#grid-count').textContent=rows.length+' of '+d.workspaces.length+' workspaces'+(all?'':', showing only connections they use');
+ if(!rows.length){t.append(el('tbody',{},el('tr',{},el('td',{className:'hint',textContent:'No workspace matches.'}))));return}
+ const head=el('tr',{},el('th',{textContent:'Workspace'}));for(const [,label] of cols)head.append(el('th',{className:'col',textContent:label}));t.append(el('thead',{},head));
+ const body=el('tbody');for(const w of rows){const has=new Set(w.patterns);const name=el('a',{href:d.consolePath+'/'+encodeURIComponent(w.slug),textContent:w.name});
+  const who=el('small',{className:'who',textContent:w.startingSet?'':(w.people.length?w.people.join(', '):'nobody has connected yet')});
+  const tr=el('tr',{},el('td',{},name,w.startingSet?el('span',{className:'tag',textContent:'starting set'}):'',who));
+  for(const [p] of cols){const cb=el('input',{type:'checkbox',checked:has.has(p),title:p});cb.onchange=async()=>{await pick(w.id,p,cb.checked);cb.checked?has.add(p):has.delete(p);w.patterns=[...has]};tr.append(el('td',{className:'tick'},cb))}body.append(tr)}t.append(body)}
+$('#grid-person').onchange=()=>{store.set('grid-person',$('#grid-person').value);fillWorkspaces();drawGrid()};
+$('#grid-workspace').onchange=()=>drawGrid();
+$('#grid-all').onchange=()=>{store.set('grid-all',$('#grid-all').checked?'1':'0');drawGrid()};
 const API='/api/platform/mcp-servers';
 async function loadServers(){const list=await call(API);const tb=$('#rows');tb.textContent='';for(const s of list.servers){const tr=el('tr',{},el('td',{textContent:s.name}),el('td',{textContent:s.endpoint}));const td=el('td');if(s.removable){const b=el('button',{className:'act',textContent:'Remove'});b.onclick=async()=>{await fetch(API+'/'+encodeURIComponent(s.slug),{method:'DELETE'});loadServers()};td.append(b)}tr.append(td);tb.append(tr)}}
 $('#add').onsubmit=async(e)=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.target));const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const out=await r.json();say(r.ok?'Added.':out.error);if(r.ok){e.target.reset();loadServers()}};
@@ -77,7 +95,9 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <div id="hidden-list"></div>
 </section>
 <section id="tab-grid" hidden>
-<p class="hint">Each row is an agent's workspace; a tick means it uses that connection. Click a name to open it in the console.</p>
+<p class="hint">Each row is an agent's workspace, with the people who connected it; a tick means it uses that connection. Click a name to open it in the console.</p>
+<div class="filters"><label>Person <select id="grid-person"></select></label><label>Workspace <select id="grid-workspace"></select></label><label><input type="checkbox" id="grid-all"> Show every connection</label></div>
+<p class="hint" id="grid-count"></p>
 <div class="grid"><table id="grid"></table></div>
 </section>
 <section id="tab-servers" hidden>
