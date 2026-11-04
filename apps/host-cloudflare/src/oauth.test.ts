@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { loadConfig } from "./config";
-import { agentChoices, chosenAgent, principalForGrant } from "./oauth";
+import { agentChoices, chosenAgent, createWorkspaceAgent, principalForGrant } from "./oauth";
 import { readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
 
@@ -140,5 +140,55 @@ describe("agent sign-in page", () => {
     expect(chosenAgent({ pick: null, typed: "Claude" }, existing)?.slug).toBe("claude");
     expect(chosenAgent({ pick: "not-listed", typed: "x" }, existing)).toBeNull();
     expect(chosenAgent({ pick: "+new", typed: "***" }, existing)).toBeNull();
+  });
+});
+
+describe("agent made at Connect", () => {
+  const signIn = () =>
+    new Request("https://executor.example.com/authorize?client_id=c", {
+      method: "POST",
+      headers: {
+        "cf-access-jwt-assertion": "jwt",
+        "content-type": "application/x-www-form-urlencoded",
+      },
+    });
+
+  it("creates the workspace toolkit with every connection, as the signed-in person", async () => {
+    const calls: { method: string; path: string; body: unknown; jwt: string | null }[] = [];
+    const app = async (request: Request) => {
+      const url = new URL(request.url);
+      calls.push({
+        method: request.method,
+        path: url.pathname,
+        body: await request.json(),
+        jwt: request.headers.get("cf-access-jwt-assertion"),
+      });
+      return Response.json(url.pathname === "/api/toolkits" ? { id: "tk_1" } : {});
+    };
+    await createWorkspaceAgent(signIn(), app, { slug: "team-eichten", name: "Team Eichten" });
+    expect(calls).toEqual([
+      {
+        method: "POST",
+        path: "/api/toolkits",
+        body: { owner: "org", name: "Team Eichten", slug: "team-eichten" },
+        jwt: "jwt",
+      },
+      {
+        method: "POST",
+        path: "/api/toolkits/tk_1/connections",
+        body: { pattern: "*" },
+        jwt: "jwt",
+      },
+    ]);
+  });
+
+  it("leaves it to the first session when the app refuses", async () => {
+    const paths: string[] = [];
+    const app = async (request: Request) => {
+      paths.push(new URL(request.url).pathname);
+      return new Response("no", { status: 403 });
+    };
+    await createWorkspaceAgent(signIn(), app, { slug: "x", name: "x" });
+    expect(paths).toEqual(["/api/toolkits"]);
   });
 });
