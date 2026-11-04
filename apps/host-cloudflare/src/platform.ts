@@ -2,7 +2,9 @@ import type { D1Database } from "@cloudflare/workers-types";
 import { Effect, Option, Schema } from "effect";
 
 import { makeAccessVerifier } from "./auth/cloudflare-access";
-import type { CloudflareConfig, FirstPartyMcp } from "./config";
+import type { CloudflareConfig, CloudflareEnv, FirstPartyMcp } from "./config";
+import { ADMIN_PAGE } from "./platform-page";
+import { handlePlatformAdmin } from "./platform-admin";
 import { isOperator } from "./tenancy";
 import { WEBEX_SERVERS, webexOAuthClients } from "./webex";
 
@@ -114,33 +116,25 @@ const json = (body: unknown, status = 200): Response =>
     headers: { "content-type": "application/json", "cache-control": "no-store" },
   });
 
-/** The signed-in email when it is a platform admin's, else `null`. */
+/** The signed-in platform admin, else `null`. */
 const platformAdmin = async (
   request: Request,
   config: CloudflareConfig,
-): Promise<string | null> => {
+): Promise<{ readonly email: string; readonly subject: string } | null> => {
   const claims = await Effect.runPromise(makeAccessVerifier(config).verifyClaims(request));
   const email = typeof claims?.email === "string" ? claims.email.toLowerCase() : "";
   if (!email) return null;
+  // The account id the console's executor uses for this person.
+  const subject = typeof claims?.sub === "string" && claims.sub.length > 0 ? claims.sub : email;
   // With a directory: the wiki's operators, the one platform admin list.
   // Without one: ADMIN_EMAILS.
   const admin = config.operatorDirectory
     ? await Effect.runPromise(isOperator(config.operatorDirectory, email))
     : config.adminEmails.includes(email);
-  return admin ? email : null;
+  return admin ? { email, subject } : null;
 };
 
-const PAGE = `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Company MCP servers</title>
-<style>body{font:16px system-ui,sans-serif;max-width:44rem;margin:2rem auto;padding:0 1rem}table{width:100%;border-collapse:collapse}td,th{text-align:left;padding:.4rem;border-bottom:1px solid #ddd}input{width:100%;padding:.4rem;box-sizing:border-box;margin:.2rem 0}button{padding:.4rem .8rem}.hint{color:#666}</style></head><body>
-<h1>Company MCP servers</h1><p class="hint">Every tenant sees these first when it adds an integration. Each tenant still adds a server, connects it and approves its tools itself.</p>
-<table><thead><tr><th>Name</th><th>Endpoint</th><th></th></tr></thead><tbody id="rows"></tbody></table>
-<h2>Add a server</h2><form id="add"><input name="name" placeholder="Name" required><input name="slug" placeholder="slug (a-z, 0-9, -)" required pattern="[a-z0-9][a-z0-9-]*"><input name="endpoint" placeholder="https://…/mcp" required type="url"><input name="summary" placeholder="One line on what it does"><button>Add</button></form><p id="msg"></p>
-<script>
-const api='/api/platform/mcp-servers';const msg=document.getElementById('msg');
-async function load(){const r=await fetch(api);const list=await r.json();const tb=document.getElementById('rows');tb.textContent='';for(const s of list.servers){const tr=document.createElement('tr');for(const v of [s.name,s.endpoint]){const td=document.createElement('td');td.textContent=v;tr.append(td)}const td=document.createElement('td');if(s.removable){const b=document.createElement('button');b.textContent='Remove';b.onclick=async()=>{await fetch(api+'/'+encodeURIComponent(s.slug),{method:'DELETE'});load()};td.append(b)}tr.append(td);tb.append(tr)}}
-document.getElementById('add').onsubmit=async(e)=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.target));const r=await fetch(api,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const out=await r.json();msg.textContent=r.ok?'Added.':out.error;if(r.ok){e.target.reset();load()}};
-load();
-</script></body></html>`;
+const PAGE = ADMIN_PAGE;
 
 /**
  * `/platform` (the page) and `/api/platform/mcp-servers` (GET for anyone signed
@@ -148,11 +142,18 @@ load();
  */
 export const handlePlatform = async (
   request: Request,
-  db: D1Database,
+  env: CloudflareEnv,
   config: CloudflareConfig,
 ): Promise<Response | null> => {
+  const db = env.DB;
   const { pathname } = new URL(request.url);
   const base = "/api/platform/mcp-servers";
+  if (pathname.startsWith("/api/platform/admin/")) {
+    const admin = await platformAdmin(request, config);
+    return admin
+      ? handlePlatformAdmin(request, env, config, admin)
+      : json({ error: "Only a platform admin can do that." }, 403);
+  }
   if (pathname !== "/platform" && pathname !== base && !pathname.startsWith(`${base}/`)) {
     return null;
   }
@@ -200,7 +201,7 @@ export const handlePlatform = async (
         name.trim(),
         body.value.summary?.trim() || name.trim(),
         endpoint,
-        admin,
+        admin.email,
         Date.now(),
       )
       .run();

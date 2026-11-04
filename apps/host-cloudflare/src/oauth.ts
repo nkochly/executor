@@ -6,7 +6,16 @@ import type { Principal } from "@executor-js/host-mcp";
 import { makeAccessVerifier, principalFromAccessClaims } from "./auth/cloudflare-access";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import { AGENT_SLUG, agentRequest, agentSlug, type AgentGrant } from "./agent";
-import { isOperator, listMemberships, resolveTenant } from "./tenancy";
+import {
+  ensureStartingSet,
+  firstPartyIntegrations,
+  STARTING_SET_SLUG,
+  startWorkspace,
+  teamConnectionPatterns,
+  withHostExecutor,
+  workspaceConnections,
+} from "./new-workspace";
+import { isOperator, listMemberships, resolveTenant, type TenantMembership } from "./tenancy";
 
 // ---------------------------------------------------------------------------
 // Executor's own MCP sign-in. A client dials one URL, `/mcp`, and signs in
@@ -59,12 +68,15 @@ export const chosenAgent = (
   existing: readonly ExistingAgent[],
 ): { readonly slug: string; readonly name: string } | null => {
   if (form.pick !== null && form.pick !== NEW_AGENT) {
-    const agent = existing.find((candidate) => candidate.slug === form.pick);
+    const agent = existing.find(
+      (candidate) => candidate.slug === form.pick && candidate.slug !== STARTING_SET_SLUG,
+    );
     return agent ? { slug: agent.slug, name: agent.name } : null;
   }
   const name = form.typed.trim();
   const slug = agentSlug(name);
-  return AGENT_SLUG.test(slug) ? { slug, name } : null;
+  // The starting set is the admins' template for new agents, never one itself.
+  return AGENT_SLUG.test(slug) && slug !== STARTING_SET_SLUG ? { slug, name } : null;
 };
 
 /**
@@ -149,7 +161,9 @@ const workspaceAgents = async (
     }).pipe(Effect.orElseSucceed(() => null)),
   );
   return (body?.toolkits ?? []).flatMap((toolkit) =>
-    toolkit.owner === "org" && typeof toolkit.slug === "string"
+    toolkit.owner === "org" &&
+    typeof toolkit.slug === "string" &&
+    toolkit.slug !== STARTING_SET_SLUG
       ? [{ slug: toolkit.slug, name: toolkit.name || toolkit.slug }]
       : [],
   );
@@ -194,6 +208,57 @@ export const createWorkspaceAgent = async (
   );
 };
 
+/** The team radios for a new agent, "No team" first and checked. */
+export const teamChoices = (teams: readonly TenantMembership[]): string =>
+  teams.length === 0
+    ? ""
+    : `<h2>Team</h2><p class="hint">A new agent gets this team's Wiki and Muster. An agent you join keeps what it has.</p>` +
+      [
+        `<label><input type="radio" name="team" value="" checked> No team</label>`,
+        ...teams.map(
+          (m) =>
+            `<label><input type="radio" name="team" value="${escapeHtml(m.tenant.slug)}"> ${escapeHtml(m.tenant.name)}</label>`,
+        ),
+      ].join("");
+
+/**
+ * Make a new agent's workspace with the starting set, and the picked team's
+ * Wiki and Muster, written as the host. Falls back to an empty workspace
+ * made as the person when the host cannot write it.
+ */
+const startAgentWorkspace = async (
+  request: Request,
+  env: CloudflareEnv,
+  config: CloudflareConfig,
+  app: (request: Request) => Promise<Response>,
+  agent: { readonly slug: string; readonly name: string },
+  team: TenantMembership | null,
+): Promise<void> => {
+  const started = await Effect.runPromise(
+    withHostExecutor(env, config, (host) =>
+      Effect.gen(function* () {
+        yield* ensureStartingSet(host.toolkits);
+        const extra = team
+          ? teamConnectionPatterns(
+              yield* workspaceConnections(host),
+              firstPartyIntegrations(config),
+              team.tenant,
+            )
+          : [];
+        yield* startWorkspace(host.toolkits, agent, extra);
+        return true;
+      }),
+    ).pipe(
+      Effect.catchCause((cause) =>
+        Effect.logWarning("new agent workspace not started as the host", cause).pipe(
+          Effect.as(false),
+        ),
+      ),
+    ),
+  );
+  if (!started) await createWorkspaceAgent(request, app, agent);
+};
+
 const authorize = async (
   request: Request,
   env: CloudflareEnv & { OAUTH_PROVIDER: Helpers },
@@ -214,6 +279,11 @@ const authorize = async (
   // the console's list belongs to the tenant the form names, so the name is
   // typed.
   const existing = directory ? [] : await workspaceAgents(request, app);
+  // One company org: the teams a new agent may take its Wiki and Muster from.
+  const teams =
+    !directory && config.operatorDirectory
+      ? await Effect.runPromise(listMemberships(config.operatorDirectory, email))
+      : [];
 
   if (request.method === "POST") {
     const form = await request.formData();
@@ -237,7 +307,12 @@ const authorize = async (
     const agent = chosen.slug;
     const agentName = chosen.name;
     if (!directory && !existing.some((candidate) => candidate.slug === agent)) {
-      await createWorkspaceAgent(request, app, chosen);
+      const teamSlug = String(form.get("team") ?? "");
+      const team = teamSlug ? (teams.find((m) => m.tenant.slug === teamSlug) ?? null) : null;
+      if (teamSlug && !team) {
+        return page("<p>That team is not one you belong to.</p>", undefined, 403);
+      }
+      await startAgentWorkspace(request, env, config, app, chosen, team);
     }
     const approved = await helpers.approveConsent(request, handle);
     const grant: AgentGrant = {
@@ -291,7 +366,8 @@ const authorize = async (
         ? `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
           `<p class="hint">Using a name again joins that agent and its tool list. A new name starts a new agent.</p>`
         : `<h2>Agent</h2>${agentChoices(existing, clientName)}` +
-          `<p class="hint">Agents belong to the workspace. Joining one gives this app that agent's tool list, run with your own sign-ins.</p>`) +
+          `<p class="hint">Agents belong to the workspace. Joining one gives this app that agent's tool list, run with your own sign-ins.</p>` +
+          teamChoices(teams)) +
       `<input type="hidden" name="handle" value="${escapeHtml(consent.handle)}"><button type="submit">Connect</button></form>`,
     consent.headers,
   );

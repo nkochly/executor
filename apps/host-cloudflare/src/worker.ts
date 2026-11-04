@@ -66,7 +66,7 @@ const route = async (
 ): Promise<Response> => {
   const config = loadConfig(env);
   await refreshCatalog(env.DB, config);
-  const platform = await handlePlatform(incoming, env.DB, config);
+  const platform = await handlePlatform(incoming, env, config);
   if (platform) return platform;
   const serve = await resolveHandler(env);
   const request = routeTenantRequest(
