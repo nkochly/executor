@@ -48,6 +48,51 @@ describe("toolkitsPlugin", () => {
     }),
   );
 
+  it.effect("holds workspace changes to admins, but not making a workspace", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor({
+        plugins: [toolkitsPlugin({ workspaceChangesNeedAdmin: true })] as const,
+        orgWrites: "denied",
+      });
+
+      const workspace = yield* executor.toolkits.create({ owner: "org", name: "Team Agent" });
+      expect(yield* executor.toolkits.listConnections(workspace.id)).toEqual([]);
+
+      const refusals = [
+        executor.toolkits.update(workspace.id, { name: "Renamed" }),
+        executor.toolkits.createConnection(workspace.id, { pattern: "*" }),
+        executor.toolkits.createPolicy(workspace.id, { pattern: "*", action: "approve" }),
+        executor.toolkits.remove(workspace.id),
+      ];
+      for (const attempt of refusals) {
+        const result = yield* Effect.result(attempt);
+        expect(Result.isFailure(result)).toBe(true);
+        if (!Result.isFailure(result)) continue;
+        expect(Predicate.isTagged("ToolkitError")(result.failure)).toBe(true);
+        expect((result.failure as { message: string }).message).toBe(
+          "Only an admin can change a workspace.",
+        );
+      }
+      expect(yield* executor.toolkits.listConnections(workspace.id)).toEqual([]);
+
+      const personal = yield* executor.toolkits.create({ owner: "user", name: "Mine" });
+      yield* executor.toolkits.createConnection(personal.id, { pattern: "*" });
+      expect((yield* executor.toolkits.listConnections(personal.id)).length).toBe(1);
+    }),
+  );
+
+  it.effect("lets an admin change a workspace when changes need one", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor({
+        plugins: [toolkitsPlugin({ workspaceChangesNeedAdmin: true })] as const,
+        orgWrites: "allowed",
+      });
+      const workspace = yield* executor.toolkits.create({ owner: "org", name: "Team Agent" });
+      yield* executor.toolkits.createConnection(workspace.id, { pattern: "*" });
+      expect((yield* executor.toolkits.listConnections(workspace.id)).length).toBe(1);
+    }),
+  );
+
   it.effect("rejects duplicate visible slugs", () =>
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor({
