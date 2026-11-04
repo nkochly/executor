@@ -14,6 +14,7 @@ import { Cause, Effect } from "effect";
 
 import {
   decodeOAuthCallbackState,
+  OAUTH_CHAIN_STORAGE_PREFIX,
   OAUTH_POPUP_MESSAGE_TYPE,
   type OAuthPopupResult,
 } from "@executor-js/sdk";
@@ -130,7 +131,11 @@ try{localStorage.setItem(${serializedChannel},JSON.stringify(p))}catch(e){}
 // outlive the document after all.
 const clear=()=>{try{localStorage.removeItem(${serializedChannel})}catch(e){}};
 window.addEventListener("pagehide",clear);
-if(p.ok)setTimeout(()=>{clear();window.close()},400);else setTimeout(clear,5000);})();
+// A sign-in the opener chained (several connections behind one sign-in) names
+// the next authorization URL under this session's key: on success the window
+// goes there instead of closing. Read once and removed, so it never replays.
+const next=(()=>{if(!p.ok||!p.sessionId)return null;try{const k=${serializeForScript(OAUTH_CHAIN_STORAGE_PREFIX)}+p.sessionId;const v=localStorage.getItem(k);localStorage.removeItem(k);return typeof v==="string"&&(v.startsWith("https://")||v.startsWith("http://"))?v:null}catch(e){return null}})();
+if(next)setTimeout(()=>{clear();window.location.replace(next)},400);else if(p.ok)setTimeout(()=>{clear();window.close()},400);else setTimeout(clear,5000);})();
 </script>
 </body></html>`;
 };
