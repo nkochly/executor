@@ -57,7 +57,7 @@ describe("agent sign-in", () => {
       yield* ensureAgentToolkit(api, "ai-studio");
       yield* ensureAgentToolkit(api, "ai-studio");
       expect([...rows.values()]).toEqual([
-        { slug: "ai-studio", owner: "org", patterns: ["*"], policies: [] },
+        { slug: "ai-studio", owner: "org", patterns: [], policies: [] },
       ]);
     }),
   );

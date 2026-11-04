@@ -153,7 +153,7 @@ describe("agent made at Connect", () => {
       },
     });
 
-  it("creates the workspace toolkit with every connection, as the signed-in person", async () => {
+  it("creates the workspace toolkit with no connections, as the signed-in person", async () => {
     const calls: { method: string; path: string; body: unknown; jwt: string | null }[] = [];
     const app = async (request: Request) => {
       const url = new URL(request.url);
@@ -163,7 +163,7 @@ describe("agent made at Connect", () => {
         body: await request.json(),
         jwt: request.headers.get("cf-access-jwt-assertion"),
       });
-      return Response.json(url.pathname === "/api/toolkits" ? { id: "tk_1" } : {});
+      return Response.json({ id: "tk_1" });
     };
     await createWorkspaceAgent(signIn(), app, { slug: "team-eichten", name: "Team Eichten" });
     expect(calls).toEqual([
@@ -171,12 +171,6 @@ describe("agent made at Connect", () => {
         method: "POST",
         path: "/api/toolkits",
         body: { owner: "org", name: "Team Eichten", slug: "team-eichten" },
-        jwt: "jwt",
-      },
-      {
-        method: "POST",
-        path: "/api/toolkits/tk_1/connections",
-        body: { pattern: "*" },
         jwt: "jwt",
       },
     ]);
