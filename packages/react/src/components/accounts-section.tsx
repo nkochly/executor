@@ -643,6 +643,9 @@ export function AccountsSection(props: {
     removeCustomMethod,
   } = props;
   const [adding, setAdding] = useState(false);
+  // True when the person's own click opened the modal, so it may go straight
+  // to the sign-in window; a deep-link or reconnect handoff shows the form.
+  const [addingByClick, setAddingByClick] = useState(false);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [reconnectHandoff, setReconnectHandoff] = useState<IntegrationAccountHandoff | null>(null);
   const ownerDisplay = useOwnerDisplay();
@@ -700,6 +703,7 @@ export function AccountsSection(props: {
       has_oauth_method: methods.some((m: AuthMethod) => m.kind === "oauth"),
       has_api_key_method: methods.some((m: AuthMethod) => m.kind !== "oauth" && m.kind !== "none"),
     });
+    setAddingByClick(true);
     setAdding(true);
   };
 
@@ -712,8 +716,12 @@ export function AccountsSection(props: {
       open={adding || reconnectHandoff !== null}
       onOpenChange={(open: boolean) => {
         setAdding(open);
-        if (!open) setReconnectHandoff(null);
+        if (!open) {
+          setReconnectHandoff(null);
+          setAddingByClick(false);
+        }
       }}
+      autoConnect={addingByClick && reconnectHandoff === null}
       initialState={modalState}
       createCustomMethod={createCustomMethod}
       removeCustomMethod={removeCustomMethod}

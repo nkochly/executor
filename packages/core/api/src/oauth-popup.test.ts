@@ -7,7 +7,7 @@
 
 import { describe, expect, it } from "@effect/vitest";
 import { Data, Effect, Schema } from "effect";
-import { encodeOAuthCallbackState, OAUTH_CHAIN_STORAGE_PREFIX } from "@executor-js/sdk";
+import { encodeOAuthCallbackState } from "@executor-js/sdk";
 
 import {
   OAUTH_POPUP_MESSAGE_TYPE,
@@ -153,22 +153,16 @@ describe("popupDocument", () => {
   // than matching its source text. A string check would pass on a script that
   // never executes — and the property at stake here is what the browser is left
   // holding, which only running it can show.
-  const runPopupScript = (html: string, seed: Record<string, string> = {}) => {
+  const runPopupScript = (html: string) => {
     const script = /<script>\n?([\s\S]*?)<\/script>/.exec(html)?.[1];
     expect(script).toBeDefined();
-    const store = new Map<string, string>(Object.entries(seed));
-    let replacedWith: string | null = null;
+    const store = new Map<string, string>();
     const timers: { readonly fn: () => void; readonly ms: number }[] = [];
     const pagehideListeners: (() => void)[] = [];
     let closed = false;
     const win = {
       opener: null,
-      location: {
-        origin: "https://app.example",
-        replace: (url: string) => {
-          replacedWith = url;
-        },
-      },
+      location: { origin: "https://app.example" },
       close: () => {
         closed = true;
       },
@@ -186,7 +180,6 @@ describe("popupDocument", () => {
     fn(
       win,
       {
-        getItem: (k: string) => store.get(k) ?? null,
         setItem: (k: string, v: string) => store.set(k, v),
         removeItem: (k: string) => store.delete(k),
       },
@@ -199,7 +192,6 @@ describe("popupDocument", () => {
     return {
       store,
       isClosed: () => closed,
-      replacedWith: () => replacedWith,
       runTimers: () => {
         for (const t of [...timers]) t.fn();
       },
@@ -223,49 +215,6 @@ describe("popupDocument", () => {
     // label; nobody listening must not mean it sits there forever.
     expect(run.store.has("chan-1")).toBe(false);
     expect(run.isClosed()).toBe(true);
-  });
-
-  it("goes on to the next sign-in the opener chained instead of closing", () => {
-    const chainKey = `${OAUTH_CHAIN_STORAGE_PREFIX}${successPayload.sessionId}`;
-    const run = runPopupScript(popupDocument(successPayload, "chan-chain"), {
-      [chainKey]: "https://auth.example/authorize?state=next",
-    });
-    // Read once and removed, so a reload never replays the hop.
-    expect(run.store.has(chainKey)).toBe(false);
-
-    run.runTimers();
-
-    expect(run.replacedWith()).toBe("https://auth.example/authorize?state=next");
-    expect(run.isClosed()).toBe(false);
-    expect(run.store.has("chan-chain")).toBe(false);
-  });
-
-  it("ignores a chained value that is not a web URL and closes as usual", () => {
-    const chainKey = `${OAUTH_CHAIN_STORAGE_PREFIX}${successPayload.sessionId}`;
-    const run = runPopupScript(popupDocument(successPayload, "chan-js"), {
-      [chainKey]: "javascript:alert(1)",
-    });
-
-    run.runTimers();
-
-    expect(run.replacedWith()).toBeNull();
-    expect(run.isClosed()).toBe(true);
-  });
-
-  it("never follows a chain after a failed sign-in", () => {
-    const chainKey = `${OAUTH_CHAIN_STORAGE_PREFIX}session-abc`;
-    const run = runPopupScript(
-      popupDocument(
-        { type: OAUTH_POPUP_MESSAGE_TYPE, ok: false, sessionId: "session-abc", error: "nope" },
-        "chan-fail",
-      ),
-      { [chainKey]: "https://auth.example/authorize?state=next" },
-    );
-
-    run.runTimers();
-
-    expect(run.replacedWith()).toBeNull();
-    expect(run.isClosed()).toBe(false);
   });
 
   it("clears the stored result on failure too, without closing the window", () => {

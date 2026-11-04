@@ -5,6 +5,7 @@ import {
   connectionOwnerOptions,
   connectionOwnerOptionsForAccess,
   connectionOwnerOptionsForHost,
+  defaultConnectionOwnerForAccess,
   defaultConnectionOwnerForHost,
   normalizeConnectionOwner,
   resolveConnectionOwnerForHost,
@@ -35,6 +36,12 @@ describe("connectionOwnerOptions", () => {
 
   it("keeps Personal as the default owner for org-scoped hosts", () => {
     expect(defaultConnectionOwnerForHost("org_123")).toBe("user");
+  });
+
+  it("defaults to Workspace for whoever may create Workspace connections", () => {
+    expect(defaultConnectionOwnerForAccess("org_123", true)).toBe("org");
+    expect(defaultConnectionOwnerForAccess("org_123", false)).toBe("user");
+    expect(defaultConnectionOwnerForAccess(null, true)).toBe("org");
   });
 
   it("gives members exactly one forced Personal option", () => {

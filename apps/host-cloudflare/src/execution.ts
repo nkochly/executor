@@ -21,7 +21,7 @@ import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
 import { makeTenantDefaults } from "./tenant-defaults";
-import { WEBEX_MCP_ORIGIN, webexOAuthClients } from "./webex";
+import { webexOAuthClients } from "./webex";
 
 // ---------------------------------------------------------------------------
 // Cloudflare execution-stack seams — the same shape as self-host (QuickJS code
@@ -56,7 +56,6 @@ export const makeCloudflarePluginsProvider = (
           context?.mcpResource?.kind === "toolkit" ? context.mcpResource.slug : undefined,
         allowLocalNetwork: config.allowLocalNetwork,
         catalog: catalogPresets(catalogNow(config)),
-        personalOnlyOrigins: config.webex ? [WEBEX_MCP_ORIGIN] : [],
         callMeta,
       }),
   });

@@ -163,7 +163,7 @@ const resolveFirstParty = (raw: string | undefined): readonly FirstPartyMcp[] =>
   if (!raw?.trim()) return [];
   const decoded = decodeFirstParty(raw);
   if (Option.isNone(decoded)) {
-    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a malformed list must not silently drop the personal-only rule
+    // oxlint-disable-next-line executor/no-try-catch-or-throw, executor/no-error-constructor -- boundary: a malformed list must not silently drop the company servers
     throw new Error("FIRST_PARTY_MCP must be a JSON list of {slug, name, endpoint}");
   }
   return decoded.value;

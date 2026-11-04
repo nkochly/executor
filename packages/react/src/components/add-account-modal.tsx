@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useMemo, useRef, useState } from "react";
 import { useAtomRefresh, useAtomSet, useAtomValue } from "@effect/atom-react";
 import * as Exit from "effect/Exit";
 import * as Option from "effect/Option";
@@ -57,7 +57,7 @@ import { ownerLabel, ownerLabelForHost, useOwnerDisplay } from "../api/owner-dis
 import {
   ConnectionOwnerDropdown,
   connectionOwnerOptionsForAccess,
-  defaultConnectionOwnerForHost,
+  defaultConnectionOwnerForAccess,
   normalizeConnectionOwner,
   resolveOAuthConnectionOwnerForHost,
   type ConnectionOwnerOption,
@@ -1211,7 +1211,17 @@ interface AddAccountModalProps {
    *  plugin whose auth is fixed (MCP) omits this, hiding the row. */
   readonly createCustomMethod?: CreateCustomMethod;
   readonly removeCustomMethod?: (method: AuthMethod) => Promise<boolean>;
+  /** Opened by the person's click on Add connection: an integration whose only
+   *  method is OAuth goes straight to its sign-in window with the defaults (the
+   *  default owner, a name from the account signed in to) instead of showing
+   *  the form first. The form shows when the sign-in cannot start that way. */
+  readonly autoConnect?: boolean;
 }
+
+/** How long after the click a sign-in window may still be opened. Browsers
+ *  honour `window.open` only shortly after a click; past this the form shows
+ *  and its Connect button takes a fresh click. */
+const AUTO_CONNECT_WINDOW_MS = 3000;
 
 /** The add-connection modal is self-contained: every transient bit of state
  *  (form fields, the in-flight OAuth popup flow) lives in `AddAccountModalView`,
@@ -1418,6 +1428,7 @@ function RequestCheckPanel(props: {
 }
 function AddAccountModalView(props: AddAccountModalProps) {
   const {
+    autoConnect = false,
     integration,
     integrationName,
     methods,
@@ -1433,7 +1444,10 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const ownerOptions = useMemo(() => {
     return connectionOwnerOptionsForAccess(organizationId, canCreateWorkspaceConnections);
   }, [canCreateWorkspaceConnections, organizationId]);
-  const defaultOwner = defaultConnectionOwnerForHost(organizationId);
+  const defaultOwner = defaultConnectionOwnerForAccess(
+    organizationId,
+    canCreateWorkspaceConnections,
+  );
   // Custom methods mutate the workspace-wide integration catalog, so they stay
   // admin-only even though members can add Personal connections using methods
   // that an admin has already configured.
@@ -1491,9 +1505,12 @@ function AddAccountModalView(props: AddAccountModalProps) {
   // Whether the display name was auto-filled from a probed identity (so a later
   // probe may overwrite it, but a hand-typed name is never clobbered).
   const nameAutofilled = useRef(false);
-  // Explicit create-time choice (no ambient owner). Cloud defaults to Personal;
-  // local/desktop hide the picker and save to the one local workspace.
-  const [owner, setOwner] = useState<Owner>(defaultOwner);
+  // Explicit create-time choice (no ambient owner). Until one is made it follows
+  // `defaultOwner` (Workspace for whoever may create Workspace connections),
+  // which settles once the person's role has loaded; local/desktop hide the
+  // picker and save to the one local workspace.
+  const [ownerChoice, setOwner] = useState<Owner | null>(null);
+  const owner: Owner = normalizeConnectionOwner(ownerChoice ?? defaultOwner, ownerOptions);
   const [submitting, setSubmitting] = useState(false);
   const [pickedApp, setPickedApp] = useState<string | null>(null);
   const [registeringOAuthClient, setRegisteringOAuthClient] = useState(false);
@@ -2700,6 +2717,67 @@ function AddAccountModalView(props: AddAccountModalProps) {
     });
   }, [initialState, allMethods, integration, oauthPopup, close, startAutomaticOAuthConnect]);
 
+  // One-click connect: "starting" until the sign-in window opens (or it turns
+  // out it can't, and the form shows), "waiting" while it is open. A success
+  // closes the modal as a connect from the form does; anything else shows the
+  // form with its error.
+  const [autoPhase, setAutoPhase] = useState<"off" | "starting" | "waiting">(() =>
+    autoConnect && !initialState ? "starting" : "off",
+  );
+  const autoOpenedAt = useRef(Date.now());
+  const autoSawBusy = useRef(false);
+  const autoConnectBusy = oauthBusy || automaticOAuthConnecting;
+  const startAutoConnect = useEffectEvent((flow: "cimd" | "automatic" | "app") => {
+    if (flow === "cimd") void handleCimdConnect();
+    else if (flow === "automatic") void handleAutomaticOAuthConnect();
+    else void handleOAuthConnect();
+  });
+  useEffect(() => {
+    if (autoPhase !== "starting") return;
+    const timer = setTimeout(() => setAutoPhase("off"), AUTO_CONNECT_WINDOW_MS);
+    return () => clearTimeout(timer);
+  }, [autoPhase]);
+  useEffect(() => {
+    if (autoPhase === "waiting") {
+      if (autoConnectBusy) autoSawBusy.current = true;
+      else if (autoSawBusy.current) setAutoPhase("off");
+      return;
+    }
+    if (autoPhase !== "starting") return;
+    if (Date.now() - autoOpenedAt.current > AUTO_CONNECT_WINDOW_MS) {
+      setAutoPhase("off");
+      return;
+    }
+    if (allMethods.length !== 1 || !method || !isOAuth) {
+      setAutoPhase("off");
+      return;
+    }
+    if (cimdActive) {
+      setAutoPhase("waiting");
+      startAutoConnect("cimd");
+    } else if (dcrActive) {
+      setAutoPhase("waiting");
+      startAutoConnect("automatic");
+    } else if (!oauthLoading) {
+      if (chosenClient?.grant === "authorization_code") {
+        setAutoPhase("waiting");
+        startAutoConnect("app");
+      } else {
+        setAutoPhase("off");
+      }
+    }
+  }, [
+    autoPhase,
+    autoConnectBusy,
+    allMethods.length,
+    method,
+    isOAuth,
+    cimdActive,
+    dcrActive,
+    oauthLoading,
+    chosenClient,
+  ]);
+
   return (
     // Non-modal for the same reason as the health-check editor sheet: a modal
     // dialog's react-remove-scroll locks the wheel to the dialog subtree, so
@@ -2832,6 +2910,25 @@ function AddAccountModalView(props: AddAccountModalProps) {
                 surface="plain"
               />
             </div>
+          </>
+        ) : autoPhase !== "off" ? (
+          <>
+            <DialogHeader>
+              <DialogTitle>Connecting {integrationName}</DialogTitle>
+              <DialogDescription>
+                {autoPhase === "starting"
+                  ? "Opening the sign-in window…"
+                  : "Finish signing in in the window that opened."}{" "}
+                {ownerDisplay.showOwnerLabels
+                  ? `It is saved as a ${ownerLabel(owner)} connection, named by the account you sign in with.`
+                  : "It is named by the account you sign in with."}
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button type="button" variant="ghost" onClick={close}>
+                Close
+              </Button>
+            </DialogFooter>
           </>
         ) : (
           <>
