@@ -81,6 +81,7 @@ const propsForPrincipal = (
   request: Request,
   principal: Principal,
   resource: McpResource,
+  clientName: string | undefined,
 ): Effect.Effect<McpSessionProps> =>
   Effect.gen(function* () {
     const propagation = yield* currentPropagationHeaders(request);
@@ -90,6 +91,7 @@ const propsForPrincipal = (
         ...sessionOrgRoleMetadata(principal),
         userId: principal.accountId,
         ...(principal.email ? { email: principal.email } : {}),
+        ...(clientName ? { clientName } : {}),
         elicitationMode: readElicitationMode(request),
         artifactsEnabled: readArtifactsEnabled(request),
         searchToolsEnabled: readSearchToolsEnabled(request),
@@ -111,11 +113,13 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
 
   // `bound` is a principal the caller already established (Executor's own
   // OAuth token); without it the request's Access assertion decides.
+  // `clientName` is that token's registered OAuth client name.
   return async (
     request: Request,
     env: CloudflareEnv,
     ctx: ExecutionContext,
     bound?: Principal,
+    clientName?: string,
   ): Promise<Response> => {
     if (request.method === "OPTIONS") return corsPreflightResponse();
     const sessionId = request.headers.get("mcp-session-id");
@@ -171,7 +175,9 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
       }
     }
 
-    const props = await Effect.runPromise(propsForPrincipal(request, outcome.principal, resource));
+    const props = await Effect.runPromise(
+      propsForPrincipal(request, outcome.principal, resource, clientName),
+    );
     (ctx as ExecutionContext & { props?: McpSessionProps }).props = props;
     const forwarded = withOrgWriteAccess(
       withVerifiedIdentityHeaders(

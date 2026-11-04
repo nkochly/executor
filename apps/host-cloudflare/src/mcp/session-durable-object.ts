@@ -136,6 +136,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       ...sessionOrgRoleMetadata(token),
       userId: token.userId,
       ...(token.email ? { email: token.email } : {}),
+      ...(token.clientName ? { clientName: token.clientName } : {}),
       resource: token.resource,
       elicitationMode: token.elicitationMode,
       artifactsEnabled: token.artifactsEnabled,
@@ -190,7 +191,12 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // agent, guide); read lazily, since `initialize` lands after this build.
       const callMeta = makeAttributionMeta({
         origins: config.firstParty.map((server) => server.endpoint),
-        client: () => self.server?.server.getClientVersion(),
+        // The OAuth client's registered name ("AI Studio") names the app;
+        // `initialize` often names only the MCP library it is built on.
+        client: () =>
+          sessionMeta.clientName
+            ? { name: sessionMeta.clientName }
+            : self.server?.server.getClientVersion(),
         person: () => sessionMeta.email,
         agent: sessionMeta.resource?.kind === "toolkit" ? sessionMeta.resource.slug : undefined,
       });

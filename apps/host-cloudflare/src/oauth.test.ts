@@ -8,6 +8,7 @@ import {
   chosenAgent,
   createWorkspaceAgent,
   principalForGrant,
+  registeredClientName,
 } from "./oauth";
 import { readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
@@ -220,5 +221,25 @@ describe("addressCheck", () => {
     const check = addressCheck(at());
     expect(check.refuse).toBe(false);
     expect(check.html).toContain("https://executor.example.com/mcp");
+  });
+});
+
+describe("registered client name", () => {
+  const helpersWith = (clients: Record<string, { clientName?: string } | null>) => {
+    const lookupClient = vi.fn(async (id: string) => clients[id] ?? null);
+    return { helpers: { lookupClient } as never, lookupClient };
+  };
+
+  it("names the app as it registered, read once per client", async () => {
+    const { helpers, lookupClient } = helpersWith({ "studio-1": { clientName: " AI Studio " } });
+    expect(await registeredClientName(helpers, "studio-1")).toBe("AI Studio");
+    expect(await registeredClientName(helpers, "studio-1")).toBe("AI Studio");
+    expect(lookupClient).toHaveBeenCalledTimes(1);
+  });
+
+  it("is absent for a client with no name or no registration", async () => {
+    const { helpers } = helpersWith({ bare: {} });
+    expect(await registeredClientName(helpers, "bare")).toBeUndefined();
+    expect(await registeredClientName(helpers, "gone")).toBeUndefined();
   });
 });
