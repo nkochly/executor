@@ -31,6 +31,7 @@ let handlerPromise: Promise<{
     env: CloudflareEnv,
     ctx: ExecutionContext,
     bound?: Principal,
+    clientName?: string,
   ) => Promise<Response>;
 }> | null = null;
 

@@ -76,6 +76,10 @@ interface McpSessionInitBase {
   /** The caller's email, when the principal carried one. Hosts that look the
    *  caller up by email elsewhere read it here; it is never an identity check. */
   readonly email?: string;
+  /** The registered name of the OAuth client the caller's token was issued
+   *  to, when the host issued one. A label for records, never an identity
+   *  check. */
+  readonly clientName?: string;
   readonly elicitationMode: McpElicitationMode;
   /** Whether this session serves artifacts, read off `?artifacts=` at connect
    *  time. Absent means the default (enabled). */
@@ -160,6 +164,8 @@ interface SessionMetaBase {
   readonly userId: string;
   /** Carried from {@link McpSessionInit}. */
   readonly email?: string;
+  /** Carried from {@link McpSessionInit}. */
+  readonly clientName?: string;
   readonly elicitationMode?: McpElicitationMode;
   /** Whether the session serves artifacts (carried from {@link McpSessionInit}).
    *  Absent — including for sessions persisted before the flag existed — means

@@ -431,6 +431,7 @@ type Serve = {
     env: CloudflareEnv,
     ctx: ExecutionContext,
     bound?: Principal,
+    clientName?: string,
   ) => Promise<Response>;
 };
 
@@ -438,6 +439,32 @@ type Serve = {
 export const AGENT_IDLE_TTL = 7 * 86_400;
 
 const providers = new Map<string, OAuthProvider<CloudflareEnv>>();
+
+/** Registered client names by client id, per isolate. A registration's name
+ *  does not change after it is made, so a hit never goes stale. */
+const clientNames = new Map<string, string | null>();
+
+/** The name the OAuth client registered with ("AI Studio", "Claude"), used to
+ *  label the calls made with its tokens. */
+export const registeredClientName = async (
+  helpers: Helpers,
+  clientId: string,
+): Promise<string | undefined> => {
+  if (!clientNames.has(clientId)) {
+    // A failed read labels this one call with the client's own `initialize`
+    // name instead, and is not remembered.
+    const looked = await Effect.runPromise(
+      Effect.tryPromise(() => helpers.lookupClient(clientId)).pipe(
+        Effect.map((client) => ({ name: client?.clientName?.trim() || null })),
+        Effect.orElseSucceed(() => null),
+      ),
+    );
+    if (looked === null) return undefined;
+    if (clientNames.size >= 1_000) clientNames.clear();
+    clientNames.set(clientId, looked.name);
+  }
+  return clientNames.get(clientId) ?? undefined;
+};
 
 /**
  * The OAuth front door for one hostname. `/mcp` takes only this provider's
@@ -462,7 +489,11 @@ export const oauthProviderFor = (
         const principal = await Effect.runPromise(principalForGrant(grant, config));
         if (!principal) return unauthorized();
         const serve = await resolve(env);
-        return serve.mcp(agentRequest(request, grant.agent), env, ctx, principal);
+        const clientName = await registeredClientName(
+          (env as CloudflareEnv & { OAUTH_PROVIDER: Helpers }).OAUTH_PROVIDER,
+          grant.clientId,
+        );
+        return serve.mcp(agentRequest(request, grant.agent), env, ctx, principal, clientName);
       },
     },
     defaultHandler: {
