@@ -33,7 +33,7 @@ const page = (body: string, headers = new Headers(), status = 200): Response => 
   headers.set("cache-control", "no-store");
   return new Response(
     `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Connect an agent</title>` +
-      `<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:3rem auto;padding:0 1rem}label{display:block;padding:.4rem 0}input[type=text]{width:100%;padding:.4rem;box-sizing:border-box}button{margin-top:1rem;padding:.5rem 1rem}.hint{color:#666;font-size:.9rem}</style>` +
+      `<style>body{font:16px system-ui,sans-serif;max-width:30rem;margin:3rem auto;padding:0 1rem}label{display:block;padding:.4rem 0}input[type=text]{width:100%;padding:.4rem;box-sizing:border-box}button{margin-top:1rem;padding:.5rem 1rem}.hint{color:#666;font-size:.9rem}.warn{background:#fff4e5;border:1px solid #f0b46a;padding:.6rem .8rem;border-radius:4px}code{word-break:break-all}</style>` +
       `</head><body>${body}</body></html>`,
     { status, headers },
   );
@@ -73,6 +73,40 @@ export const chosenAgent = (
  * new agent does, so connecting a new app makes a new agent unless the person
  * picks one to join. Typing a name selects the new agent.
  */
+/**
+ * What the sign-in page says about the address the app was given. An MCP
+ * client that found Executor's MCP address names it as the OAuth `resource`;
+ * one pointed at a console page (behind Access, so it can never reach the
+ * server) finds no resource metadata and names none. A resource that is not
+ * an MCP path is refused; a missing one is warned about, since some clients
+ * never send it.
+ */
+export const addressCheck = (
+  authorizeUrl: string,
+): { readonly refuse: boolean; readonly html: string } => {
+  const url = new URL(authorizeUrl);
+  const mcpAddress = `${url.origin}/mcp`;
+  const resource = url.searchParams.get("resource");
+  const say = (text: string) =>
+    `<p class="warn">${text} In your app, set the server address to <code>${escapeHtml(mcpAddress)}</code>.</p>`;
+  if (resource === null || resource === "") {
+    return {
+      refuse: false,
+      html: say(
+        "Your app did not name Executor's MCP address when it sent you here, so it may be set to the wrong address and get no tools.",
+      ),
+    };
+  }
+  const parsed = URL.canParse(resource) ? new URL(resource) : null;
+  if (parsed !== null && parsed.origin !== url.origin) return { refuse: false, html: "" };
+  const path = parsed === null ? "" : parsed.pathname.replace(/\/+$/, "");
+  if (path === "/mcp" || /^\/mcp\/toolkits\/[^/]+$/.test(path)) return { refuse: false, html: "" };
+  return {
+    refuse: true,
+    html: say(`<code>${escapeHtml(resource)}</code> is not Executor's MCP server.`),
+  };
+};
+
 export const agentChoices = (existing: readonly ExistingAgent[], suggested: string): string => {
   const match = agentSlug(suggested);
   const joinsExisting = existing.some((agent) => agent.slug === match);
@@ -233,6 +267,9 @@ const authorize = async (
   if (directory && memberships.length === 0) {
     return page("<p>You are not in any tenant yet. Ask a tenant owner to add you.</p>");
   }
+  const address = addressCheck(request.url);
+  if (address.refuse)
+    return page(`<h1>Wrong server address</h1>${address.html}`, new Headers(), 400);
   const consent = await helpers.beginConsent(authRequest);
   const client = await helpers.describeConsent(authRequest);
   const clientName = client.clientName ?? "This app";
@@ -244,6 +281,7 @@ const authorize = async (
     .join("");
   return page(
     `<h1>Connect an agent</h1>` +
+      address.html +
       (directory
         ? `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}) in one tenant, as one agent, with that agent's tools only.</p>` +
           `<form method="post"><h2>Tenant</h2>${tenants}`
