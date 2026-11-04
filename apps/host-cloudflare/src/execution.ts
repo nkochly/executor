@@ -75,9 +75,13 @@ export const makeCloudflareHostConfig = (
         firstPartyOAuthClients,
         // Servers every tenant has without an admin adding them.
         tenantDefaults: makeTenantDefaults(db, config),
-        // Multi-tenant: each tenant's admins approve what its connections may
-        // use; a tool no admin approved is unavailable, whatever a toolkit says.
-        ...(config.directory ? { toolPolicyCeiling: { unmatched: "block" as const } } : {}),
+        // The org's tool rules bound every workspace: a tool an admin hid
+        // stays hidden, whatever a workspace says. Multi-tenant: a tool no
+        // tenant admin approved is unavailable too. One company org: a tool no
+        // rule names is the workspace's to decide.
+        toolPolicyCeiling: {
+          unmatched: config.directory ? ("block" as const) : ("default" as const),
+        },
       })),
     ),
   );

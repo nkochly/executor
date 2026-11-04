@@ -3,7 +3,7 @@ import { DatabaseSync } from "node:sqlite";
 import { describe, expect, it } from "@effect/vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 
-import type { CloudflareConfig } from "./config";
+import type { CloudflareConfig, CloudflareEnv } from "./config";
 import { catalogPresets, handlePlatform, refreshCatalog } from "./platform";
 
 // A D1 stand-in over node:sqlite: the calls platform.ts makes, nothing more.
@@ -19,6 +19,9 @@ const fakeD1 = (): D1Database => {
   // oxlint-disable-next-line executor/no-double-cast -- test boundary: a partial D1 for the calls under test
   return { prepare: (sql: string) => statement(sql) } as unknown as D1Database;
 };
+
+// oxlint-disable-next-line executor/no-double-cast -- test boundary: only DB is read on these paths
+const envOf = (db: D1Database): CloudflareEnv => ({ DB: db }) as unknown as CloudflareEnv;
 
 const configFor = (
   adminEmails: string[],
@@ -56,7 +59,7 @@ describe("company MCP catalog", () => {
     const admin = configFor(["ops@example.com"]);
     const created = await handlePlatform(
       add({ slug: "jira", name: "Jira", endpoint: "https://jira.example/mcp" }),
-      db,
+      envOf(db),
       admin,
     );
     expect(created?.status).toBe(201);
@@ -72,19 +75,19 @@ describe("company MCP catalog", () => {
     const db = fakeD1();
     const member = await handlePlatform(
       add({ slug: "jira", name: "Jira", endpoint: "https://jira.example/mcp" }),
-      db,
+      envOf(db),
       configFor([]),
     );
     expect(member?.status).toBe(403);
     const fixed = await handlePlatform(
       add({ slug: "wiki", name: "Wiki", endpoint: "https://other.example/mcp" }),
-      db,
+      envOf(db),
       configFor(["ops@example.com"]),
     );
     expect(fixed?.status).toBe(409);
     const plain = await handlePlatform(
       add({ slug: "x", name: "X", endpoint: "http://x.example/mcp" }),
-      db,
+      envOf(db),
       configFor(["ops@example.com"]),
     );
     expect(plain?.status).toBe(400);
@@ -93,7 +96,7 @@ describe("company MCP catalog", () => {
   it("lists Webex's servers, fixed, once the Webex integration is configured", async () => {
     const db = fakeD1();
     const read = async (config: CloudflareConfig) => {
-      const response = await handlePlatform(new Request(API), db, config);
+      const response = await handlePlatform(new Request(API), envOf(db), config);
       const body = (await response?.json()) as {
         servers: { slug: string; endpoint: string; removable: boolean }[];
       };
@@ -118,7 +121,7 @@ describe("company MCP catalog", () => {
     ]);
     const taken = await handlePlatform(
       add({ slug: "webex-meetings", name: "Mine", endpoint: "https://x.example/mcp" }),
-      db,
+      envOf(db),
       webex,
     );
     expect(taken?.status).toBe(409);
@@ -128,7 +131,7 @@ describe("company MCP catalog", () => {
     expect(
       await handlePlatform(
         new Request("https://executor.example/api/tools"),
-        fakeD1(),
+        envOf(fakeD1()),
         configFor([]),
       ),
     ).toBeNull();

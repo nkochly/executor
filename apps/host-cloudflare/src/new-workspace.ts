@@ -139,6 +139,32 @@ export const ensureStartingSet = (toolkits: WorkspaceToolkits) =>
 export const firstPartyIntegrations = (config: CloudflareConfig): readonly string[] =>
   config.firstParty.map((server) => server.slug.replaceAll("-", "_"));
 
+type HostExecutor = Effect.Success<
+  ReturnType<typeof makeExecutionStack<CloudflarePlugins>>
+>["executor"];
+
+/**
+ * Run `use` with an executor in the company org acting as `subject`, allowed
+ * to write workspace rows. Only for a subject already checked to be allowed:
+ * the host itself, or a platform admin.
+ */
+export const withExecutorAs = <A>(
+  env: CloudflareEnv,
+  config: CloudflareConfig,
+  subject: string,
+  use: (executor: HostExecutor) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> =>
+  Effect.gen(function* () {
+    const dbHandle = yield* Effect.tryPromise(() => createD1ExecutorDb(env.DB, env.BLOBS));
+    const { executor } = yield* makeExecutionStack<CloudflarePlugins>(
+      subject,
+      config.organizationId,
+      config.organizationName,
+      { orgWrites: "allowed" },
+    ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, env.DB)));
+    return yield* use(executor);
+  });
+
 /**
  * Run `use` with an executor acting as the host in the company org, which may
  * write workspace rows a member could not.
@@ -146,20 +172,8 @@ export const firstPartyIntegrations = (config: CloudflareConfig): readonly strin
 export const withHostExecutor = <A>(
   env: CloudflareEnv,
   config: CloudflareConfig,
-  use: (
-    executor: Effect.Success<ReturnType<typeof makeExecutionStack<CloudflarePlugins>>>["executor"],
-  ) => Effect.Effect<A, unknown>,
-): Effect.Effect<A, unknown> =>
-  Effect.gen(function* () {
-    const dbHandle = yield* Effect.tryPromise(() => createD1ExecutorDb(env.DB, env.BLOBS));
-    const { executor } = yield* makeExecutionStack<CloudflarePlugins>(
-      TENANT_DEFAULTS_SUBJECT,
-      config.organizationId,
-      config.organizationName,
-      { orgWrites: "allowed" },
-    ).pipe(Effect.provide(makeCloudflareExecutionStackLayer(config, dbHandle, env.DB)));
-    return yield* use(executor);
-  });
+  use: (executor: HostExecutor) => Effect.Effect<A, unknown>,
+): Effect.Effect<A, unknown> => withExecutorAs(env, config, TENANT_DEFAULTS_SUBJECT, use);
 
 /** The Workspace connections, with each one's server title when it has one. */
 export const workspaceConnections = (executor: {
