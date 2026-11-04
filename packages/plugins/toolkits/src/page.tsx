@@ -24,6 +24,7 @@ import {
   toolsAllAtom,
 } from "@executor-js/react/api/atoms";
 import { ReactivityKey } from "@executor-js/react/api/reactivity-keys";
+import { connectionPattern, leavePendingConnect } from "@executor-js/react/lib/pending-connect";
 import { useOrganizationSlug } from "@executor-js/react/api/organization-context";
 import {
   getExecutorApiBaseUrl,
@@ -857,11 +858,12 @@ function ConnectionRow(props: {
   title: string;
   subtitle: string;
   badge?: string;
-  action: "add" | "remove";
+  action: "add" | "remove" | "connect";
   busy: boolean;
   onAction: () => void;
 }) {
   const remove = props.action === "remove";
+  const verb = remove ? "Remove" : props.action === "connect" ? "Connect" : "Add";
   return (
     <li className="flex min-w-0 items-center gap-3 border-b border-border/50 px-4 py-3 last:border-b-0">
       <ConnectionIcon icon={props.icon} integrationId={props.integrationId} url={props.url} />
@@ -881,7 +883,7 @@ function ConnectionRow(props: {
         variant="outline"
         size="sm"
         disabled={props.busy}
-        aria-label={`${remove ? "Remove" : "Add"} ${props.title}`}
+        aria-label={`${verb} ${props.title}`}
         onClick={props.onAction}
         className={cn(
           "h-8 shrink-0 px-3 text-xs",
@@ -890,8 +892,14 @@ function ConnectionRow(props: {
             : "border-primary/30 text-primary hover:bg-primary/10",
         )}
       >
-        {remove ? <Trash2Icon className="size-3.5" /> : <PlusIcon className="size-3.5" />}
-        {remove ? "Remove" : "Add"}
+        {remove ? (
+          <Trash2Icon className="size-3.5" />
+        ) : props.action === "connect" ? (
+          <PlugIcon className="size-3.5" />
+        ) : (
+          <PlusIcon className="size-3.5" />
+        )}
+        {verb}
       </Button>
     </li>
   );
@@ -911,8 +919,13 @@ function WorkspaceConnectionsPanel(props: {
   showOwnerLabels: boolean;
   onAddPatterns: (patterns: readonly string[]) => Promise<void> | void;
   onRemoveConnection: (connectionId: string) => Promise<void> | void;
+  /** Sign in to a new account of an integration and turn it on here. */
+  onConnectNew: (integration: Integration) => void;
 }) {
   const searchId = useId();
+  const connectable = props.integrations.filter(
+    (integration) => integration.kind !== "built-in" && String(integration.slug) !== "executor",
+  );
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   // The mutations resolve with an Exit, so the row frees up either way.
@@ -982,12 +995,6 @@ function WorkspaceConnectionsPanel(props: {
             <h3 id={`${searchId}-add`} className="text-sm font-semibold text-foreground">
               Add a connection
             </h3>
-            <Link
-              to="/{-$orgSlug}"
-              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
-            >
-              Connect a new account on Integrations
-            </Link>
           </div>
           {takesEverything ? (
             <p className="mb-2 text-xs leading-5 text-muted-foreground">
@@ -1049,6 +1056,48 @@ function WorkspaceConnectionsPanel(props: {
             </p>
           ) : null}
         </section>
+
+        {connectable.length > 0 ? (
+          <section aria-labelledby={`${searchId}-connect`}>
+            <div className="mb-2">
+              <h3 id={`${searchId}-connect`} className="text-sm font-semibold text-foreground">
+                Connect a new account
+              </h3>
+              <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                Sign in, and the new connection is added to this workspace.
+              </p>
+            </div>
+            <ul className="overflow-hidden rounded-md border border-border/70 bg-card">
+              {connectable.map((integration) => {
+                const meta = integrationMetaFor(
+                  {
+                    id: String(integration.slug),
+                    owner: "org",
+                    integration: String(integration.slug),
+                    connection: "",
+                    patterns: [],
+                    tools: [],
+                  },
+                  props.integrations,
+                  props.integrationPlugins,
+                );
+                return (
+                  <ConnectionRow
+                    key={String(integration.slug)}
+                    icon={meta.icon}
+                    integrationId={meta.integrationId}
+                    url={meta.url}
+                    title={integration.name}
+                    subtitle="New connection"
+                    action="connect"
+                    busy={busy !== null}
+                    onAction={() => props.onConnectNew(integration)}
+                  />
+                );
+              })}
+            </ul>
+          </section>
+        ) : null}
       </div>
     </div>
   );
@@ -1153,6 +1202,24 @@ function ToolkitWorkspace(props: {
   onClearPolicy: (pattern: string) => Promise<void> | void;
 }) {
   const [view, setView] = useState<"connections" | "tools">("connections");
+  const navigate = useNavigate();
+  // The connection is made on the integration's own page, which knows its
+  // sign-in; it comes back here once it is turned on.
+  const connectNew = (integration: Integration) => {
+    const toolkitSlug = props.toolkit.slug;
+    leavePendingConnect({
+      integration: String(integration.slug),
+      at: Date.now(),
+      onConnected: async (connection) => {
+        await props.onAddConnection(connectionPattern(connection));
+        await navigate({ to: "/{-$orgSlug}/toolkits/$toolkitSlug", params: { toolkitSlug } });
+      },
+    });
+    void navigate({
+      to: "/{-$orgSlug}/integrations/$namespace",
+      params: { namespace: String(integration.slug) },
+    });
+  };
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const takesPersonal = useWorkspaceTakesPersonal();
   // A workspace's connections and rules are an admin's to change; the server
@@ -1316,6 +1383,7 @@ function ToolkitWorkspace(props: {
               }
             }}
             onRemoveConnection={props.onRemoveConnection}
+            onConnectNew={connectNew}
           />
         </fieldset>
       ) : (

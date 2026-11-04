@@ -9,6 +9,7 @@ import {
   type Owner,
 } from "@executor-js/sdk/shared";
 import type { IntegrationAccountHandoff } from "@executor-js/sdk/client";
+import { takePendingConnect, type PendingConnect } from "../lib/pending-connect";
 import { toast } from "sonner";
 
 import {
@@ -646,6 +647,17 @@ export function AccountsSection(props: {
   // True when the person's own click opened the modal, so it may go straight
   // to the sign-in window; a deep-link or reconnect handoff shows the form.
   const [addingByClick, setAddingByClick] = useState(false);
+  // A Connect clicked on a workspace page: run it here, then hand each new
+  // connection back so that workspace turns it on.
+  const [pendingConnect, setPendingConnect] = useState<PendingConnect | null>(null);
+  useEffect(() => {
+    if (methods.length === 0) return;
+    const request = takePendingConnect(String(integration));
+    if (request === null) return;
+    setPendingConnect(request);
+    setAddingByClick(true);
+    setAdding(true);
+  }, [integration, methods.length]);
   const [editingConnection, setEditingConnection] = useState<Connection | null>(null);
   const [reconnectHandoff, setReconnectHandoff] = useState<IntegrationAccountHandoff | null>(null);
   const ownerDisplay = useOwnerDisplay();
@@ -719,9 +731,13 @@ export function AccountsSection(props: {
         if (!open) {
           setReconnectHandoff(null);
           setAddingByClick(false);
+          setPendingConnect(null);
         }
       }}
       autoConnect={addingByClick && reconnectHandoff === null}
+      {...(pendingConnect && reconnectHandoff === null
+        ? { onConnected: pendingConnect.onConnected, autoConnectClickedAt: pendingConnect.at }
+        : {})}
       initialState={modalState}
       createCustomMethod={createCustomMethod}
       removeCustomMethod={removeCustomMethod}
