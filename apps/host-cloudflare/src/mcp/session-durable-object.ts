@@ -1,4 +1,4 @@
-import { Data, Effect } from "effect";
+import { Data, Effect, Fiber } from "effect";
 
 import {
   PAUSED_APPROVAL_TIMEOUT_MS,
@@ -33,7 +33,7 @@ import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
 import { startWorkspace, withHostExecutor } from "../new-workspace";
 import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
-import { readTeamPage, readTeamPages, sessionInstructions } from "../tenancy";
+import { readTeamPage, readTeamPages, sessionInstructions, type TeamPage } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 
 // ---------------------------------------------------------------------------
@@ -150,26 +150,42 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
   ): Effect.Effect<BuiltMcpServer> {
     const config = this.cfConfig;
     const self = this;
+    // Wall time of each build step, logged once per build: a client waits for
+    // all of it before `initialize` answers.
+    const steps: Record<string, number> = {};
+    let last = Date.now();
+    const mark = (step: string) =>
+      Effect.sync(() => {
+        const now = Date.now();
+        steps[step] = now - last;
+        last = now;
+      });
     return Effect.gen(function* () {
       // QuickJS-WASM must be loaded before the executor layer builds it (the
       // default variant can't fetch its .wasm on Workers). Idempotent per isolate.
       yield* Effect.promise(() => preloadQuickJs());
+      yield* mark("quickjs");
       const catalog = yield* Effect.promise(() => refreshCatalog(self.cfEnv.DB, config));
+      yield* mark("catalog");
       // The playbook-first rule opens the instructions. The tenant's "how we
       // work" page follows it, read from the wiki as this caller may read it;
       // in one company org, the page of every tenant the person is in. No
-      // page, no block.
-      const teamPages = !sessionMeta.email
-        ? []
-        : config.directory
-          ? yield* readTeamPage(
-              config.directory,
-              sessionMeta.organizationId,
-              sessionMeta.email,
-            ).pipe(Effect.map((page) => (page === null ? [] : [page])))
-          : config.operatorDirectory
-            ? yield* readTeamPages(config.operatorDirectory, sessionMeta.email)
-            : [];
+      // page, no block. Read beside the executor build, which never needs it.
+      const teamPagesStart = Date.now();
+      const teamPagesFiber = yield* Effect.forkChild(
+        (!sessionMeta.email
+          ? Effect.succeed<readonly TeamPage[]>([])
+          : config.directory
+            ? readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email).pipe(
+                Effect.map((page): readonly TeamPage[] => (page === null ? [] : [page])),
+              )
+            : config.operatorDirectory
+              ? readTeamPages(config.operatorDirectory, sessionMeta.email)
+              : Effect.succeed<readonly TeamPage[]>([])
+        ).pipe(
+          Effect.tap(() => Effect.sync(() => (steps.teamPages = Date.now() - teamPagesStart))),
+        ),
+      );
       // Calls to wiki and Muster say who is behind them (client, person,
       // agent, guide); read lazily, since `initialize` lands after this build.
       const callMeta = makeAttributionMeta({
@@ -188,6 +204,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
           makeCloudflareExecutionStackLayer(config, dbHandle, self.cfEnv.DB, callMeta),
         ),
       );
+      yield* mark("executor");
       // An agent's first connection makes its workspace toolkit, narrowed
       // from the console. Its personal picks run as whoever calls it, through
       // their own sign-ins; the tenant ceiling bounds it either way.
@@ -201,11 +218,13 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
           ),
         );
       }
+      yield* mark("workspace");
       // An agent sees Executor's own tools only when its workspace picked them.
       const builtinTools =
         config.agentSignIn && sessionMeta.resource?.kind === "toolkit"
           ? yield* agentHasCoreTools(executor.toolkits, sessionMeta.resource.slug)
           : true;
+      yield* mark("coreTools");
       // Browser elicitation mode (the base owns the approval store + the HTTP
       // approval RPCs): a gated execution pauses and returns an approvalUrl into
       // the console resume page. The URL origin is the create request's origin
@@ -215,6 +234,8 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // only offered when this deployment knows its own public URL. Without one
       // the artifact is still saved, and the tool says so.
       const artifactOrigin = sessionMeta.webOrigin ?? config.webBaseUrl;
+      const teamPages = yield* Fiber.join(teamPagesFiber);
+      yield* mark("teamPagesWait");
       const mcpServer = yield* createExecutorMcpServer({
         engine,
         artifacts: executor.artifacts,
@@ -271,6 +292,8 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
               }
             : { mode: elicitationMode },
       });
+      yield* mark("tools");
+      console.log("[executor] MCP session build ms", JSON.stringify(steps));
       return { mcpServer, engine } satisfies BuiltMcpServer;
     }).pipe(
       Effect.withSpan("McpSessionDO.buildMcpServer"),
