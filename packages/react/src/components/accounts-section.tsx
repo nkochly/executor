@@ -21,6 +21,7 @@ import {
 } from "../api/atoms";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { HEALTH_INDICATOR_COLOR, HEALTH_STATUS_LABEL } from "../lib/health-display";
+import { useWorkspaceUses, workspacesUsing } from "../lib/use-connection-workspaces";
 import { useConnectionHealth } from "../lib/use-connection-health";
 import { messageFromExit } from "../api/error-reporting";
 import { ownerLabel, useOwnerDisplay } from "../api/owner-display";
@@ -110,11 +111,14 @@ function DetailWithLinks(props: { readonly text: string }) {
   );
 }
 
-// The confirm dialog names the connection the way the row does — stored
-// identity label first, connection name otherwise. (No live probe identity
-// here; that state lives inside the row.)
+// The confirm dialog names the connection the way the row does: the persisted
+// probe's identity (a tenant-per-connection server's title) first, then the
+// stored identity label, then the connection name.
 const connectionDisplayLabel = (connection: Connection | null): string => {
   if (connection === null) return "connection";
+  const probed =
+    connection.lastHealth?.status === "healthy" ? connection.lastHealth.identity : undefined;
+  if (probed && probed.length > 0) return probed;
   return connection.identityLabel && connection.identityLabel.length > 0
     ? connection.identityLabel
     : String(connection.name);
@@ -144,6 +148,9 @@ function AccountRow(props: {
    *  a failed client-summaries query. */
   readonly onMenuOpenChange: (open: boolean) => void;
   readonly onRemove: () => void;
+  /** The workspaces whose picks reach this connection, by name; null when
+   *  there are no workspaces to name. */
+  readonly usedBy: readonly string[] | null;
 }) {
   const { connection, needsReconsent } = props;
   const [checking, setChecking] = useState(false);
@@ -160,14 +167,21 @@ function AccountRow(props: {
   const { probe, status, runCheck } = useConnectionHealth(connection);
   const indicator = HEALTH_INDICATOR_COLOR[status];
 
-  // Prefer the stored label from the connection row, then a probed identity,
-  // then the connection name. OAuth labels come from the grant's OIDC claims,
-  // while health identities remain useful for non-OAuth probes.
-  const identity =
-    (connection.identityLabel && connection.identityLabel.length > 0
+  // A server that answers one tenant per connection names it in its title,
+  // which a healthy probe reports as its identity: that names the row, and the
+  // stored label (the sign-in's account) stays beside it as who signed in.
+  // Otherwise the stored label, then a probed identity, then the name.
+  const storedLabel =
+    connection.identityLabel && connection.identityLabel.length > 0
       ? connection.identityLabel
-      : null) ?? (probe?.identity && probe.identity.length > 0 ? probe.identity : null);
-  const displayLabel = identity ?? String(connection.name);
+      : null;
+  const probedIdentity =
+    probe?.status === "healthy" && probe.identity && probe.identity.length > 0
+      ? probe.identity
+      : null;
+  const displayLabel = probedIdentity ?? storedLabel ?? String(connection.name);
+  const signedInAs =
+    probedIdentity && storedLabel && storedLabel !== probedIdentity ? storedLabel : null;
 
   const expired = status === "expired";
   // `misconfigured` is deliberately NOT folded into `needsHealthAttention`: it
@@ -237,6 +251,20 @@ function AccountRow(props: {
             </Badge>
           ) : null}
         </CardStackEntryTitle>
+        {signedInAs || props.usedBy !== null ? (
+          <CardStackEntryDescription className="mt-1 overflow-visible whitespace-normal text-clip text-xs text-muted-foreground">
+            {[
+              signedInAs ? `Signed in as ${signedInAs}` : null,
+              props.usedBy === null
+                ? null
+                : props.usedBy.length > 0
+                  ? `Used by ${props.usedBy.join(", ")}`
+                  : "Not used by any workspace",
+            ]
+              .filter((part) => part !== null)
+              .join(" · ")}
+          </CardStackEntryDescription>
+        ) : null}
         {connection.description && connection.description.length > 0 ? (
           <CardStackEntryDescription className="mt-1 text-xs">
             {connection.description}
@@ -270,6 +298,18 @@ function AccountRow(props: {
       <CardStackEntryActions className="self-start pt-0.5">
         {props.showOwnerLabel ? (
           <Badge variant="outline">{ownerLabel(connection.owner)}</Badge>
+        ) : null}
+        {props.canManage ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`Remove ${displayLabel}`}
+            onClick={props.onRemove}
+            className="h-7 px-2.5 text-xs text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+          >
+            Remove
+          </Button>
         ) : null}
         <DropdownMenu onOpenChange={props.onMenuOpenChange}>
           <DropdownMenuTrigger asChild>
@@ -350,6 +390,7 @@ function OwnerAccounts(props: {
 }) {
   const { integration, owner } = props;
   const connections = useAtomValue(connectionsForIntegrationAtom({ integration, owner }));
+  const workspaceUses = useWorkspaceUses();
   // Registered-app summaries: the Reconnect routing below inspects the STORED
   // client binding (its origin kind and resource), not just the method's
   // capability, before sending a connection into the automatic flow. Routing
@@ -548,6 +589,7 @@ function OwnerAccounts(props: {
               retryReconnectClientsOnMenuOpen(open, clientsView, refreshClients)
             }
             onRemove={() => setRemovingConnection(connection)}
+            usedBy={workspaceUses.length > 0 ? workspacesUsing(connection, workspaceUses) : null}
           />
         ))}
       </CardStackContent>

@@ -44,7 +44,30 @@ export interface ToolSummary {
   /** Integration that produced this tool. Used to disambiguate same-name
    *  connections from different integrations in grouped views. */
   readonly integration?: string;
+  /** How people know the integration (e.g. "Wiki"), shown in place of its slug. */
+  readonly integrationLabel?: string;
+  /** How people know the connection (e.g. "Wiki · acme · someone@example.com"),
+   *  shown in place of its generated name. Display only: paths and policy
+   *  patterns keep the ids. */
+  readonly connectionLabel?: string;
 }
+
+/** Display text for the id path segments the tools' labels name. */
+const segmentLabelsFor = (tools: readonly ToolSummary[]): ReadonlyMap<string, string> => {
+  const labels = new Map<string, string>();
+  for (const tool of tools) {
+    if (!tool.integration) continue;
+    if (tool.integrationLabel) labels.set(tool.integration, tool.integrationLabel);
+    if (tool.owner) labels.set(`${tool.integration}.${tool.owner}`, ownerLabel(tool.owner));
+    if (tool.connection && tool.connectionLabel) {
+      if (tool.owner) {
+        labels.set(`${tool.integration}.${tool.owner}.${tool.connection}`, tool.connectionLabel);
+      }
+      labels.set(`${tool.integration}.${tool.connection}`, tool.connectionLabel);
+    }
+  }
+  return labels;
+};
 
 // ---------------------------------------------------------------------------
 // Account grouping (v2) — top-level sections keyed by (owner, connection).
@@ -63,6 +86,8 @@ export type AccountGroup = {
   readonly connection: string;
   /** Section header, e.g. "Personal · axiom-mcp". */
   readonly label: string;
+  /** The connection's readable name, when its tools carry one. */
+  readonly connectionLabel?: string;
   readonly tools: readonly ToolSummary[];
 };
 
@@ -75,7 +100,13 @@ export type AccountGroup = {
 export const buildAccountGroups = (tools: readonly ToolSummary[]): readonly AccountGroup[] => {
   const byKey = new Map<
     string,
-    { owner: Owner; integration: string; connection: string; tools: ToolSummary[] }
+    {
+      owner: Owner;
+      integration: string;
+      connection: string;
+      connectionLabel?: string;
+      tools: ToolSummary[];
+    }
   >();
   for (const tool of tools) {
     const owner: Owner = tool.owner ?? "org";
@@ -87,6 +118,8 @@ export const buildAccountGroups = (tools: readonly ToolSummary[]): readonly Acco
       group = { owner, integration, connection, tools: [] };
       byKey.set(key, group);
     }
+    if (tool.connectionLabel && !group.connectionLabel)
+      group.connectionLabel = tool.connectionLabel;
     group.tools.push(tool);
   }
   // Workspace (org) sorts before Personal (user); then by connection name.
@@ -108,6 +141,7 @@ export const buildAccountGroups = (tools: readonly ToolSummary[]): readonly Acco
             group.integration ? `${group.integration} / ` : ""
           }${group.connection}`
         : ownerLabel(group.owner),
+      ...(group.connectionLabel ? { connectionLabel: group.connectionLabel } : {}),
       tools: group.tools,
     }));
 };
@@ -439,9 +473,10 @@ export function ToolTree(props: {
             const wholeAccountPattern = accountPattern(`${group.integration}.*`);
             const wholeAccountRule = exactPatterns.get(wholeAccountPattern);
             const accountLabel =
-              group.integration && group.connection
+              group.connectionLabel ??
+              (group.integration && group.connection
                 ? `${group.integration} / ${group.connection}`
-                : group.connection || ownerDisplay.label(group.owner);
+                : group.connection || ownerDisplay.label(group.owner));
             return (
               <section key={group.key}>
                 <header className="group/tt-row sticky top-0 z-10 flex items-center gap-2 border-b border-border/30 bg-muted/40 px-3 py-1.5 backdrop-blur-sm">
@@ -450,7 +485,12 @@ export function ToolTree(props: {
                       {ownerLabel(group.owner)}
                     </Badge>
                   ) : null}
-                  <span className="min-w-0 flex-1 truncate font-mono text-xs text-muted-foreground">
+                  <span
+                    className={cn(
+                      "min-w-0 flex-1 truncate text-xs text-muted-foreground",
+                      group.connectionLabel ? null : "font-mono",
+                    )}
+                  >
                     {accountLabel}
                   </span>
                   <span className="shrink-0 tabular-nums text-xs text-muted-foreground">
@@ -521,6 +561,7 @@ function ToolTreeBody(props: {
   const [manualOpen, setManualOpen] = useState<Set<string>>(() => new Set());
 
   const tree = useMemo(() => buildTree(tools), [tools]);
+  const segmentLabels = useMemo(() => segmentLabelsFor(tools), [tools]);
 
   // When searching, expand everything so matches are visible.
   // Also auto-expand groups that contain the selected tool.
@@ -586,7 +627,7 @@ function ToolTreeBody(props: {
           <ToolGroupRow
             key={row.path}
             path={row.path}
-            segment={row.segment}
+            segment={segmentLabels.get(row.path) ?? row.segment}
             depth={row.depth}
             count={row.count}
             open={row.open}
