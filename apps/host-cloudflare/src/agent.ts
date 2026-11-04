@@ -80,14 +80,18 @@ type AgentToolkits = {
  * A personal toolkit the caller made earlier under the name moves to the
  * workspace with its connections and rules, so nothing they picked is lost.
  */
-export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string) =>
+export const ensureAgentToolkit = (
+  toolkits: AgentToolkits,
+  slug: string,
+  /** Makes a new workspace with what it starts with; empty when absent. */
+  start?: Effect.Effect<unknown, unknown>,
+) =>
   Effect.gen(function* () {
     const existing = (yield* toolkits.list()).filter((toolkit) => toolkit.slug === slug);
     if (existing.some((toolkit) => toolkit.owner === "org")) return;
     const personal = existing.find((toolkit) => toolkit.owner === "user");
     if (!personal) {
-      // No connections until the agent's settings pick them.
-      yield* toolkits.create({ owner: "org", name: slug, slug });
+      yield* start ?? toolkits.create({ owner: "org", name: slug, slug });
       return;
     }
     const connections = yield* toolkits.listConnections(personal.id);

@@ -30,6 +30,7 @@ import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
 import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
+import { startWorkspace, withHostExecutor } from "../new-workspace";
 import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions } from "../tenancy";
@@ -191,7 +192,14 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // from the console. Its personal picks run as whoever calls it, through
       // their own sign-ins; the tenant ceiling bounds it either way.
       if (config.agentSignIn && sessionMeta.resource?.kind === "toolkit") {
-        yield* ensureAgentToolkit(executor.toolkits, sessionMeta.resource.slug);
+        const slug = sessionMeta.resource.slug;
+        yield* ensureAgentToolkit(
+          executor.toolkits,
+          slug,
+          withHostExecutor(self.cfEnv, config, (host) =>
+            startWorkspace(host.toolkits, { slug, name: slug }),
+          ),
+        );
       }
       // An agent sees Executor's own tools only when its workspace picked them.
       const builtinTools =
