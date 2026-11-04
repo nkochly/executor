@@ -68,8 +68,8 @@ $('#grid-workspace').onchange=()=>drawGrid();
 $('#grid-all').onchange=()=>{store.set('grid-all',$('#grid-all').checked?'1':'0');drawGrid()};
 let cat=null;
 async function loadCatalog(){cat=await call('/api/platform/admin/catalog');drawCatalog()}
-function listName(id){return id===cat.everything?'Everything':(cat.lists.find(l=>l.id===id)||{name:id}).name}
-function listOptions(sel,value,withDefault){sel.textContent='';if(withDefault)sel.append(el('option',{value:'',textContent:'Default ('+listName(cat.defaultList)+')'}));sel.append(el('option',{value:cat.everything,textContent:'Everything'}));for(const l of cat.lists)sel.append(el('option',{value:l.id,textContent:l.name}));sel.value=value}
+function listName(id){return id===cat.everything?'Everything':id===cat.company?'All company integrations':(cat.lists.find(l=>l.id===id)||{name:id}).name}
+function listOptions(sel,value,withDefault){sel.textContent='';if(withDefault)sel.append(el('option',{value:'',textContent:'Default ('+listName(cat.defaultList)+')'}));sel.append(el('option',{value:cat.company,textContent:'All company integrations'}));sel.append(el('option',{value:cat.everything,textContent:'Everything, and can add more'}));for(const l of cat.lists)sel.append(el('option',{value:l.id,textContent:l.name}));sel.value=value}
 function drawCatalog(){const def=$('#cat-default');listOptions(def,cat.defaultList,false);def.onchange=async()=>{say('Saving…');await call('/api/platform/admin/catalog/default',{list:def.value});cat.defaultList=def.value;say('Saved.');drawPeople()};drawPeople();drawLists()}
 function drawPeople(){const tb=$('#cat-people');tb.textContent='';const q=$('#cat-find').value.trim().toLowerCase();
  for(const p of cat.people.filter(p=>!q||p.email.includes(q))){const admin=cat.admins.includes(p.email);let cell;
@@ -124,7 +124,7 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <div class="grid"><table id="grid"></table></div>
 </section>
 <section id="tab-catalog" hidden>
-<p class="hint">Pick which of the company's integrations each person sees in Executor. People on <b>Everything</b> see all of them and can add new ones from the full catalog. People on a list see only its integrations and cannot add any. Admins always see everything. Workspaces are not affected: each workspace keeps the connections picked for it.</p>
+<p class="hint">Pick which of the company's integrations each person sees in Executor. People on <b>All company integrations</b> see all of them. People on <b>Everything</b> also add new ones from the full catalog. People on one of your lists see only its integrations. Only Everything adds. Admins always see everything. Workspaces are not affected: each workspace keeps the connections picked for it.</p>
 <h2>New people get</h2><p><select id="cat-default"></select></p>
 <h2>People</h2>
 <div class="filters"><label>Find <input id="cat-find" placeholder="name@company.com"></label><label>Add someone <input id="cat-new" placeholder="name@company.com" type="email"></label><button class="act" id="cat-add">Add</button></div>

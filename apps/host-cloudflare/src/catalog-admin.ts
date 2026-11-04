@@ -2,7 +2,9 @@ import type { D1Database, D1PreparedStatement } from "@cloudflare/workers-types"
 import { Effect, Option, Schema } from "effect";
 
 import {
+  COMPANY,
   EVERYTHING,
+  isList,
   forgetCatalogState,
   peopleSeen,
   readCatalogState,
@@ -46,9 +48,6 @@ const readBody = (request: Request): Promise<unknown> =>
 
 const EMAIL = /^[^\s@]+@[^\s@]+$/;
 
-const listExists = (state: CatalogState, id: string): boolean =>
-  id === EVERYTHING || state.lists.some((list) => list.id === id);
-
 /** A short id for a new list, from its name. */
 export const listId = (name: string, taken: readonly string[]): string => {
   const base =
@@ -57,7 +56,7 @@ export const listId = (name: string, taken: readonly string[]): string => {
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 40) || "list";
-  let id = base === EVERYTHING ? `${base}-list` : base;
+  let id = base === EVERYTHING || base === COMPANY ? `${base}-list` : base;
   for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
   return id;
 };
@@ -120,6 +119,7 @@ export const handleCatalogAdmin = async (
     ]);
     return json({
       everything: EVERYTHING,
+      company: COMPANY,
       defaultList: state.defaultList,
       lists: state.lists,
       people: peopleRows(seen, connected.values(), state),
@@ -162,7 +162,8 @@ export const handleCatalogAdmin = async (
       return json({ error: "No such list." }, 404);
     }
     const { id } = input.value;
-    // People on the list go back to the default; a removed default is Everything.
+    // People on the list go back to the default; a removed default is the
+    // company's list.
     await write(db, [
       db.prepare("DELETE FROM catalog_list WHERE id = ?").bind(id),
       db.prepare("DELETE FROM catalog_person WHERE list_id = ?").bind(id),
@@ -178,7 +179,7 @@ export const handleCatalogAdmin = async (
       return json({ error: "Give an email address." }, 400);
     }
     const { list } = input.value;
-    if (list !== null && !listExists(state, list)) return json({ error: "No such list." }, 404);
+    if (list !== null && !isList(state, list)) return json({ error: "No such list." }, 404);
     await write(db, [
       list === null
         ? db.prepare("DELETE FROM catalog_person WHERE email = ?").bind(email)
@@ -193,7 +194,7 @@ export const handleCatalogAdmin = async (
 
   if (route === "POST /catalog/default") {
     const input = decodeDefault(body);
-    if (Option.isNone(input) || !listExists(state, input.value.list)) {
+    if (Option.isNone(input) || !isList(state, input.value.list)) {
       return json({ error: "No such list." }, 404);
     }
     await write(db, [
