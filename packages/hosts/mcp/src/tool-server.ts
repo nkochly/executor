@@ -193,6 +193,13 @@ type SharedMcpServerConfig = {
    */
   readonly artifactsEnabled?: boolean;
   /**
+   * Whether this session serves Executor's own tools: `execute`, `skills`,
+   * `resume`, and the artifact and search tools. Defaults to true. False
+   * leaves only the integration tools served directly
+   * ({@link directIntegrations}) or through passthrough.
+   */
+  readonly builtinTools?: boolean;
+  /**
    * Per-connection opt-IN for the per-integration search tools. Defaults to
    * false. A client that connects with `?search_tools=true` gets one
    * `search_<integration>` tool per connected integration (the same inventory
@@ -1636,7 +1643,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
     // Artifacts are on unless this connection opted out (`?artifacts=false`).
     // One flag decides the whole surface: the tools, the shell resource, and
     // the skills catalog below.
-    const artifactsEnabled = config.artifactsEnabled ?? true;
+    // A host can withhold Executor's own tools (execute, skills, resume, the
+    // artifact and search tools) from a session, leaving only the integration
+    // tools it serves directly.
+    const builtinTools = config.builtinTools ?? true;
+    const artifactsEnabled = (config.artifactsEnabled ?? true) && builtinTools;
     const skillCatalog: readonly Skill[] =
       config.mode === "passthrough"
         ? [
@@ -1649,7 +1660,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         : skillCatalogFor({ artifacts: artifactsEnabled });
     // Per-integration search tools are off unless this connection opted in
     // (`?search_tools=true`).
-    const searchToolsEnabled = config.searchToolsEnabled ?? false;
+    const searchToolsEnabled = (config.searchToolsEnabled ?? false) && builtinTools;
     // Passthrough (`?mode=passthrough`) replaces the codemode surface
     // wholesale. The flag is read once here and every codemode-only
     // registration below is gated on it, so the two surfaces cannot leak into
@@ -2166,7 +2177,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       );
     }
 
-    if (!passthrough)
+    if (!passthrough && builtinTools)
       yield* Effect.sync(() =>
         server.registerTool(
           "execute",
@@ -2182,38 +2193,42 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         }),
       );
 
-    yield* Effect.sync(() =>
-      server.registerTool(
-        "skills",
-        {
-          annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
-          description: passthrough
-            ? 'Documentation for this server only, not harness or project skills. Call with no name to list guides, or skills({ name: "search-invoke" }) for account discovery, tool search, invocation, and pagination.'
-            : [
-                "Documentation for THIS server's own tools. Not a general skill reader: it serves a short, fixed set of how-to docs about using `execute` and artifacts here, and it cannot reach your harness's skills, a SKILL.md on disk, or any user- or project-authored skill. The argument is a name from its own catalog, never a path or an outside skill's id.",
-                "These docs hold the long-form guidance that would otherwise bloat another tool's always-loaded description.",
-                'Call `skills({ name: "execute" })` for the full guide to writing code for the `execute` tool (search the catalog, call tools, emit results, resume paused runs).',
-                "Call with no name to list the few docs available.",
-              ].join("\n"),
-          inputSchema: {
-            name: z
-              .string()
-              .optional()
-              .describe(
-                `A doc from this server's own catalog, e.g. "${passthrough ? "search-invoke" : "execute"}". Omit to list the catalog.`,
-              ),
+    if (builtinTools)
+      yield* Effect.sync(() =>
+        server.registerTool(
+          "skills",
+          {
+            annotations: { readOnlyHint: true, destructiveHint: false, openWorldHint: false },
+            description: passthrough
+              ? 'Documentation for this server only, not harness or project skills. Call with no name to list guides, or skills({ name: "search-invoke" }) for account discovery, tool search, invocation, and pagination.'
+              : [
+                  "Documentation for THIS server's own tools. Not a general skill reader: it serves a short, fixed set of how-to docs about using `execute` and artifacts here, and it cannot reach your harness's skills, a SKILL.md on disk, or any user- or project-authored skill. The argument is a name from its own catalog, never a path or an outside skill's id.",
+                  "These docs hold the long-form guidance that would otherwise bloat another tool's always-loaded description.",
+                  'Call `skills({ name: "execute" })` for the full guide to writing code for the `execute` tool (search the catalog, call tools, emit results, resume paused runs).',
+                  "Call with no name to list the few docs available.",
+                ].join("\n"),
+            inputSchema: {
+              name: z
+                .string()
+                .optional()
+                .describe(
+                  `A doc from this server's own catalog, e.g. "${passthrough ? "search-invoke" : "execute"}". Omit to list the catalog.`,
+                ),
+            },
           },
-        },
-        ({ name }, extra) =>
-          runToolEffect(Effect.succeed(skillsResult(name, executeInventory, skillCatalog)), extra),
-      ),
-    ).pipe(
-      Effect.withSpan("mcp.host.register_tool", {
-        attributes: { "mcp.tool.name": "skills" },
-      }),
-    );
+          ({ name }, extra) =>
+            runToolEffect(
+              Effect.succeed(skillsResult(name, executeInventory, skillCatalog)),
+              extra,
+            ),
+        ),
+      ).pipe(
+        Effect.withSpan("mcp.host.register_tool", {
+          attributes: { "mcp.tool.name": "skills" },
+        }),
+      );
 
-    if (!passthrough)
+    if (!passthrough && builtinTools)
       yield* Effect.sync(() => {
         if (elicitationMode.mode === "native") {
           return undefined;
