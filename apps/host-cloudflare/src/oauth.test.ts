@@ -10,7 +10,7 @@ import {
   principalForGrant,
   registeredClientName,
 } from "./oauth";
-import { readTeamPages } from "./tenancy";
+import { clearDirectoryCache, readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
 
 const DIRECTORY = "https://dir.test/api/directory";
@@ -45,7 +45,10 @@ const stub = (routes: Record<string, unknown>) =>
   });
 
 describe("company tenancy", () => {
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearDirectoryCache();
+  });
 
   it("is one org with no tenant partition, keeping the directory for operators", () => {
     const config = companyConfig();

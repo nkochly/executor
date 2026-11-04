@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 
 import {
+  clearDirectoryCache,
   ORIGINAL_PATH_HEADER,
   resolveTenant,
   isOperator,
@@ -77,7 +78,10 @@ describe("resolveTenant", () => {
         : new Response("not found", { status: 404 });
     });
   };
-  afterEach(() => vi.unstubAllGlobals());
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    clearDirectoryCache();
+  });
 
   it.effect("reads the named tenant with the service token, mapping owner to admin", () =>
     Effect.gen(function* () {
@@ -133,8 +137,29 @@ describe("resolveTenant", () => {
       expect(text).toContain("how-we-work.md in the acme/root wiki, version 3");
       expect(text.endsWith(page.body)).toBe(true);
       expect(yield* readTeamPage(directory, "beta", "dev@acme.com")).toBeNull();
+      clearDirectoryCache();
       stub({ "/tenants/acme/members/dev%40acme.com/team-page": { wiki: "acme/root" } });
       expect(yield* readTeamPage(directory, "acme", "dev@acme.com")).toBeNull();
+    }),
+  );
+
+  it.effect("reuses a team page answer, but never a failed read", () =>
+    Effect.gen(function* () {
+      const page = {
+        wiki: "acme/root",
+        path: "how-we-work.md",
+        starter: true,
+        version: 0,
+        body: "page",
+      };
+      stub({ "/tenants/acme/members/dev%40acme.com/team-page": page });
+      yield* readTeamPage(directory, "acme", "dev@acme.com");
+      yield* readTeamPage(directory, "acme", "dev@acme.com");
+      expect(calls).toHaveLength(1);
+      vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
+      expect(yield* readTeamPage(directory, "beta", "dev@acme.com")).toBeNull();
+      stub({ "/tenants/beta/members/dev%40acme.com/team-page": { ...page, wiki: "beta/root" } });
+      expect((yield* readTeamPage(directory, "beta", "dev@acme.com"))?.wiki).toBe("beta/root");
     }),
   );
 

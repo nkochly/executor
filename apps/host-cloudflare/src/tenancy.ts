@@ -98,6 +98,37 @@ const readDirectory = (directory: TenantDirectoryConfig, path: string) =>
     catch: () => null,
   }).pipe(Effect.orElseSucceed(() => null));
 
+// Directory answers this isolate reuses for a short while. Every MCP request
+// re-checks the caller's memberships, and every new session reads the team
+// pages; a client opening several connections at once asked the wiki the same
+// questions over and over. A removal from a tenant takes effect within this
+// window. Only answers are kept, never a failed read.
+const DIRECTORY_CACHE_TTL_MS = 30_000;
+const DIRECTORY_CACHE_MAX = 500;
+const directoryCache = new Map<string, { readonly at: number; readonly body: Promise<unknown> }>();
+
+const readDirectoryCached = (directory: TenantDirectoryConfig, path: string) => {
+  const key = `${directory.url}${path}`;
+  const now = Date.now();
+  const hit = directoryCache.get(key);
+  if (hit && now - hit.at < DIRECTORY_CACHE_TTL_MS) {
+    return Effect.promise(() => hit.body);
+  }
+  if (directoryCache.size >= DIRECTORY_CACHE_MAX) directoryCache.clear();
+  const body = Effect.runPromise(readDirectory(directory, path));
+  directoryCache.set(key, { at: now, body });
+  return Effect.promise(() => body).pipe(
+    Effect.tap((value) =>
+      Effect.sync(() => {
+        if (value === null && directoryCache.get(key)?.body === body) directoryCache.delete(key);
+      }),
+    ),
+  );
+};
+
+/** Forget every cached directory answer (tests). */
+export const clearDirectoryCache = () => directoryCache.clear();
+
 /**
  * The tenant this caller acts in. A named tenant must list the caller. With
  * no tenant named, a caller who belongs to exactly one tenant acts in it;
@@ -140,7 +171,7 @@ export const listMemberships = (
 ): Effect.Effect<readonly TenantMembership[]> => {
   const subject = encodeURIComponent(identity.trim().toLowerCase());
   if (subject.length === 0) return Effect.succeed([]);
-  return readDirectory(directory, `/members/${subject}`).pipe(
+  return readDirectoryCached(directory, `/members/${subject}`).pipe(
     Effect.map((body) =>
       Option.match(decodeMany(body), {
         onNone: () => [],
@@ -192,7 +223,7 @@ export const readTeamPage = (
 ): Effect.Effect<TeamPage | null> => {
   const subject = encodeURIComponent(identity.trim().toLowerCase());
   if (subject.length === 0 || tenant.length === 0) return Effect.succeed(null);
-  return readDirectory(
+  return readDirectoryCached(
     directory,
     `/tenants/${encodeURIComponent(tenant)}/members/${subject}/team-page`,
   ).pipe(
