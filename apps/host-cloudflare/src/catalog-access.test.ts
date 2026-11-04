@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { accessFor, EVERYTHING, listOf, type CatalogState } from "./catalog-access";
+import { accessFor, COMPANY, EVERYTHING, listOf, type CatalogState } from "./catalog-access";
 import { listId, peopleRows } from "./catalog-admin";
 
 const state = (over: Partial<CatalogState> = {}): CatalogState => ({
@@ -11,11 +11,17 @@ const state = (over: Partial<CatalogState> = {}): CatalogState => ({
 });
 
 describe("catalog lists", () => {
-  it("gives a person their own list, else the default, else Everything", () => {
+  it("leaves people with no list where they were: see all, add none", () => {
+    const fresh = state({ defaultList: COMPANY, people: new Map() });
+    expect(listOf(fresh, "bo@example.com")).toBe(COMPANY);
+    expect(accessFor(fresh, "bo@example.com", false)).toEqual({ visible: "all", canAdd: false });
+    expect(listOf(state({ defaultList: "gone" }), "bo@example.com")).toBe(COMPANY);
+  });
+
+  it("gives a person their own list, else the default", () => {
     expect(listOf(state(), "Ann@Example.com")).toBe("sales");
     expect(listOf(state(), "bo@example.com")).toBe(EVERYTHING);
     expect(listOf(state({ defaultList: "sales" }), "bo@example.com")).toBe("sales");
-    expect(listOf(state({ defaultList: "gone" }), "bo@example.com")).toBe(EVERYTHING);
     expect(
       listOf(
         state({ people: new Map([["ann@example.com", "gone"]]), defaultList: "sales" }),
@@ -36,6 +42,7 @@ describe("catalog lists", () => {
     expect(listId("Sales basics!", [])).toBe("sales-basics");
     expect(listId("Sales basics", ["sales-basics"])).toBe("sales-basics-2");
     expect(listId("Everything", [])).toBe("everything-list");
+    expect(listId("Company", [])).toBe("company-list");
     expect(listId("???", [])).toBe("list");
   });
 

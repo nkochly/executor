@@ -9,11 +9,12 @@ import { isOperator } from "./tenancy";
 
 // ---------------------------------------------------------------------------
 // Who sees which integrations. Platform admins keep named catalog lists, each
-// a set of the company's integrations, and give each person one. The built-in
-// "Everything" list sees every integration and may add new ones from the open
-// catalog; any other list sees only its integrations and adds none. A person
-// with no list gets the default list, which is Everything until an admin
-// picks another. Admins always have Everything.
+// a set of the company's integrations, and give each person one. Two lists
+// are built in: "Everything" sees every integration and may add new ones from
+// the open catalog; "All company integrations" sees every integration and adds
+// none. Any other list sees only its integrations and adds none. A person with
+// no list gets the default list, which is All company integrations until an
+// admin picks another. Admins always have Everything.
 //
 // A list hides an integration from the person's console and refuses their own
 // connections to it. A workspace's connections are the workspace's to pick.
@@ -21,6 +22,8 @@ import { isOperator } from "./tenancy";
 
 /** The built-in list: every integration, and adding new ones. */
 export const EVERYTHING = "everything";
+/** The built-in list: every integration the company has, adding none. */
+export const COMPANY = "company";
 
 export interface CatalogList {
   readonly id: string;
@@ -96,22 +99,26 @@ export const readCatalogState = async (db: D1Database): Promise<CatalogState> =>
     people: new Map(
       (people?.results ?? []).map((row) => [String(row.email), String(row.list_id)] as const),
     ),
-    defaultList: setting?.results[0] ? String(setting.results[0].value) : EVERYTHING,
+    defaultList: setting?.results[0] ? String(setting.results[0].value) : COMPANY,
   };
   cachedState = { at: Date.now(), state };
   return state;
 };
 
-/** The list a person has: their own, else the default, else Everything. */
+/** Whether `id` names a list: a built-in one or an admin's. */
+export const isList = (state: CatalogState, id: string | undefined): id is string =>
+  id !== undefined &&
+  (id === EVERYTHING || id === COMPANY || state.lists.some((list) => list.id === id));
+
+/** The list a person has: their own, else the default, else the company's. */
 export const listOf = (state: CatalogState, email: string | null): string => {
-  const known = (id: string | undefined) =>
-    id !== undefined && (id === EVERYTHING || state.lists.some((list) => list.id === id));
   const own = email ? state.people.get(email.toLowerCase()) : undefined;
-  if (known(own)) return own!;
-  return known(state.defaultList) ? state.defaultList : EVERYTHING;
+  if (isList(state, own)) return own;
+  return isList(state, state.defaultList) ? state.defaultList : COMPANY;
 };
 
 const EVERYTHING_ACCESS: IntegrationAccess = { visible: "all", canAdd: true };
+const COMPANY_ACCESS: IntegrationAccess = { visible: "all", canAdd: false };
 
 /** What a person may see and add, given whether they are an admin. */
 export const accessFor = (
@@ -122,6 +129,7 @@ export const accessFor = (
   if (admin) return EVERYTHING_ACCESS;
   const id = listOf(state, email);
   if (id === EVERYTHING) return EVERYTHING_ACCESS;
+  if (id === COMPANY) return COMPANY_ACCESS;
   const list = state.lists.find((l) => l.id === id);
   return { visible: new Set(list?.integrations ?? []), canAdd: false };
 };
