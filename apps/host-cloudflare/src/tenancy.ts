@@ -104,26 +104,59 @@ const readDirectory = (directory: TenantDirectoryConfig, path: string) =>
 // questions over and over. A removal from a tenant takes effect within this
 // window. Only answers are kept, never a failed read.
 const DIRECTORY_CACHE_TTL_MS = 30_000;
+// Team pages (and the tenant list they are read for) only shape a session's
+// instructions, never what it may do, and every new session waits on them. An
+// answer this much past its window is still served at once while a fresh read
+// replaces it in the background.
+const TEAM_PAGE_STALE_MS = 10 * 60_000;
 const DIRECTORY_CACHE_MAX = 500;
-const directoryCache = new Map<string, { readonly at: number; readonly body: Promise<unknown> }>();
 
-const readDirectoryCached = (directory: TenantDirectoryConfig, path: string) => {
-  const key = `${directory.url}${path}`;
-  const now = Date.now();
-  const hit = directoryCache.get(key);
-  if (hit && now - hit.at < DIRECTORY_CACHE_TTL_MS) {
-    return Effect.promise(() => hit.body);
-  }
+interface DirectoryCacheEntry {
+  readonly at: number;
+  readonly body: Promise<unknown>;
+  /** The answer, once it arrived and was not a failed read. */
+  value?: unknown;
+  refreshing?: boolean;
+}
+const directoryCache = new Map<string, DirectoryCacheEntry>();
+
+const fetchIntoCache = (directory: TenantDirectoryConfig, key: string, path: string) => {
   if (directoryCache.size >= DIRECTORY_CACHE_MAX) directoryCache.clear();
   const body = Effect.runPromise(readDirectory(directory, path));
-  directoryCache.set(key, { at: now, body });
-  return Effect.promise(() => body).pipe(
-    Effect.tap((value) =>
-      Effect.sync(() => {
-        if (value === null && directoryCache.get(key)?.body === body) directoryCache.delete(key);
-      }),
-    ),
-  );
+  const entry: DirectoryCacheEntry = { at: Date.now(), body };
+  directoryCache.set(key, entry);
+  void body.then((value) => {
+    if (directoryCache.get(key) !== entry) return;
+    if (value === null) directoryCache.delete(key);
+    else entry.value = value;
+  });
+  return entry;
+};
+
+const readDirectoryCached = (directory: TenantDirectoryConfig, path: string, staleMs = 0) => {
+  const key = `${directory.url}${path}`;
+  const hit = directoryCache.get(key);
+  const age = hit ? Date.now() - hit.at : Infinity;
+  if (hit && age < DIRECTORY_CACHE_TTL_MS) {
+    return Effect.promise(() => hit.body);
+  }
+  if (hit && hit.value !== undefined && age < DIRECTORY_CACHE_TTL_MS + staleMs) {
+    if (!hit.refreshing) {
+      hit.refreshing = true;
+      // The stale answer stays until a good one replaces it.
+      void Effect.runPromise(readDirectory(directory, path)).then((value) => {
+        if (directoryCache.get(key) !== hit) return;
+        if (value === null) {
+          hit.refreshing = false;
+          return;
+        }
+        directoryCache.set(key, { at: Date.now(), body: Promise.resolve(value), value });
+      });
+    }
+    return Effect.succeed(hit.value);
+  }
+  const entry = fetchIntoCache(directory, key, path);
+  return Effect.promise(() => entry.body);
 };
 
 /** Forget every cached directory answer (tests). */
@@ -168,10 +201,11 @@ export const resolveTenant = (
 export const listMemberships = (
   directory: TenantDirectoryConfig,
   identity: string,
+  staleMs = 0,
 ): Effect.Effect<readonly TenantMembership[]> => {
   const subject = encodeURIComponent(identity.trim().toLowerCase());
   if (subject.length === 0) return Effect.succeed([]);
-  return readDirectoryCached(directory, `/members/${subject}`).pipe(
+  return readDirectoryCached(directory, `/members/${subject}`, staleMs).pipe(
     Effect.map((body) =>
       Option.match(decodeMany(body), {
         onNone: () => [],
@@ -226,6 +260,7 @@ export const readTeamPage = (
   return readDirectoryCached(
     directory,
     `/tenants/${encodeURIComponent(tenant)}/members/${subject}/team-page`,
+    TEAM_PAGE_STALE_MS,
   ).pipe(
     Effect.map((body) =>
       Option.match(decodeTeamPage(body), { onNone: () => null, onSome: (page) => page }),
@@ -276,7 +311,7 @@ export const readTeamPages = (
   directory: TenantDirectoryConfig,
   identity: string,
 ): Effect.Effect<readonly TeamPage[]> =>
-  listMemberships(directory, identity).pipe(
+  listMemberships(directory, identity, TEAM_PAGE_STALE_MS).pipe(
     Effect.flatMap((memberships) =>
       Effect.forEach(
         memberships.slice(0, MAX_TEAM_PAGES),
