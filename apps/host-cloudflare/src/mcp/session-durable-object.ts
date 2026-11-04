@@ -29,7 +29,7 @@ import type { ResumeResponse } from "@executor-js/execution";
 import { loadConfig, type CloudflareConfig, type CloudflareEnv } from "../config";
 import { createD1ExecutorDb } from "../db/d1";
 import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execution";
-import { ensureAgentToolkit } from "../agent";
+import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
 import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions } from "../tenancy";
@@ -193,6 +193,11 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       if (config.agentSignIn && sessionMeta.resource?.kind === "toolkit") {
         yield* ensureAgentToolkit(executor.toolkits, sessionMeta.resource.slug);
       }
+      // An agent sees Executor's own tools only when its workspace picked them.
+      const builtinTools =
+        config.agentSignIn && sessionMeta.resource?.kind === "toolkit"
+          ? yield* agentHasCoreTools(executor.toolkits, sessionMeta.resource.slug)
+          : true;
       // Browser elicitation mode (the base owns the approval store + the HTTP
       // approval RPCs): a gated execution pauses and returns an approvalUrl into
       // the console resume page. The URL origin is the create request's origin
@@ -218,6 +223,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         mode: sessionMeta.toolMode ?? "codemode",
         instructions: sessionInstructions(teamPages),
         directIntegrations: catalog.map((server) => server.slug),
+        builtinTools,
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
         restoredAppsEnabled: sessionMeta.appsEnabled ?? false,

@@ -1,7 +1,13 @@
 import { describe, expect, it } from "@effect/vitest";
 import { Effect } from "effect";
 
-import { AGENT_SLUG, agentRequest, agentSlug, ensureAgentToolkit } from "./agent";
+import {
+  AGENT_SLUG,
+  agentHasCoreTools,
+  agentRequest,
+  agentSlug,
+  ensureAgentToolkit,
+} from "./agent";
 
 describe("agent sign-in", () => {
   it("turns a typed agent name into a toolkit slug", () => {
@@ -50,6 +56,19 @@ describe("agent sign-in", () => {
       },
     };
   };
+
+  it.effect("gives an agent Executor's own tools only when its workspace picked them", () =>
+    Effect.gen(function* () {
+      const { api } = fakeToolkits([
+        { slug: "wiki-only", owner: "org", patterns: ["wiki.org.team.*"], policies: [] },
+        { slug: "with-core", owner: "org", patterns: ["executor.coreTools.*"], policies: [] },
+        { slug: "everything", owner: "org", patterns: ["*"], policies: [] },
+      ]);
+      expect(yield* agentHasCoreTools(api, "wiki-only")).toBe(false);
+      expect(yield* agentHasCoreTools(api, "with-core")).toBe(true);
+      expect(yield* agentHasCoreTools(api, "everything")).toBe(true);
+    }),
+  );
 
   it.effect("makes every agent a workspace toolkit, once", () =>
     Effect.gen(function* () {

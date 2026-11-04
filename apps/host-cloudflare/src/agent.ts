@@ -1,4 +1,5 @@
 import { Effect } from "effect";
+import { matchPattern } from "@executor-js/sdk";
 
 // An agent is one workspace toolkit. The person who connects it is who it acts
 // as; the toolkit says which tools it has.
@@ -108,3 +109,23 @@ export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string) =>
       });
     }
   }).pipe(Effect.ignore);
+
+/** A tool every grant of Executor's own tools reaches. */
+const CORE_TOOL_PROBE = "executor.coreTools.connections.list";
+
+/**
+ * Whether the agent's workspace picked Executor's own tools (the coreTools
+ * connection, or a pattern that covers it). Without them the agent's session
+ * serves only its integrations' tools: no execute, skills, resume or
+ * artifacts. Not an access check — every call is still held to the
+ * workspace's connections — so a failed read answers true.
+ */
+export const agentHasCoreTools = (toolkits: AgentToolkits, slug: string) =>
+  Effect.gen(function* () {
+    const toolkit = (yield* toolkits.list()).find(
+      (candidate) => candidate.slug === slug && candidate.owner === "org",
+    );
+    if (!toolkit) return true;
+    const connections = yield* toolkits.listConnections(toolkit.id);
+    return connections.some((connection) => matchPattern(connection.pattern, CORE_TOOL_PROBE));
+  }).pipe(Effect.orElseSucceed(() => true));

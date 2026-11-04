@@ -517,6 +517,29 @@ describe("MCP host — artifact tool visibility", () => {
     );
   });
 
+  it("serves none of Executor's own tools when the host withholds them", async () => {
+    const store = makeArtifactStore();
+    await withClient(
+      makeStubEngine({}),
+      APPS_CAPS,
+      async (client) => {
+        const names = await toolNames(client);
+        for (const name of [
+          "execute",
+          "skills",
+          "resume",
+          "create-artifact",
+          "edit-artifact",
+          "list-artifacts",
+          "show-artifact",
+        ]) {
+          expect(names).not.toContain(name);
+        }
+      },
+      { artifacts: store.port, builtinTools: false },
+    );
+  });
+
   // Nothing serves the shell, so there is nothing for a rendered app to load.
   // The read is what proves it: with no resource registered at all, the SDK
   // does not install a resources handler either, so `resources/list` itself is
