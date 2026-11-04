@@ -6020,8 +6020,85 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       address: ToolAddress,
     ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
       listActivePolicyRuleSet().pipe(
-        Effect.flatMap((policyRules) => toolSchemaWithRules(policyRules, address, true)),
+        Effect.flatMap((policyRules) =>
+          toolSchemaWithRules(policyRules, address, true, directSchemaReads),
+        ),
       );
+
+    // Where a schema's tool row and its connection's definitions come from:
+    // one query each per tool, or one pair per connection for a batch.
+    interface SchemaReads {
+      readonly tool: (parsed: ParsedToolAddress) => Effect.Effect<ToolRow | null, StorageFailure>;
+      readonly definitions: (
+        parsed: ParsedToolAddress,
+      ) => Effect.Effect<
+        readonly { readonly name: string; readonly schema: unknown }[],
+        StorageFailure
+      >;
+    }
+
+    const directSchemaReads: SchemaReads = {
+      tool: (parsed) =>
+        core.findFirst("tool", {
+          where: (b: AnyCb) =>
+            b.and(toolRowsForConnectionWhere(parsed)(b), b("name", "=", String(parsed.tool))),
+        }),
+      definitions: (parsed) =>
+        core.findMany("definition", { where: toolRowsForConnectionWhere(parsed) }),
+    };
+
+    const schemaConnectionKey = (parsed: ParsedToolAddress) =>
+      `${parsed.owner}\u0000${String(parsed.integration)}\u0000${String(parsed.connection)}`;
+
+    // Every tool row and definition of each connection the batch names, read
+    // once per connection instead of once per tool.
+    const batchSchemaReads = (
+      addresses: readonly ToolAddress[],
+    ): Effect.Effect<SchemaReads, StorageFailure> =>
+      Effect.gen(function* () {
+        const connections = new Map<string, ParsedToolAddress>();
+        for (const address of addresses) {
+          if (staticTools.has(String(address))) continue;
+          const parsed = parseToolAddress(String(address));
+          if (parsed) connections.set(schemaConnectionKey(parsed), parsed);
+        }
+        const loaded = yield* Effect.forEach(
+          [...connections],
+          ([key, parsed]) =>
+            Effect.all(
+              [
+                core.findMany("tool", { where: toolRowsForConnectionWhere(parsed) }),
+                core.findMany("definition", { where: toolRowsForConnectionWhere(parsed) }),
+              ],
+              { concurrency: 2 },
+            ).pipe(
+              Effect.map(
+                ([tools, definitions]) =>
+                  [
+                    key,
+                    { tools: new Map(tools.map((row) => [String(row.name), row])), definitions },
+                  ] as const,
+              ),
+            ),
+          { concurrency: TOOL_SCHEMAS_CONCURRENCY },
+        );
+        const byConnection = new Map(loaded);
+        return {
+          tool: (parsed) =>
+            byConnection.has(schemaConnectionKey(parsed))
+              ? Effect.succeed(
+                  byConnection.get(schemaConnectionKey(parsed))?.tools.get(String(parsed.tool)) ??
+                    null,
+                )
+              : directSchemaReads.tool(parsed),
+          definitions: (parsed) => {
+            const entry = byConnection.get(schemaConnectionKey(parsed));
+            return entry
+              ? Effect.succeed(entry.definitions)
+              : directSchemaReads.definitions(parsed);
+          },
+        } satisfies SchemaReads;
+      });
 
     // Many schemas against one policy snapshot. The rule set is read once, not
     // once per tool, and the per-tool reads run side by side: a host that
@@ -6032,10 +6109,14 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       options?: { readonly typeScript?: boolean },
     ): Effect.Effect<ReadonlyMap<string, ToolSchemaView | null>, StorageFailure> =>
       Effect.gen(function* () {
-        const policyRules = yield* listActivePolicyRuleSet();
+        const [policyRules, reads] = yield* Effect.all(
+          [listActivePolicyRuleSet(), batchSchemaReads(addresses)],
+          { concurrency: 2 },
+        );
         const views = yield* Effect.forEach(
           addresses,
-          (address) => toolSchemaWithRules(policyRules, address, options?.typeScript ?? true),
+          (address) =>
+            toolSchemaWithRules(policyRules, address, options?.typeScript ?? true, reads),
           { concurrency: TOOL_SCHEMAS_CONCURRENCY },
         );
         return new Map(addresses.map((address, i) => [String(address), views[i] ?? null]));
@@ -6045,6 +6126,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       policyRules: ActivePolicyRuleSet,
       address: ToolAddress,
       typeScript: boolean,
+      reads: SchemaReads,
     ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
       Effect.gen(function* () {
         const staticEntry = staticTools.get(String(address));
@@ -6086,15 +6168,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
         const parsed = parseToolAddress(String(address));
         if (!parsed) return null;
-        const row = yield* core.findFirst("tool", {
-          where: (b: AnyCb) =>
-            b.and(
-              byOwner(parsed.owner)(b),
-              b("integration", "=", String(parsed.integration)),
-              b("connection", "=", String(parsed.connection)),
-              b("name", "=", String(parsed.tool)),
-            ),
-        });
+        const row = yield* reads.tool(parsed);
         if (!row) return null;
         const tool = rowToTool(row);
         const effective = yield* resolvePolicyFromRuleSet(
@@ -6143,14 +6217,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
               ? observedShapeToJsonSchema(observed)
               : undefined;
 
-        const definitionRows = yield* core.findMany("definition", {
-          where: (b: AnyCb) =>
-            b.and(
-              byOwner(parsed.owner)(b),
-              b("integration", "=", String(parsed.integration)),
-              b("connection", "=", String(parsed.connection)),
-            ),
-        });
+        const definitionRows = yield* reads.definitions(parsed);
         const defs = new Map<string, unknown>();
         for (const def of definitionRows) defs.set(def.name, decodeJsonColumn(def.schema));
 
