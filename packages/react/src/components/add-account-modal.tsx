@@ -20,6 +20,7 @@ import {
   type Owner,
 } from "@executor-js/sdk/shared";
 import type { IntegrationAccountHandoff } from "@executor-js/sdk/client";
+import type { AddedConnection } from "../lib/pending-connect";
 import { toast } from "sonner";
 
 import {
@@ -1216,6 +1217,12 @@ interface AddAccountModalProps {
    *  default owner, a name from the account signed in to) instead of showing
    *  the form first. The form shows when the sign-in cannot start that way. */
   readonly autoConnect?: boolean;
+  /** When the click that asked for `autoConnect` happened, if before this
+   *  modal opened (a Connect clicked on another page). */
+  readonly autoConnectClickedAt?: number;
+  /** Told about each connection this modal creates (not a reconnect), before
+   *  it closes. A workspace page uses it to turn the new connection on there. */
+  readonly onConnected?: (connection: AddedConnection) => Promise<void> | void;
 }
 
 /** How long after the click a sign-in window may still be opened. Browsers
@@ -1429,6 +1436,8 @@ function RequestCheckPanel(props: {
 function AddAccountModalView(props: AddAccountModalProps) {
   const {
     autoConnect = false,
+    autoConnectClickedAt,
+    onConnected,
     integration,
     integrationName,
     methods,
@@ -2109,6 +2118,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
       );
       return;
     }
+    await onConnected?.({ owner, integration, name: String(commonPayload.name) });
     toast.success("Connection added");
     close();
   };
@@ -2305,6 +2315,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
       }
       if (exit.value.status === "connected") {
         await probeAndAutoNameOAuthConnection(exit.value.connection, label);
+        await onConnected?.(exit.value.connection);
       }
       setCcBusy(false);
       toast.success("Connection added");
@@ -2338,6 +2349,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
       },
       onSuccess: async (connection: OAuthCompletionPayload) => {
         await probeAndAutoNameOAuthConnection(connection, label);
+        await onConnected?.(connection);
         toast.success("Connection added");
         close();
       },
@@ -2399,6 +2411,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
             },
             onSuccess: async (connection: OAuthCompletionPayload) => {
               await probeAndAutoNameOAuthConnection(connection, label);
+              await onConnected?.(connection);
               toast.success("Connection added");
               close();
             },
@@ -2545,6 +2558,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
                 // connection gets auto-named from what was probed.
                 if (!reconnect) {
                   await probeAndAutoNameOAuthConnection(connection, request.typedLabel);
+                  await onConnected?.(connection);
                 }
                 toast.success(reconnect ? "Reconnected" : "Connection added");
                 close();
@@ -2613,6 +2627,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
       close,
       clientSummaries,
       createCimdClient,
+      onConnected,
       doProbe,
       doRegisterDynamic,
       integration,
@@ -2724,7 +2739,7 @@ function AddAccountModalView(props: AddAccountModalProps) {
   const [autoPhase, setAutoPhase] = useState<"off" | "starting" | "waiting">(() =>
     autoConnect && !initialState ? "starting" : "off",
   );
-  const autoOpenedAt = useRef(Date.now());
+  const autoOpenedAt = useRef(autoConnectClickedAt ?? Date.now());
   const autoSawBusy = useRef(false);
   const autoConnectBusy = oauthBusy || automaticOAuthConnecting;
   const startAutoConnect = useEffectEvent((flow: "cimd" | "automatic" | "app") => {
