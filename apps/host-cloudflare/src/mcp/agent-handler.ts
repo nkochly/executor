@@ -25,6 +25,7 @@ import { mcpSessionStub } from "@executor-js/cloudflare/mcp/session-stub";
 
 import type { CloudflareConfig, CloudflareEnv } from "../config";
 import { cloudflareAccessMcpAuth } from "./auth";
+import { sessionlessProbeAnswer } from "./pre-session";
 import { mcpResourceFromPath } from "./resource";
 import { McpSessionDO } from "./session-durable-object";
 
@@ -142,6 +143,11 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
 
     if (!sessionId && request.method === "DELETE") {
       return new Response(null, { status: 204, headers: { "access-control-allow-origin": "*" } });
+    }
+
+    if (!sessionId) {
+      const probe = await sessionlessProbeAnswer(request);
+      if (probe) return probe;
     }
 
     if (sessionId) {
