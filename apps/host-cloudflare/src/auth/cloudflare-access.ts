@@ -167,6 +167,8 @@ export const makeAccessVerifier = (config: CloudflareConfig) => {
 
 export const cloudflareAccessIdentityLayer = (
   config: CloudflareConfig,
+  /** Told of every signed-in principal; it must not fail. */
+  onPrincipal: (principal: Principal) => Effect.Effect<void> = () => Effect.void,
 ): Layer.Layer<IdentityProvider> => {
   const { verify } = makeAccessVerifier(config);
   return Layer.succeed(IdentityProvider)(
@@ -174,7 +176,9 @@ export const cloudflareAccessIdentityLayer = (
       authenticate: (request) =>
         verify(request).pipe(
           Effect.flatMap((principal) =>
-            principal ? Effect.succeed(principal) : Effect.fail(new Unauthorized()),
+            principal
+              ? onPrincipal(principal).pipe(Effect.as(principal))
+              : Effect.fail(new Unauthorized()),
           ),
         ),
     }),

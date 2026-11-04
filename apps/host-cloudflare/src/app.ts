@@ -7,6 +7,7 @@ import { loadConfig, type CloudflareEnv } from "./config";
 import { makeCloudflarePlugins } from "./plugins";
 import { createD1ExecutorDb } from "./db/d1";
 import { cloudflareAccessIdentityLayer } from "./auth/cloudflare-access";
+import { recordPerson } from "./catalog-access";
 import {
   CloudflareCodeExecutorProvider,
   makeCloudflareHostConfig,
@@ -44,7 +45,9 @@ export const makeCloudflareApp = async (env: CloudflareEnv) => {
   // Open and idempotently bring up the D1 schema once. This is the long-lived
   // handle the per-request scoped executor reads through the DbProvider seam.
   const dbHandle = await createD1ExecutorDb(env.DB, env.BLOBS);
-  const identityLayer = cloudflareAccessIdentityLayer(config);
+  const identityLayer = cloudflareAccessIdentityLayer(config, (principal) =>
+    recordPerson(env.DB, principal.accountId, principal.email ?? ""),
+  );
   const mcpAgentHandler = makeCloudflareMcpAgentHandler(config);
   const approvalHandler = makeCloudflareApprovalHandler(config, env);
 

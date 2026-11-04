@@ -437,6 +437,8 @@ export {
   type Executor,
   type ExecutorAdmin,
   type ExecutorConfig,
+  type IntegrationAccess,
+  type IntegrationAccessView,
   type ExecutorDb,
   type ExecutorDbFactory,
   type ExecutorDbInput,

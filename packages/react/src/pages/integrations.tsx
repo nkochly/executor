@@ -33,7 +33,7 @@ import { Skeleton } from "../components/skeleton";
 import { useExecutorDocumentTitle } from "../lib/document-title";
 import { ErrorState } from "../components/error-state";
 import { isAsyncResultLoading } from "../lib/async-result";
-import { useCanCreateWorkspaceConnections } from "../multiplayer/use-admin-nav";
+import { useIntegrationCatalogAccess } from "../multiplayer/use-admin-nav";
 
 const KIND_TO_PLUGIN_KEY: Record<string, string> = {
   openapi: "openapi",
@@ -50,7 +50,7 @@ export function IntegrationsPage() {
   useExecutorDocumentTitle("Integrations");
   const integrations = useAtomValue(integrationsOptimisticAtom);
   const refreshIntegrations = useAtomRefresh(integrationsOptimisticAtom);
-  const canCreate = useCanCreateWorkspaceConnections();
+  const { canAdd: canCreate, curated } = useIntegrationCatalogAccess();
 
   return (
     <PageContainer>
@@ -58,7 +58,7 @@ export function IntegrationsPage() {
         title="Integrations"
         description="Tool providers available in this workspace."
         actions={
-          canCreate ? (
+          curated && !canCreate ? undefined : canCreate ? (
             <Button asChild size="sm" className="gap-1.5">
               <Link
                 to="/{-$orgSlug}/integrations/browse"
@@ -95,7 +95,7 @@ export function IntegrationsPage() {
           ),
           onSuccess: ({ value }) => {
             if (value.length === 0) {
-              return <EmptyIntegrations canCreate={canCreate} />;
+              return <EmptyIntegrations canCreate={canCreate} curated={curated} />;
             }
 
             return (
@@ -114,7 +114,13 @@ export function IntegrationsPage() {
 // Empty state
 // ---------------------------------------------------------------------------
 
-function EmptyIntegrations({ canCreate }: { readonly canCreate: boolean }) {
+function EmptyIntegrations({
+  canCreate,
+  curated,
+}: {
+  readonly canCreate: boolean;
+  readonly curated: boolean;
+}) {
   return (
     <div className="mb-8 flex flex-col items-center justify-center rounded-2xl border border-dashed border-border py-16">
       <div className="mb-4 flex size-12 items-center justify-center rounded-2xl bg-muted text-muted-foreground">
@@ -124,7 +130,9 @@ function EmptyIntegrations({ canCreate }: { readonly canCreate: boolean }) {
       <p className="mb-5 text-[13px] text-muted-foreground/60">
         {canCreate
           ? "Connect an integration to start curating tools."
-          : "Ask a workspace admin to add an integration."}
+          : curated
+            ? "An admin picks the integrations you see. None are on your list yet."
+            : "Ask a workspace admin to add an integration."}
       </p>
       {canCreate ? (
         <Button asChild size="sm" className="gap-1.5">
@@ -136,7 +144,7 @@ function EmptyIntegrations({ canCreate }: { readonly canCreate: boolean }) {
             Add an integration
           </Link>
         </Button>
-      ) : (
+      ) : curated ? null : (
         <WorkspaceAdminHint allowed={false}>
           <Button disabled size="sm">
             <PlusIcon className="size-4" />

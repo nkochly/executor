@@ -72,6 +72,12 @@ export const integrationsAtom = ExecutorApiClient.query("integrations", "list", 
   reactivityKeys: [ReactivityKey.integrations],
 });
 
+/** What the signed-in person may see and add from the integration catalog. */
+export const integrationAccessAtom = ExecutorApiClient.query("integrations", "access", {
+  timeToLive: "30 seconds",
+  reactivityKeys: [ReactivityKey.integrations],
+});
+
 /** Single integration by slug — derived from the catalog list. */
 export const integrationAtom = (slug: IntegrationSlug) =>
   Atom.mapResult(

@@ -31,7 +31,7 @@ const SCRIPT = `
 const $=(s,r=document)=>r.querySelector(s);const el=(t,p={},...k)=>{const e=document.createElement(t);Object.assign(e,p);e.append(...k);return e};
 const say=(t)=>{$('#msg').textContent=t};
 async function call(path,body){const r=await fetch(path,body===undefined?{}:{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const out=await r.json().catch(()=>({}));if(!r.ok||out.error){say(out.error||'That did not work.');throw new Error(out.error)}return out}
-const tabs=['start','hidden','grid','servers'];
+const tabs=['start','hidden','grid','catalog','servers'];
 function show(tab){for(const t of tabs){$('#tab-'+t).hidden=t!==tab;$('#nav-'+t).setAttribute('aria-selected',String(t===tab))}history.replaceState(null,'','#'+tab);load(tab)}
 async function pick(workspace,pattern,on){say('Saving…');await call('/api/platform/admin/workspaces/connection',{workspace,pattern,on});say('Saved.')}
 async function loadStart(){const d=await call('/api/platform/admin/workspaces');const set=d.workspaces.find(w=>w.startingSet);const box=$('#start-list');box.textContent='';
@@ -66,10 +66,32 @@ function drawGrid(){const t=$('#grid');t.textContent='';const d=gridData;const w
 $('#grid-person').onchange=()=>{store.set('grid-person',$('#grid-person').value);fillWorkspaces();drawGrid()};
 $('#grid-workspace').onchange=()=>drawGrid();
 $('#grid-all').onchange=()=>{store.set('grid-all',$('#grid-all').checked?'1':'0');drawGrid()};
+let cat=null;
+async function loadCatalog(){cat=await call('/api/platform/admin/catalog');drawCatalog()}
+function listName(id){return id===cat.everything?'Everything':(cat.lists.find(l=>l.id===id)||{name:id}).name}
+function listOptions(sel,value,withDefault){sel.textContent='';if(withDefault)sel.append(el('option',{value:'',textContent:'Default ('+listName(cat.defaultList)+')'}));sel.append(el('option',{value:cat.everything,textContent:'Everything'}));for(const l of cat.lists)sel.append(el('option',{value:l.id,textContent:l.name}));sel.value=value}
+function drawCatalog(){const def=$('#cat-default');listOptions(def,cat.defaultList,false);def.onchange=async()=>{say('Saving…');await call('/api/platform/admin/catalog/default',{list:def.value});cat.defaultList=def.value;say('Saved.');drawPeople()};drawPeople();drawLists()}
+function drawPeople(){const tb=$('#cat-people');tb.textContent='';const q=$('#cat-find').value.trim().toLowerCase();
+ for(const p of cat.people.filter(p=>!q||p.email.includes(q))){const admin=cat.admins.includes(p.email);let cell;
+  if(admin)cell=el('span',{className:'hint',textContent:'Everything (admin)'});else{cell=el('select');listOptions(cell,p.list??'',true);cell.onchange=async()=>{say('Saving…');await call('/api/platform/admin/catalog/person',{email:p.email,list:cell.value||null});p.list=cell.value||null;say('Saved. They see it within a minute.')}}
+  tb.append(el('tr',{},el('td',{},p.email,p.seenAt?'':el('span',{className:'tag',textContent:'not signed in yet'})),el('td',{},cell)))}
+ if(!tb.children.length)tb.append(el('tr',{},el('td',{className:'hint',textContent:'Nobody matches.'})))}
+function listEditor(list){const name=el('input',{value:list.name,placeholder:'List name, such as Sales basics'});const has=new Set(list.integrations);const box=el('div');
+ for(const i of cat.integrations){const cb=el('input',{type:'checkbox',checked:has.has(i.slug)});cb.onchange=()=>{cb.checked?has.add(i.slug):has.delete(i.slug)};box.append(el('label',{className:'row'},cb,i.name))}
+ if(!cat.integrations.length)box.append(el('p',{className:'hint',textContent:'The company has no integrations yet.'}));
+ const save=el('button',{className:'act',textContent:'Save list'});save.onclick=async()=>{say('Saving…');await call('/api/platform/admin/catalog/list',{...(list.id?{id:list.id}:{}),name:name.value,integrations:[...has]});say('Saved.');loadCatalog()};
+ const remove=el('button',{className:'act',textContent:'Remove list'});remove.onclick=async()=>{if(!list.id)return loadCatalog();if(!confirm('Remove '+list.name+'? People on it go back to the default.'))return;await call('/api/platform/admin/catalog/list/remove',{id:list.id});say('Removed.');loadCatalog()};
+ const users=cat.people.filter(p=>p.list===list.id).length;
+ const sum=el('summary',{},el('span',{},list.name||'New list',el('span',{className:'tag',textContent:list.integrations.length+' integrations'}),list.id?el('span',{className:'tag',textContent:users+' people'}):''));
+ return el('details',{open:!list.id},sum,el('div',{className:'tool'},el('label',{},'Name ',name)),box,el('p',{},save,' ',remove))}
+function drawLists(){const box=$('#cat-lists');box.textContent='';for(const l of cat.lists)box.append(listEditor(l));if(!cat.lists.length)box.append(el('p',{className:'hint',textContent:'No lists yet. Everyone sees everything until you make one and give it to someone.'}))}
+$('#cat-find').oninput=()=>drawPeople();
+$('#cat-new-list').onclick=()=>{$('#cat-lists').append(listEditor({id:null,name:'',integrations:[]}))};
+$('#cat-add').onclick=async()=>{const email=$('#cat-new').value.trim().toLowerCase();if(!email)return;await call('/api/platform/admin/catalog/person',{email,list:cat.defaultList});$('#cat-new').value='';say('Added on '+listName(cat.defaultList)+'.');loadCatalog()};
 const API='/api/platform/mcp-servers';
 async function loadServers(){const list=await call(API);const tb=$('#rows');tb.textContent='';for(const s of list.servers){const tr=el('tr',{},el('td',{textContent:s.name}),el('td',{textContent:s.endpoint}));const td=el('td');if(s.removable){const b=el('button',{className:'act',textContent:'Remove'});b.onclick=async()=>{await fetch(API+'/'+encodeURIComponent(s.slug),{method:'DELETE'});loadServers()};td.append(b)}tr.append(td);tb.append(tr)}}
 $('#add').onsubmit=async(e)=>{e.preventDefault();const body=Object.fromEntries(new FormData(e.target));const r=await fetch(API,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(body)});const out=await r.json();say(r.ok?'Added.':out.error);if(r.ok){e.target.reset();loadServers()}};
-function load(tab){say('');({start:loadStart,hidden:loadHidden,grid:loadGrid,servers:loadServers})[tab]().catch(()=>{})}
+function load(tab){say('');({start:loadStart,hidden:loadHidden,grid:loadGrid,catalog:loadCatalog,servers:loadServers})[tab]().catch(()=>{})}
 for(const t of tabs)$('#nav-'+t).onclick=()=>show(t);
 show(tabs.includes(location.hash.slice(1))?location.hash.slice(1):'start');
 `;
@@ -82,6 +104,7 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <button id="nav-start" role="tab">New workspaces start with</button>
 <button id="nav-hidden" role="tab">Hidden tools</button>
 <button id="nav-grid" role="tab">All workspaces</button>
+<button id="nav-catalog" role="tab">Who sees which integrations</button>
 <button id="nav-servers" role="tab">Company servers</button>
 </nav>
 <p id="msg" role="status"></p>
@@ -99,6 +122,16 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 <div class="filters"><label>Person <select id="grid-person"></select></label><label>Workspace <select id="grid-workspace"></select></label><label><input type="checkbox" id="grid-all"> Show every connection</label></div>
 <p class="hint" id="grid-count"></p>
 <div class="grid"><table id="grid"></table></div>
+</section>
+<section id="tab-catalog" hidden>
+<p class="hint">Pick which of the company's integrations each person sees in Executor. People on <b>Everything</b> see all of them and can add new ones from the full catalog. People on a list see only its integrations and cannot add any. Admins always see everything. Workspaces are not affected: each workspace keeps the connections picked for it.</p>
+<h2>New people get</h2><p><select id="cat-default"></select></p>
+<h2>People</h2>
+<div class="filters"><label>Find <input id="cat-find" placeholder="name@company.com"></label><label>Add someone <input id="cat-new" placeholder="name@company.com" type="email"></label><button class="act" id="cat-add">Add</button></div>
+<table><thead><tr><th>Person</th><th>Sees</th></tr></thead><tbody id="cat-people"></tbody></table>
+<h2>Lists</h2>
+<div id="cat-lists"></div>
+<p><button class="act" id="cat-new-list">New list</button></p>
 </section>
 <section id="tab-servers" hidden>
 <p class="hint">Every team sees these first when it adds an integration.</p>

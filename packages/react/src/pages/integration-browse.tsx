@@ -19,7 +19,7 @@ import { slugifyNamespace } from "../plugins/namespace";
 import { trackEvent } from "../api/analytics";
 import { Button } from "../components/button";
 import { Input } from "../components/input";
-import { PageHeader } from "../components/page";
+import { PageContainer, PageHeader } from "../components/page";
 import {
   integrationFaviconUrl,
   integrationInferredUrl,
@@ -27,7 +27,7 @@ import {
 } from "../components/integration-favicon";
 import { Skeleton } from "../components/skeleton";
 import { useExecutorDocumentTitle } from "../lib/document-title";
-import { useCanCreateWorkspaceConnections } from "../multiplayer/use-admin-nav";
+import { useIntegrationCatalogAccess } from "../multiplayer/use-admin-nav";
 import {
   availableCatalogKinds,
   catalogLogoUrl,
@@ -370,7 +370,7 @@ function quickAddCapablePlugins(plugins: readonly IntegrationPlugin[]) {
 /** Let members browse integrations while reserving creation for workspace admins. */
 export function IntegrationBrowsePage() {
   useExecutorDocumentTitle("Add an integration");
-  const canCreate = useCanCreateWorkspaceConnections();
+  const { canAdd: canCreate, curated } = useIntegrationCatalogAccess();
   const navigate = useNavigate();
   const integrationPlugins = useIntegrationPlugins();
   const doDetect = useAtomSet(detectIntegration, { mode: "promiseExit" });
@@ -946,6 +946,18 @@ export function IntegrationBrowsePage() {
   // Presets are local, so a list that already has them is not empty — show
   // skeletons only when there is genuinely nothing on screen yet.
   const loading = catalog.loading && results.length === 0;
+
+  // An admin picked what this person sees; the open catalog is not theirs.
+  if (curated && !canCreate) {
+    return (
+      <PageContainer>
+        <PageHeader
+          title="Add an integration"
+          description="An admin picks the integrations you see. Ask them to add one to your list."
+        />
+      </PageContainer>
+    );
+  }
 
   return (
     // PageContainer scrolls the whole page; this page pins the header and

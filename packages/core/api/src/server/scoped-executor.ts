@@ -140,6 +140,11 @@ export interface HostConfigShape {
    */
   readonly toolPolicyCeiling?: ExecutorConfig["toolPolicyCeiling"];
   /**
+   * Forwarded to `ExecutorConfig.integrationAccess`: which integrations each
+   * acting subject sees, and whether it may add new ones.
+   */
+  readonly integrationAccess?: ExecutorConfig["integrationAccess"];
+  /**
    * Forwarded to `ExecutorConfig.waitUntil`: the host's keep-alive
    * for background work that outlives a request (stale tool-catalog rebuilds
    * that keep running after a read stops waiting). Cloud supplies the
@@ -362,6 +367,7 @@ export const makeScopedExecutor = <
       onIntegrationChange: config.onIntegrationChange,
       ...(config.toolsSyncTtlMs !== undefined ? { toolsSyncTtlMs: config.toolsSyncTtlMs } : {}),
       ...(config.toolPolicyCeiling ? { toolPolicyCeiling: config.toolPolicyCeiling } : {}),
+      ...(config.integrationAccess ? { integrationAccess: config.integrationAccess } : {}),
       ...(waitUntil !== undefined ? { waitUntil } : {}),
       onElicitation: "accept-all" as const,
       ...(options?.orgWrites === undefined ? {} : { orgWrites: options.orgWrites }),

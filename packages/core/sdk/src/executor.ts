@@ -406,6 +406,22 @@ interface OwnedKeys {
   readonly subject: string;
 }
 
+/** What a host lets one subject do with the integration catalog. */
+export interface IntegrationAccess {
+  /** The integration slugs the subject sees, or `"all"`. */
+  readonly visible: "all" | ReadonlySet<string>;
+  /** Whether the subject may add a new integration without workspace writes. */
+  readonly canAdd: boolean;
+}
+
+/** The acting subject's catalog access, as the console shows it. */
+export interface IntegrationAccessView {
+  /** True when the subject sees a chosen list rather than every integration. */
+  readonly curated: boolean;
+  /** Whether the subject may add new integrations from the catalog. */
+  readonly canAdd: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // Executor — public surface. Every list/execute/schema call is a direct
 // core-table query unioned with the in-memory static pool.
@@ -415,6 +431,8 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
   readonly integrations: {
     readonly list: () => Effect.Effect<readonly Integration[], StorageFailure>;
     readonly get: (slug: IntegrationSlug) => Effect.Effect<Integration | null, StorageFailure>;
+    /** What the acting subject may see and add (`ExecutorConfig.integrationAccess`). */
+    readonly access: () => Effect.Effect<IntegrationAccessView>;
     readonly update: (
       slug: IntegrationSlug,
       patch: { readonly name?: string; readonly description?: string },
@@ -868,6 +886,16 @@ export interface ExecutorConfig<TPlugins extends readonly AnyPlugin[] = readonly
    * analytics-agnostic.
    */
   readonly onIntegrationChange?: (event: IntegrationChangeEvent) => Effect.Effect<void>;
+  /**
+   * Which integrations the acting subject sees and connects to, and whether it
+   * may add new ones. Asked once per executor. Omitted: every integration is
+   * visible and only a binding with workspace writes adds one. A hidden
+   * integration is absent from `integrations.list`/`get`, and the subject can
+   * neither create nor start an OAuth flow for a personal connection to it.
+   * Workspace (org) connections and their tools are untouched: a workspace's
+   * own picks decide those.
+   */
+  readonly integrationAccess?: (subject: string | null) => Effect.Effect<IntegrationAccess>;
   /**
    * Opt into the PLATFORM VIEW: a read-only, tenant-wide `executor.admin`
    * surface that reads across every subject in the tenant (see
@@ -2059,6 +2087,24 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           return yield* new OrgWriteDeniedError();
         }
       });
+
+    // The host's catalog access for this subject, asked once.
+    const hostIntegrationAccess = config.integrationAccess;
+    const integrationAccess: Effect.Effect<IntegrationAccess> =
+      hostIntegrationAccess === undefined
+        ? Effect.succeed({ visible: "all", canAdd: false })
+        : yield* Effect.cached(Effect.suspend(() => hostIntegrationAccess(subject)));
+    const integrationVisible = (slug: IntegrationSlug | string): Effect.Effect<boolean> =>
+      Effect.map(
+        integrationAccess,
+        (access) => access.visible === "all" || access.visible.has(String(slug)),
+      );
+    const integrationAccessView: Effect.Effect<IntegrationAccessView> = Effect.gen(function* () {
+      const access = yield* integrationAccess;
+      const writes =
+        config.orgWrites === "request" ? yield* currentOrgWriteAccess : config.orgWrites;
+      return { curated: access.visible !== "all", canAdd: access.canAdd || writes !== "denied" };
+    });
 
     // Built-in core-tools plugin: agent-facing static tools over the v2 surface.
     const plugins: readonly AnyPlugin[] = config.coreTools
@@ -3358,7 +3404,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
 
     const integrationsList = (): Effect.Effect<readonly Integration[], StorageFailure> =>
       Effect.gen(function* () {
-        const rows = yield* core.findMany("integration", {});
+        const access = yield* integrationAccess;
+        const rows = (yield* core.findMany("integration", {})).filter(
+          (row) => access.visible === "all" || access.visible.has(String(row.slug)),
+        );
         const staticIntegrationList = staticIntegrations().map(staticDeclToIntegration);
         const dbIntegrations = yield* Effect.forEach(rows, (row) =>
           describeAuthMethodsForRow(row).pipe(
@@ -3395,6 +3444,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           (integration) => integration.id === String(slug),
         );
         if (staticIntegration) return staticDeclToIntegration(staticIntegration);
+        if (!(yield* integrationVisible(slug))) return null;
         const row = yield* findIntegrationRow(slug);
         if (!row) return null;
         const authMethods = yield* describeAuthMethodsForRow(row);
@@ -3449,8 +3499,10 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             return false;
           }
           // A NEW catalog row is always user intent (the add-integration
-          // flows), including from a subjectless executor.
-          yield* guardOrgWrite();
+          // flows), including from a subjectless executor. A subject the host
+          // lets add from the catalog needs no workspace writes for it.
+          if ((yield* integrationAccess).canAdd) yield* workspaceWriteGate;
+          else yield* guardOrgWrite();
           yield* core.create("integration", {
             tenant,
             slug: String(input.slug),
@@ -3976,6 +4028,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     > =>
       Effect.gen(function* () {
         yield* guardOrgWrite(input.owner);
+        if (!(yield* integrationVisible(input.integration))) {
+          return yield* new IntegrationNotFoundError({ slug: input.integration });
+        }
         const name = connectionIdentifier(String(input.name));
         // Typed (not StorageError) so the HTTP edge can answer 400 with the
         // reason instead of an opaque 500 — callers can act on it.
@@ -7122,7 +7177,11 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       workspaceWriteGate,
       defaultWritableProvider,
       mintOAuthConnection: (input: MintOAuthConnectionInput) => mintOAuthConnection(input),
-      integrationExists: (slug) => findIntegrationRow(slug).pipe(Effect.map((row) => row !== null)),
+      integrationExists: (slug) =>
+        Effect.gen(function* () {
+          if (!(yield* integrationVisible(slug))) return false;
+          return (yield* findIntegrationRow(slug)) !== null;
+        }),
       connectionNameTaken: (ref) => findConnectionRow(ref).pipe(Effect.map((row) => row !== null)),
       // One integration-row read + one projector run. Resolve the method this
       // template selects exactly as the runtime's `selectAuthMethod` does —
@@ -7572,6 +7631,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
       integrations: {
         list: integrationsList,
         get: integrationsGet,
+        access: () => integrationAccessView,
         update: integrationsUpdatePublic,
         remove: integrationsRemove,
         detect: integrationsDetect,

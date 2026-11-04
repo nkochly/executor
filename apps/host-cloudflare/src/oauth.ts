@@ -4,6 +4,7 @@ import { Effect } from "effect";
 import type { Principal } from "@executor-js/host-mcp";
 
 import { makeAccessVerifier, principalFromAccessClaims } from "./auth/cloudflare-access";
+import { recordPerson } from "./catalog-access";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import { AGENT_SLUG, agentRequest, agentSlug, type AgentGrant } from "./agent";
 import {
@@ -315,6 +316,13 @@ const authorize = async (
       await startAgentWorkspace(request, env, config, app, chosen, team);
     }
     const approved = await helpers.approveConsent(request, handle);
+    await Effect.runPromise(
+      recordPerson(
+        env.DB,
+        typeof claims.sub === "string" && claims.sub ? claims.sub : email,
+        email,
+      ),
+    );
     const grant: AgentGrant = {
       accountId: typeof claims.sub === "string" && claims.sub ? claims.sub : email,
       email,

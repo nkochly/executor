@@ -2,6 +2,7 @@ import { useAtomValue } from "@effect/atom-react";
 import * as AsyncResult from "effect/unstable/reactivity/AsyncResult";
 
 import { orgMembersAtom } from "../api/account-atoms";
+import { integrationAccessAtom } from "../api/atoms";
 import { useOrganizationId } from "../api/organization-context";
 import {
   canCreateWorkspaceConnectionsForHost,
@@ -49,6 +50,24 @@ export const useCanCreateWorkspaceConnections = (): boolean => {
   const organizationId = useOrganizationId();
   const isAdmin = useIsTenantAdmin();
   return canCreateWorkspaceConnectionsForHost(organizationId, isAdmin);
+};
+
+/**
+ * What the signed-in person may do with the integration catalog: whether they
+ * may add new integrations (admins, and anyone the host lets add), and whether
+ * an admin picked the integrations they see. Fails closed while loading.
+ */
+export const useIntegrationCatalogAccess = (): {
+  readonly canAdd: boolean;
+  readonly curated: boolean;
+} => {
+  const canCreate = useCanCreateWorkspaceConnections();
+  const access = useAtomValue(integrationAccessAtom);
+  return AsyncResult.match(access, {
+    onInitial: () => ({ canAdd: canCreate, curated: false }),
+    onFailure: () => ({ canAdd: canCreate, curated: false }),
+    onSuccess: ({ value }) => ({ canAdd: canCreate || value.canAdd, curated: value.curated }),
+  });
 };
 
 /**

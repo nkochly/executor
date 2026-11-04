@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
+import { handleCatalogAdmin } from "./catalog-admin";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import {
   ensureStartingSet,
@@ -266,6 +267,9 @@ export const handlePlatformAdmin = async (
         ),
       ),
     );
+
+  const catalog = await handleCatalogAdmin(route, request, env, config);
+  if (catalog) return catalog;
 
   if (route === "GET /workspaces") {
     return run(
