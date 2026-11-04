@@ -551,7 +551,7 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
     <Link
       to="/{-$orgSlug}/toolkits/$toolkitSlug"
       params={{ toolkitSlug: toolkit.slug }}
-      aria-label={`Open toolkit ${toolkit.name}`}
+      aria-label={`Open workspace ${toolkit.name}`}
       className="group flex min-h-36 min-w-0 self-start flex-col justify-between rounded-md border border-border/70 bg-card p-3.5 text-left text-card-foreground shadow-xs transition-[border-color,background-color,box-shadow] hover:border-foreground/25 hover:bg-muted/20 hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
       style={toolkitCardStyle}
     >
@@ -573,13 +573,13 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
 }
 
 const addToolkitScopeLabel = (owner: Owner, showOwnerLabels: boolean): string =>
-  showOwnerLabels ? (owner === "org" ? "workspace" : "personal") : "";
+  showOwnerLabels ? (owner === "org" ? "team" : "personal") : "";
 const addToolkitTitle = (owner: Owner, showOwnerLabels: boolean): string =>
   showOwnerLabels
     ? owner === "org"
-      ? "New workspace toolkit"
-      : "New personal toolkit"
-    : "New toolkit";
+      ? "New team workspace"
+      : "New personal workspace"
+    : "New workspace";
 
 function CreateToolkitDialog(props: {
   owner: Owner;
@@ -622,18 +622,18 @@ function CreateToolkitDialog(props: {
           <DialogHeader className="px-4 pb-1 pt-4">
             <DialogTitle className="text-sm">{title}</DialogTitle>
             <DialogDescription className="text-xs">
-              Group tools and expose them at a dedicated MCP URL.
+              A workspace is one agent: it picks its connections and has its own MCP URL.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5 px-4 py-3">
             <Label htmlFor={inputId} className="text-xs text-muted-foreground">
-              Toolkit name
+              Workspace name
             </Label>
             <Input
               id={inputId}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Support tools"
+              placeholder="e.g. Team_Eichten agent"
               autoFocus
               className="h-9"
             />
@@ -643,10 +643,10 @@ function CreateToolkitDialog(props: {
               type="submit"
               size="sm"
               disabled={!trimmed}
-              aria-label="Create toolkit"
+              aria-label="Create workspace"
               className="h-8"
             >
-              Create toolkit
+              Create workspace
             </Button>
           </DialogFooter>
         </form>
@@ -662,7 +662,7 @@ function AddToolkitCard(props: { owner: Owner; showOwnerLabels: boolean; onClick
       type="button"
       variant="ghost"
       onClick={props.onClick}
-      aria-label={scopeLabel ? `Add ${scopeLabel} toolkit` : "Add toolkit"}
+      aria-label={scopeLabel ? `Add ${scopeLabel} workspace` : "Add workspace"}
       className="group flex h-auto min-h-36 min-w-0 self-start items-center justify-center rounded-md border border-dashed border-border/75 bg-card/40 p-0 text-muted-foreground transition-[border-color,background-color,box-shadow,color] hover:border-foreground/25 hover:bg-muted/20 hover:text-foreground hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
       style={toolkitCardStyle}
     >
@@ -750,14 +750,14 @@ function ToolkitGrid(props: {
         <ToolkitSection
           owner="org"
           showOwnerLabels
-          title="Workspace"
+          title="Team workspaces"
           toolkits={workspaceToolkits}
           onCreate={props.onCreate}
         />
         <ToolkitSection
           owner="user"
           showOwnerLabels
-          title="Personal"
+          title="Personal workspaces"
           toolkits={personalToolkits}
           onCreate={props.onCreate}
         />
@@ -775,7 +775,7 @@ function ToolkitContentsEmpty(props: { onManageConnections: () => void }) {
         </div>
         <h3 className="mt-4 text-sm font-semibold text-foreground">No connections added</h3>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-          Add a connection to decide what this toolkit exposes.
+          Add a connection to decide what this workspace can use.
         </p>
         <Button type="button" size="sm" onClick={props.onManageConnections} className="mt-4">
           Manage connections
@@ -797,7 +797,7 @@ function ToolkitToolsPanel(props: {
   return (
     <div
       role="region"
-      aria-label="Toolkit tools"
+      aria-label="Workspace tools"
       className="flex min-h-0 shrink-0 flex-col border-r border-border/60"
       style={toolkitToolTreeStyle}
     >
@@ -883,7 +883,7 @@ function AddConnectionDialog(props: {
             <div className="min-w-0">
               <DialogTitle className="text-sm">Manage connections</DialogTitle>
               <DialogDescription className="mt-1 text-xs">
-                Choose which connected accounts this toolkit can use.
+                Choose which connections this workspace can use.
               </DialogDescription>
             </div>
           </div>
@@ -909,7 +909,7 @@ function AddConnectionDialog(props: {
                 You have {props.hiddenPersonalConnectionCount} personal{" "}
                 {props.hiddenPersonalConnectionCount === 1 ? "connection" : "connections"} that{" "}
                 {props.hiddenPersonalConnectionCount === 1 ? "is" : "are"} not shown because this is
-                a shared toolkit.
+                a team workspace.
               </p>
             ) : null}
           </div>
@@ -1025,13 +1025,13 @@ function ToolkitHeader(props: {
             className="-ml-1 h-6 px-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeftIcon className="size-3.5" />
-            Toolkits
+            Workspaces
           </Button>
           <div className="mt-1 flex min-w-0 items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-foreground">{props.toolkit.name}</h2>
             {props.showOwnerLabels ? (
               <Badge variant="outline" className="text-[10px]">
-                {ownerLabel(props.toolkit.owner)}
+                {props.toolkit.owner === "org" ? "Team" : "Personal"}
               </Badge>
             ) : null}
           </div>
@@ -1050,7 +1050,7 @@ function ToolkitHeader(props: {
             type="button"
             variant="ghost"
             size="sm"
-            aria-label="Manage toolkit connections"
+            aria-label="Manage workspace connections"
             onClick={props.onManageConnections}
             className="h-8 text-muted-foreground hover:text-foreground"
           >
@@ -1063,7 +1063,7 @@ function ToolkitHeader(props: {
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Delete toolkit"
+                aria-label="Delete workspace"
                 className="text-muted-foreground hover:text-destructive"
               >
                 <Trash2Icon className="size-3.5" />
@@ -1073,8 +1073,7 @@ function ToolkitHeader(props: {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete {props.toolkit.name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This removes the toolkit and its dedicated MCP endpoint. Connections are not
-                  deleted.
+                  This removes the workspace and its MCP URL. Connections are not deleted.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1260,7 +1259,7 @@ function ToolkitTileSkeleton() {
 
 function ToolkitSectionSkeleton(props: { title?: string }) {
   return (
-    <section className="space-y-3" aria-label="Loading toolkits">
+    <section className="space-y-3" aria-label="Loading workspaces">
       {props.title ? (
         <div className="border-b border-border/60 pb-2">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1282,8 +1281,8 @@ function ToolkitGridSkeleton(props: { showOwnerLabels: boolean }) {
       <div className="w-full space-y-7 px-4 py-4" style={toolkitGridContainerStyle}>
         {props.showOwnerLabels ? (
           <>
-            <ToolkitSectionSkeleton title="Workspace" />
-            <ToolkitSectionSkeleton title="Personal" />
+            <ToolkitSectionSkeleton title="Team workspaces" />
+            <ToolkitSectionSkeleton title="Personal workspaces" />
           </>
         ) : (
           <ToolkitSectionSkeleton />
@@ -1411,7 +1410,7 @@ function ToolkitDetailView(props: {
   };
 
   if (AsyncResult.isFailure(policies) || AsyncResult.isFailure(connections)) {
-    return <div className="p-6 text-sm text-destructive">Failed to load toolkit</div>;
+    return <div className="p-6 text-sm text-destructive">Failed to load workspace</div>;
   }
   if (!AsyncResult.isSuccess(policies) || !AsyncResult.isSuccess(connections)) {
     return <ToolkitDetailSkeleton />;
@@ -1486,10 +1485,10 @@ export function ToolkitsPage(props: PluginPageProps) {
       {selectedToolkitSlug === null ? (
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <h1 className="truncate text-sm font-semibold text-foreground">Toolkits</h1>
+            <h1 className="truncate text-sm font-semibold text-foreground">Workspaces</h1>
             {AsyncResult.isSuccess(toolkits) && (
               <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
-                {toolkitRows.length} {toolkitRows.length === 1 ? "toolkit" : "toolkits"}
+                {toolkitRows.length} {toolkitRows.length === 1 ? "workspace" : "workspaces"}
               </span>
             )}
           </div>
@@ -1498,19 +1497,19 @@ export function ToolkitsPage(props: PluginPageProps) {
 
       {selectedToolkitSlug !== null && !toolkitsReady ? (
         toolkitsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkit</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspace</div>
         ) : (
           <ToolkitDetailSkeleton />
         )
       ) : !toolkitsReady ? (
         toolkitsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkits</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspaces</div>
         ) : (
           <ToolkitGridSkeleton showOwnerLabels={ownerDisplay.showOwnerLabels} />
         )
       ) : selectedToolkit ? (
         toolsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkit tools</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspace tools</div>
         ) : !toolsReady ? (
           <ToolkitDetailSkeleton />
         ) : (
@@ -1535,9 +1534,9 @@ export function ToolkitsPage(props: PluginPageProps) {
             className="mb-4 w-fit -ml-1 text-muted-foreground"
           >
             <ArrowLeftIcon className="size-3.5" />
-            Toolkits
+            Workspaces
           </Button>
-          <div className="text-sm text-muted-foreground">Toolkit not found</div>
+          <div className="text-sm text-muted-foreground">Workspace not found</div>
         </div>
       ) : (
         <ToolkitGrid toolkits={toolkitRows} onCreate={createToolkitHandler} />

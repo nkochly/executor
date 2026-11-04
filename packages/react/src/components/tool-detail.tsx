@@ -307,7 +307,7 @@ export function ToolDetail(props: {
           <div className="px-5 py-5">
             <EmptySection
               title="Blocked"
-              message="This tool is not available through the current toolkit."
+              message="This tool is not available through the current workspace."
             />
           </div>
         ) : (

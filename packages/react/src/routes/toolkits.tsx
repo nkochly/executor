@@ -8,7 +8,7 @@ export const Route = createFileRoute("/{-$orgSlug}/toolkits")({
 });
 
 function ToolkitsRouteComponent() {
-  useExecutorDocumentTitle("Toolkits");
+  useExecutorDocumentTitle("Workspaces");
   const { toolkitSlug } = useParams({ strict: false }) as { toolkitSlug?: string };
   return <ToolkitsPluginRoute toolkitSlug={toolkitSlug} />;
 }
