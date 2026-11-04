@@ -244,6 +244,11 @@ const MAX_APPROVAL_ARGUMENT_PREVIEW_CHARS = 4_000;
 // Per-tool storage reads `tools.schemas` keeps in flight at once.
 const TOOL_SCHEMAS_CONCURRENCY = 8;
 
+export interface ToolSchemasOptions {
+  readonly typeScript?: boolean;
+  readonly outputSchema?: boolean;
+}
+
 // ---------------------------------------------------------------------------
 // In-flight OAuth refresh gate — a CROSS-STACK resource.
 //
@@ -518,10 +523,12 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
     readonly schema: (address: ToolAddress) => Effect.Effect<ToolSchemaView | null, StorageFailure>;
     /** `schema` for many tools against one policy snapshot, keyed by address.
      *  `typeScript: false` skips the TypeScript previews, for callers that
-     *  read only the JSON schemas. */
+     *  read only the JSON schemas. `outputSchema: false` leaves the output
+     *  side out (no remembered shape is read), for callers that need only
+     *  what a tool takes. */
     readonly schemas: (
       addresses: readonly ToolAddress[],
-      options?: { readonly typeScript?: boolean },
+      options?: ToolSchemasOptions,
     ) => Effect.Effect<ReadonlyMap<string, ToolSchemaView | null>, StorageFailure>;
   };
 
@@ -6021,7 +6028,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
       listActivePolicyRuleSet().pipe(
         Effect.flatMap((policyRules) =>
-          toolSchemaWithRules(policyRules, address, true, directSchemaReads),
+          toolSchemaWithRules(policyRules, address, {}, directSchemaReads),
         ),
       );
 
@@ -6106,7 +6113,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     // every storage round trip of every tool in sequence.
     const toolSchemas = (
       addresses: readonly ToolAddress[],
-      options?: { readonly typeScript?: boolean },
+      options?: ToolSchemasOptions,
     ): Effect.Effect<ReadonlyMap<string, ToolSchemaView | null>, StorageFailure> =>
       Effect.gen(function* () {
         const [policyRules, reads] = yield* Effect.all(
@@ -6115,8 +6122,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         );
         const views = yield* Effect.forEach(
           addresses,
-          (address) =>
-            toolSchemaWithRules(policyRules, address, options?.typeScript ?? true, reads),
+          (address) => toolSchemaWithRules(policyRules, address, options ?? {}, reads),
           { concurrency: TOOL_SCHEMAS_CONCURRENCY },
         );
         return new Map(addresses.map((address, i) => [String(address), views[i] ?? null]));
@@ -6125,10 +6131,12 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
     const toolSchemaWithRules = (
       policyRules: ActivePolicyRuleSet,
       address: ToolAddress,
-      typeScript: boolean,
+      options: ToolSchemasOptions,
       reads: SchemaReads,
     ): Effect.Effect<ToolSchemaView | null, StorageFailure> =>
       Effect.gen(function* () {
+        const typeScript = options.typeScript ?? true;
+        const withOutput = options.outputSchema ?? true;
         const staticEntry = staticTools.get(String(address));
         if (staticEntry) {
           const tool = staticToolToTool(staticEntry);
@@ -6144,7 +6152,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
                 try: () =>
                   buildToolTypeScriptPreview({
                     inputSchema: tool.inputSchema,
-                    outputSchema: tool.outputSchema,
+                    outputSchema: withOutput ? tool.outputSchema : undefined,
                     defs: new Map(),
                   }),
                 catch: (cause) =>
@@ -6158,7 +6166,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
             name: tool.name,
             description: tool.description,
             inputSchema: tool.inputSchema,
-            outputSchema: tool.outputSchema,
+            outputSchema: withOutput ? tool.outputSchema : undefined,
             inputTypeScript: Option.getOrUndefined(preview)?.inputTypeScript,
             outputTypeScript: Option.getOrUndefined(preview)?.outputTypeScript,
             typeScriptDefinitions: Option.getOrUndefined(preview)?.typeScriptDefinitions,
@@ -6197,8 +6205,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           projected && Object.prototype.hasOwnProperty.call(projected, "inputSchema")
             ? projected.inputSchema
             : tool.inputSchema;
-        const outputSchema =
-          projected && Object.prototype.hasOwnProperty.call(projected, "outputSchema")
+        const outputSchema = !withOutput
+          ? undefined
+          : projected && Object.prototype.hasOwnProperty.call(projected, "outputSchema")
             ? projected.outputSchema
             : tool.outputSchema;
 
@@ -6207,7 +6216,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         // live responses instead of letting the type collapse to `unknown`.
         // The schema's description marks it as observed.
         const observed =
-          outputSchema === undefined
+          withOutput && outputSchema === undefined
             ? yield* shapeMemory.recall(String(address), parsed.owner)
             : null;
         const effectiveOutputSchema =

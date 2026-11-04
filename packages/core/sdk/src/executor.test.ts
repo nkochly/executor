@@ -808,6 +808,17 @@ describe("createExecutor", () => {
         "Pet",
       ]);
       expect(inspect?.inputTypeScript).toBeUndefined();
+
+      const inputOnly = yield* executor.tools.schemas(addresses, {
+        typeScript: false,
+        outputSchema: false,
+      });
+      for (const address of addresses) {
+        const view = inputOnly.get(String(address));
+        expect(view?.inputSchema).toEqual(full.get(String(address))?.inputSchema);
+        expect(view?.outputSchema).toBeUndefined();
+        expect(view?.outputSchemaSource).toBeUndefined();
+      }
     }),
   );
 
