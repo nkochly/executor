@@ -97,14 +97,9 @@ export const addressCheck = (
       ),
     };
   }
-  let path: string;
-  try {
-    const parsed = new URL(resource);
-    if (parsed.origin !== url.origin) return { refuse: false, html: "" };
-    path = parsed.pathname.replace(/\/+$/, "");
-  } catch {
-    path = "";
-  }
+  const parsed = URL.canParse(resource) ? new URL(resource) : null;
+  if (parsed !== null && parsed.origin !== url.origin) return { refuse: false, html: "" };
+  const path = parsed === null ? "" : parsed.pathname.replace(/\/+$/, "");
   if (path === "/mcp" || /^\/mcp\/toolkits\/[^/]+$/.test(path)) return { refuse: false, html: "" };
   return {
     refuse: true,
