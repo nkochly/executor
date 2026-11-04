@@ -440,6 +440,9 @@ export const AGENT_IDLE_TTL = 7 * 86_400;
 
 const providers = new Map<string, OAuthProvider<CloudflareEnv>>();
 
+/** An MCP request slower than this logs the time of each of its steps. */
+const SLOW_MCP_REQUEST_MS = 1_000;
+
 /** Registered client names by client id, per isolate. A registration's name
  *  does not change after it is made, so a hit never goes stale. */
 const clientNames = new Map<string, string | null>();
@@ -486,14 +489,40 @@ export const oauthProviderFor = (
     apiHandler: {
       async fetch(request: Request, env: CloudflareEnv, ctx: ExecutionContext) {
         const grant = (ctx as ExecutionContext & { props: AgentGrant }).props;
+        // Wall time of each step before and of the MCP answer, logged when
+        // the whole request is slow, so a slow start can be attributed.
+        const started = Date.now();
         const principal = await Effect.runPromise(principalForGrant(grant, config));
         if (!principal) return unauthorized();
+        const checked = Date.now();
         const serve = await resolve(env);
+        const resolved = Date.now();
         const clientName = await registeredClientName(
           (env as CloudflareEnv & { OAUTH_PROVIDER: Helpers }).OAUTH_PROVIDER,
           grant.clientId,
         );
-        return serve.mcp(agentRequest(request, grant.agent), env, ctx, principal, clientName);
+        const named = Date.now();
+        const response = await serve.mcp(
+          agentRequest(request, grant.agent),
+          env,
+          ctx,
+          principal,
+          clientName,
+        );
+        const answered = Date.now();
+        if (answered - started > SLOW_MCP_REQUEST_MS) {
+          console.log(
+            "[executor] MCP request ms",
+            JSON.stringify({
+              agent: grant.agent,
+              principal: checked - started,
+              resolve: resolved - checked,
+              clientName: named - resolved,
+              mcp: answered - named,
+            }),
+          );
+        }
+        return response;
       },
     },
     defaultHandler: {

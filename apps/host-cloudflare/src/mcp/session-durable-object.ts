@@ -259,6 +259,9 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         instructions: sessionInstructions(teamPages),
         directIntegrations: catalog.map((server) => server.slug),
         builtinTools,
+        onStep: (step, ms) => {
+          steps[`tools.${step}`] = ms;
+        },
         // Cold restores rebuild this server with no `initialize` to replay, so
         // the negotiated apps support comes back from storage instead.
         restoredAppsEnabled: sessionMeta.appsEnabled ?? false,

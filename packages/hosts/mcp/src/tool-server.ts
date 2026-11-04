@@ -200,6 +200,11 @@ type SharedMcpServerConfig = {
    */
   readonly builtinTools?: boolean;
   /**
+   * Called with the wall time of each step of building the server, in order,
+   * so a host can log where a slow session start went.
+   */
+  readonly onStep?: (step: string, ms: number) => void;
+  /**
    * Per-connection opt-IN for the per-integration search tools. Defaults to
    * false. A client that connects with `?search_tools=true` gets one
    * `search_<integration>` tool per connected integration (the same inventory
@@ -1586,6 +1591,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     args: unknown,
     extra: McpRequestJoinKeys,
   ) => Effect.Effect<McpToolResult, E>,
+  mark: (step: string) => Effect.Effect<void> = () => Effect.void,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
@@ -1599,6 +1605,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     );
     const visible = listed.flat().filter((tool) => tool.static !== true);
     const named = [...directToolNames(visible)];
+    yield* mark("directList");
     // One policy snapshot for every tool, reads side by side, no TypeScript
     // previews (MCP clients read only the JSON input schema). Every session
     // pays this before `initialize` answers.
@@ -1616,6 +1623,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
           )
           .pipe(Effect.catch(() => oneByOne))
       : yield* oneByOne;
+    yield* mark("directSchemas");
     for (const [name, tool] of named) {
       const view = views.get(String(tool.address)) ?? null;
       const risk = tool.annotations?.risk;
@@ -1644,6 +1652,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
         ),
       );
     }
+    yield* mark("directRegister");
   }).pipe(Effect.withSpan("mcp.host.register_direct_tools"));
 
 // ---------------------------------------------------------------------------
@@ -1654,10 +1663,18 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
   config: ExecutorMcpServerConfig<E>,
 ): Effect.Effect<McpServer, McpPassthroughUnavailableError> =>
   Effect.gen(function* () {
+    let last = Date.now();
+    const mark = (step: string) =>
+      Effect.sync(() => {
+        const now = Date.now();
+        config.onStep?.(step, now - last);
+        last = now;
+      });
     const engine = "engine" in config ? config.engine : createExecutionEngine(config);
     const description =
       config.description ??
       (yield* engine.getDescription.pipe(Effect.withSpan("mcp.host.get_description")));
+    yield* mark("description");
     // The same live integration inventory the description carries, re-used by
     // the `skills` tool so the `execute` guide lists what is connected too.
     const executeInventory = extractInventory(description);
@@ -2195,6 +2212,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         config.tools,
         config.directIntegrations,
         executePassthroughCall,
+        mark,
       );
     }
 
@@ -3071,6 +3089,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
       syncToolAvailability();
       server.server.oninitialized = syncToolAvailability;
     }).pipe(Effect.withSpan("mcp.host.sync_tool_availability"));
+    yield* mark("rest");
 
     return server;
   }).pipe(Effect.withSpan("mcp.host.create_executor_server"));
