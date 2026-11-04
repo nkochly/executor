@@ -775,6 +775,42 @@ describe("createExecutor", () => {
     }),
   );
 
+  it.effect("tools.schemas matches tools.schema per address, and can skip TypeScript", () =>
+    Effect.gen(function* () {
+      const executor = yield* makeTestExecutor({
+        plugins: [demoPlugin] as const,
+      });
+      yield* executor.demo.seed();
+      yield* executor.connections.create({
+        owner: "org",
+        name: CONN,
+        integration: INTEG,
+        template: TEMPLATE,
+        from: {
+          provider: ProviderKey.make("memory"),
+          id: ProviderItemId.make("v"),
+        },
+      });
+
+      const addresses = [addr("inspect"), addr("run")];
+      const full = yield* executor.tools.schemas(addresses);
+      for (const address of addresses) {
+        expect(full.get(String(address))).toEqual(yield* executor.tools.schema(address));
+      }
+      const lean = yield* executor.tools.schemas(addresses, { typeScript: false });
+      const inspect = lean.get(String(addr("inspect")));
+      expect(inspect?.inputSchema).toEqual(full.get(String(addr("inspect")))?.inputSchema);
+      expect(Object.keys(inspect?.schemaDefinitions ?? {}).sort()).toEqual([
+        "Cat",
+        "Collar",
+        "Dog",
+        "Owner",
+        "Pet",
+      ]);
+      expect(inspect?.inputTypeScript).toBeUndefined();
+    }),
+  );
+
   it.effect("execute dispatches a connection-produced tool to the owning plugin", () =>
     Effect.gen(function* () {
       const executor = yield* makeTestExecutor({
