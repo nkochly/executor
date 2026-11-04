@@ -121,6 +121,50 @@ const workspaceAgents = async (
   );
 };
 
+/**
+ * Make the agent's workspace toolkit as the person clicks Connect, read and
+ * written through the app with the same Access sign-in, so the agent is in the
+ * console before the client's first call. Best effort: the first MCP session
+ * still makes it (ensureAgentToolkit) when this cannot.
+ */
+export const createWorkspaceAgent = async (
+  request: Request,
+  app: (request: Request) => Promise<Response>,
+  agent: { readonly slug: string; readonly name: string },
+): Promise<void> => {
+  const call = (method: string, path: string, body: unknown) => {
+    const headers = new Headers(request.headers);
+    headers.set("accept", "application/json");
+    headers.set("content-type", "application/json");
+    headers.delete("content-length");
+    return app(
+      new Request(new URL(path, request.url), {
+        method,
+        headers,
+        body: JSON.stringify(body),
+      }),
+    );
+  };
+  await Effect.runPromise(
+    Effect.tryPromise({
+      try: async () => {
+        const created = await call("POST", "/api/toolkits", {
+          owner: "org",
+          name: agent.name,
+          slug: agent.slug,
+        });
+        if (!created.ok) return;
+        const toolkit = (await created.json()) as { id?: string };
+        if (typeof toolkit.id !== "string") return;
+        await call("POST", `/api/toolkits/${encodeURIComponent(toolkit.id)}/connections`, {
+          pattern: "*",
+        });
+      },
+      catch: () => null,
+    }).pipe(Effect.orElseSucceed(() => undefined)),
+  );
+};
+
 const authorize = async (
   request: Request,
   env: CloudflareEnv & { OAUTH_PROVIDER: Helpers },
@@ -163,6 +207,9 @@ const authorize = async (
     }
     const agent = chosen.slug;
     const agentName = chosen.name;
+    if (!directory && !existing.some((candidate) => candidate.slug === agent)) {
+      await createWorkspaceAgent(request, app, chosen);
+    }
     const approved = await helpers.approveConsent(request, handle);
     const grant: AgentGrant = {
       accountId: typeof claims.sub === "string" && claims.sub ? claims.sub : email,
