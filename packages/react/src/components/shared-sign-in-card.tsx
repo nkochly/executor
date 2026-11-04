@@ -38,6 +38,7 @@ import {
   oauthClientWriteKeys,
 } from "../api/reactivity-keys";
 import { defaultConnectionOwnerForHost } from "../plugins/connection-owner";
+import { useCanCreateWorkspaceConnections } from "../multiplayer/use-admin-nav";
 import { oauthCallbackUrl, type OAuthCompletionPayload } from "../plugins/oauth-sign-in";
 import {
   isFirstPartyClient,
@@ -108,7 +109,8 @@ const toOption = (client: OAuthClientSummary): OAuthClientOption | null =>
 export function SharedSignInCard(props: { readonly integration: IntegrationSlug }) {
   const { integration } = props;
   const organizationId = useOrganizationId();
-  const owner: Owner = defaultConnectionOwnerForHost(organizationId);
+  const defaultOwner: Owner = defaultConnectionOwnerForHost(organizationId);
+  const canCreateWorkspaceConnections = useCanCreateWorkspaceConnections();
 
   const integrationsResult = useAtomValue(integrationsOptimisticAtom);
   const connectionsResult = useAtomValue(connectionsAllAtom);
@@ -147,18 +149,24 @@ export function SharedSignInCard(props: { readonly integration: IntegrationSlug 
   useEffect(() => {
     let live = true;
     const urls = urlsKey.length > 0 ? urlsKey.split("\n") : [];
-    void Promise.all(
-      urls.map(async (url): Promise<readonly [string, OAuthProbeResult | null]> => {
+    // One probe at a time: `probeOAuth` is one shared mutation atom, and a new
+    // call interrupts the one in flight and hands its result to every waiter.
+    void (async () => {
+      const entries: (readonly [string, OAuthProbeResult | null])[] = [];
+      for (const url of urls) {
         const cached = probeCache.get(url);
-        if (cached && Date.now() - cached.at < PROBE_TTL_MS) return [url, cached.probe];
+        if (cached && Date.now() - cached.at < PROBE_TTL_MS) {
+          entries.push([url, cached.probe]);
+          continue;
+        }
         const exit = await doProbe({ payload: { url }, reactivityKeys: [] });
+        if (!live) return;
         const probe = Exit.isSuccess(exit) ? exit.value : null;
         probeCache.set(url, { at: Date.now(), probe });
-        return [url, probe];
-      }),
-    ).then((entries) => {
+        entries.push([url, probe]);
+      }
       if (live) setProbes(new Map(entries));
-    });
+    })();
     return () => {
       live = false;
     };
@@ -184,11 +192,25 @@ export function SharedSignInCard(props: { readonly integration: IntegrationSlug 
   const isConnected = useCallback(
     (member: Member) =>
       connections.some(
-        (connection) => connection.integration === member.slug && connection.owner === owner,
+        // Any connection the person can use counts, Workspace or Personal: the
+        // group only offers what is missing.
+        (connection) => connection.integration === member.slug,
       ),
-    [connections, owner],
+    [connections],
   );
   const pending = group.filter((member) => !isConnected(member));
+  // New members join the way the group is already connected: Workspace when a
+  // member already is and this person may add Workspace connections, else the
+  // host's default (Personal).
+  const groupOwner = connections.find((connection) =>
+    group.some((member) => member.slug === connection.integration),
+  )?.owner;
+  const owner: Owner =
+    groupOwner === "org"
+      ? canCreateWorkspaceConnections
+        ? "org"
+        : defaultOwner
+      : (groupOwner ?? defaultOwner);
 
   const [busy, setBusy] = useState(false);
   const teardownRef = useRef<(() => void) | null>(null);
@@ -345,6 +367,7 @@ export function SharedSignInCard(props: { readonly integration: IntegrationSlug 
     }
 
     const waiting = new Set(hops.map((hop) => hop.state));
+    let naming: Promise<void> = Promise.resolve();
     const connected: string[] = [];
     let stopListening = () => {};
     const finish = (failure: string | null) => {
@@ -380,7 +403,8 @@ export function SharedSignInCard(props: { readonly integration: IntegrationSlug 
           return;
         }
         if (hop) connected.push(hop.member.name);
-        void nameByAccount(result);
+        // One health check at a time, for the same shared-atom reason as probes.
+        naming = naming.then(() => nameByAccount(result));
         void doCompleted({ reactivityKeys: connectionWriteKeys });
         if (waiting.size === 0) finish(null);
       },
@@ -409,7 +433,7 @@ export function SharedSignInCard(props: { readonly integration: IntegrationSlug 
           <p className="text-sm font-medium text-foreground">One sign-in for {joinNames(names)}</p>
           <p className="text-sm text-muted-foreground">
             {pending.length === 0
-              ? `All of them are connected as you, through ${signInHost(currentKey)}.`
+              ? `All of them are connected. They sign in through ${signInHost(currentKey)}.`
               : `They sign in through ${signInHost(currentKey)}. Connect them together in one window.`}
           </p>
           <ul className="flex flex-wrap gap-x-4 gap-y-1 pt-1 text-xs text-muted-foreground">
