@@ -64,6 +64,7 @@ import { ToolDetail, ToolDetailEmpty } from "@executor-js/react/components/tool-
 import { ToolTree, type ToolSummary } from "@executor-js/react/components/tool-tree";
 import { cn } from "@executor-js/react/lib/utils";
 import { connectionNaming, NAME_SEPARATOR } from "@executor-js/react/lib/connection-naming";
+import { useCanCreateWorkspaceConnections } from "@executor-js/react/multiplayer/use-admin-nav";
 
 import {
   ToolkitsApi,
@@ -805,8 +806,9 @@ function ToolkitToolsPanel(props: {
   policies: readonly ToolkitPolicyResponse[];
   onManageConnections: () => void;
   onSelectTool: (toolId: string) => void;
-  onSetPolicy: (pattern: string, action: ToolPolicyAction) => void;
-  onClearPolicy: (pattern: string) => void;
+  /** Absent when the caller may not change the workspace's rules. */
+  onSetPolicy?: (pattern: string, action: ToolPolicyAction) => void;
+  onClearPolicy?: (pattern: string) => void;
 }) {
   return (
     <div
@@ -1057,8 +1059,10 @@ function ToolkitHeader(props: {
   showOwnerLabels: boolean;
   mcpUrl: string;
   onBack: () => void;
-  onRemove: () => void;
+  /** Absent when the caller may not change the workspace. */
+  onRemove?: () => void;
 }) {
+  const onRemove = props.onRemove;
   return (
     <div className="shrink-0 border-b border-border/60 bg-background/95 px-5 py-3">
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-x-6 gap-y-3">
@@ -1090,36 +1094,43 @@ function ToolkitHeader(props: {
             </code>
             <CopyButton value={props.mcpUrl} className="-mr-1" />
           </div>
+          {onRemove ? null : (
+            <p className="mt-2 text-xs text-muted-foreground">
+              Only an admin can change this workspace.
+            </p>
+          )}
         </div>
-        <div className="flex shrink-0 items-center gap-1 pt-0.5">
-          <AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon-sm"
-                aria-label="Delete workspace"
-                className="text-muted-foreground hover:text-destructive"
-              >
-                <Trash2Icon className="size-3.5" />
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent size="sm">
-              <AlertDialogHeader>
-                <AlertDialogTitle>Delete {props.toolkit.name}?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  This removes the workspace and its MCP URL. Connections are not deleted.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancel</AlertDialogCancel>
-                <AlertDialogAction variant="destructive" onClick={props.onRemove}>
-                  Delete
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </div>
+        {onRemove ? (
+          <div className="flex shrink-0 items-center gap-1 pt-0.5">
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Delete workspace"
+                  className="text-muted-foreground hover:text-destructive"
+                >
+                  <Trash2Icon className="size-3.5" />
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent size="sm">
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete {props.toolkit.name}?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the workspace and its MCP URL. Connections are not deleted.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction variant="destructive" onClick={onRemove}>
+                    Delete
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -1144,6 +1155,12 @@ function ToolkitWorkspace(props: {
   const [view, setView] = useState<"connections" | "tools">("connections");
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const takesPersonal = useWorkspaceTakesPersonal();
+  // A workspace's connections and rules are an admin's to change; the server
+  // refuses anyone else, so the page only shows them.
+  const isAdmin = useCanCreateWorkspaceConnections();
+  const canChange = props.toolkit.owner !== "org" || isAdmin;
+  const onSetPolicy = canChange ? props.onSetPolicy : undefined;
+  const onClearPolicy = canChange ? props.onClearPolicy : undefined;
   const visibleTools = useMemo(
     () => props.tools.filter((tool) => toolCanAppearInToolkit(props.toolkit, tool, takesPersonal)),
     [props.toolkit, props.tools, takesPersonal],
@@ -1250,7 +1267,7 @@ function ToolkitWorkspace(props: {
         showOwnerLabels={props.showOwnerLabels}
         mcpUrl={props.mcpUrl}
         onBack={props.onBack}
-        onRemove={props.onRemoveToolkit}
+        onRemove={canChange ? props.onRemoveToolkit : undefined}
       />
 
       <div
@@ -1285,20 +1302,22 @@ function ToolkitWorkspace(props: {
       </div>
 
       {view === "connections" ? (
-        <WorkspaceConnectionsPanel
-          groups={connectionGroups}
-          configuredConnections={configuredConnections}
-          hiddenPersonalConnectionCount={hiddenPersonalConnectionCount}
-          integrations={props.integrations}
-          integrationPlugins={props.integrationPlugins}
-          showOwnerLabels={props.showOwnerLabels}
-          onAddPatterns={async (patterns) => {
-            for (const pattern of patterns) {
-              await props.onAddConnection(pattern);
-            }
-          }}
-          onRemoveConnection={props.onRemoveConnection}
-        />
+        <fieldset disabled={!canChange} className="contents">
+          <WorkspaceConnectionsPanel
+            groups={connectionGroups}
+            configuredConnections={configuredConnections}
+            hiddenPersonalConnectionCount={hiddenPersonalConnectionCount}
+            integrations={props.integrations}
+            integrationPlugins={props.integrationPlugins}
+            showOwnerLabels={props.showOwnerLabels}
+            onAddPatterns={async (patterns) => {
+              for (const pattern of patterns) {
+                await props.onAddConnection(pattern);
+              }
+            }}
+            onRemoveConnection={props.onRemoveConnection}
+          />
+        </fieldset>
       ) : (
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <ToolkitToolsPanel
@@ -1307,8 +1326,8 @@ function ToolkitWorkspace(props: {
             policies={accessPolicies}
             onManageConnections={() => setView("connections")}
             onSelectTool={setSelectedToolId}
-            onSetPolicy={(pattern, action) => void props.onSetPolicy(pattern, action)}
-            onClearPolicy={(pattern) => void props.onClearPolicy(pattern)}
+            onSetPolicy={onSetPolicy && ((pattern, action) => void onSetPolicy(pattern, action))}
+            onClearPolicy={onClearPolicy && ((pattern) => void onClearPolicy(pattern))}
           />
           <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
             {selectedTool && selectedToolPolicy ? (
@@ -1317,8 +1336,8 @@ function ToolkitWorkspace(props: {
                 toolName={toolMatchId(selectedTool)}
                 staticTool={selectedTool.static === true}
                 policy={selectedToolPolicy}
-                onSetPolicy={props.onSetPolicy}
-                onClearPolicy={props.onClearPolicy}
+                onSetPolicy={onSetPolicy}
+                onClearPolicy={onClearPolicy}
                 patternForDisplay={identityPattern}
               />
             ) : (
