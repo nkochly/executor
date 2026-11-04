@@ -97,6 +97,12 @@ const UpdateIntegrationPayload = Schema.Struct({
   description: Schema.optional(Schema.String),
 });
 
+/** What the signed-in person may see and add from the integration catalog. */
+const IntegrationAccessResponse = Schema.Struct({
+  curated: Schema.Boolean,
+  canAdd: Schema.Boolean,
+});
+
 const DetectRequest = Schema.Struct({
   url: Schema.String.check(Schema.isMaxLength(2_048)),
 });
@@ -124,6 +130,12 @@ export const IntegrationsApi = HttpApiGroup.make("integrations")
   .add(
     HttpApiEndpoint.get("list", "/integrations", {
       success: Schema.Array(IntegrationResponse),
+      error: InternalError,
+    }),
+  )
+  .add(
+    HttpApiEndpoint.get("access", "/integration-access", {
+      success: IntegrationAccessResponse,
       error: InternalError,
     }),
   )

@@ -20,6 +20,14 @@ const toResponse = (i: Integration) => ({
 
 export const IntegrationsHandlers = HttpApiBuilder.group(ExecutorApi, "integrations", (handlers) =>
   handlers
+    .handle("access", () =>
+      capture(
+        Effect.gen(function* () {
+          const executor = yield* ExecutorService;
+          return yield* executor.integrations.access();
+        }),
+      ),
+    )
     .handle("list", () =>
       capture(
         Effect.gen(function* () {

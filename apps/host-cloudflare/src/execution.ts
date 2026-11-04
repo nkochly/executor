@@ -17,6 +17,7 @@ import { env } from "cloudflare:workers";
 import type { D1Database } from "@cloudflare/workers-types";
 import type { McpPluginOptions } from "@executor-js/plugin-mcp";
 
+import { makeIntegrationAccess } from "./catalog-access";
 import type { CloudflareConfig } from "./config";
 import { catalogNow, catalogPresets } from "./platform";
 import { makeCloudflarePlugins } from "./plugins";
@@ -81,6 +82,9 @@ export const makeCloudflareHostConfig = (
         toolPolicyCeiling: {
           unmatched: config.directory ? ("block" as const) : ("default" as const),
         },
+        // Which integrations each person sees and may add (the admin page's
+        // catalog lists).
+        integrationAccess: makeIntegrationAccess(db, config),
       })),
     ),
   );

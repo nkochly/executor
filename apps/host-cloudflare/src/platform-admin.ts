@@ -1,6 +1,7 @@
 import { Effect, Option, Schema } from "effect";
 import { generateKeyBetween } from "fractional-indexing";
 
+import { handleCatalogAdmin } from "./catalog-admin";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import {
   ensureStartingSet,
@@ -184,6 +185,59 @@ const listTools = (executor: {
     ),
   );
 
+const decodeGrant = Schema.decodeUnknownOption(
+  Schema.Struct({
+    userId: Schema.String,
+    metadata: Schema.Struct({ agent: Schema.String }),
+  }),
+);
+
+/** The part of the OAuth store the people lookup reads. */
+export interface GrantStore {
+  readonly list: (options: { readonly prefix: string; readonly cursor?: string }) => Promise<
+    | { readonly keys: readonly { readonly name: string }[]; readonly list_complete: true }
+    | {
+        readonly keys: readonly { readonly name: string }[];
+        readonly list_complete: false;
+        readonly cursor: string;
+      }
+  >;
+  readonly get: (name: string, type: "json") => Promise<unknown>;
+}
+
+/** The most sign-ins read per page load; past it, the rest show no person. */
+const MAX_GRANT_READS = 500;
+
+/**
+ * The people who connected each agent, by agent slug: every Executor sign-in
+ * (an OAuth grant) names its person and the agent it was for.
+ */
+export const agentPeople = async (
+  kv: GrantStore | undefined,
+): Promise<Map<string, readonly string[]>> => {
+  const people = new Map<string, Set<string>>();
+  if (!kv) return new Map();
+  const names: string[] = [];
+  let cursor: string | undefined;
+  do {
+    const page = await kv.list({ prefix: "grant:", cursor });
+    for (const key of page.keys) names.push(key.name);
+    cursor = page.list_complete ? undefined : page.cursor;
+  } while (cursor && names.length < MAX_GRANT_READS);
+  const grants = await Promise.all(
+    names.slice(0, MAX_GRANT_READS).map((name) => kv.get(name, "json").then(decodeGrant)),
+  );
+  for (const grant of grants) {
+    if (Option.isNone(grant)) continue;
+    const agent = grant.value.metadata.agent;
+    const email = decodeURIComponent(grant.value.userId);
+    const set = people.get(agent) ?? new Set<string>();
+    set.add(email);
+    people.set(agent, set);
+  }
+  return new Map([...people].map(([agent, set]) => [agent, [...set].sort()]));
+};
+
 /**
  * `/api/platform/admin/*` for a platform admin signed in as `admin`. `null`
  * when the path is not one.
@@ -192,7 +246,7 @@ export const handlePlatformAdmin = async (
   request: Request,
   env: CloudflareEnv,
   config: CloudflareConfig,
-  admin: { readonly subject: string },
+  admin: { readonly subject: string; readonly email: string },
 ): Promise<Response | null> => {
   const { pathname } = new URL(request.url);
   const base = "/api/platform/admin";
@@ -214,10 +268,14 @@ export const handlePlatformAdmin = async (
       ),
     );
 
+  const catalog = await handleCatalogAdmin(route, request, env, config);
+  if (catalog) return catalog;
+
   if (route === "GET /workspaces") {
     return run(
       Effect.gen(function* () {
         const tools = yield* asAdmin((executor) => listTools(executor));
+        const people = yield* Effect.tryPromise(() => agentPeople(env.OAUTH_KV));
         const { workspaces, titles, names } = yield* withHostExecutor(env, config, (host) =>
           Effect.gen(function* () {
             yield* ensureStartingSet(host.toolkits);
@@ -230,6 +288,7 @@ export const handlePlatformAdmin = async (
                 slug: toolkit.slug,
                 name: toolkit.name,
                 startingSet: toolkit.slug === STARTING_SET_SLUG,
+                people: people.get(toolkit.slug) ?? [],
                 patterns: connections.map((connection) => connection.pattern),
                 updatedAt: toolkit.updatedAt,
               });
@@ -254,6 +313,7 @@ export const handlePlatformAdmin = async (
         );
         return {
           consolePath: `/${config.organizationSlug}/toolkits`,
+          me: admin.email,
           workspaces,
           connections: pickables(tools, names, titles, firstPartyIntegrations(config)),
         };
