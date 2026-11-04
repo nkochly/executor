@@ -330,3 +330,50 @@ export const openOAuthSystemBrowser = <TAuth>(
 
   return () => settle();
 };
+
+// ---------------------------------------------------------------------------
+// Results of several sign-ins in one window. A chained sign-in (see
+// `OAUTH_CHAIN_STORAGE_PREFIX`) reports each hop's result through the same three
+// channels a single popup uses; this listens to all of them for as long as the
+// caller wants, without opening or navigating any window.
+// ---------------------------------------------------------------------------
+
+export const listenForOAuthPopupResults = <TAuth>(input: {
+  readonly channelName: string;
+  readonly onResult: (data: OAuthPopupResult<TAuth>) => void;
+}): (() => void) => {
+  const seen = new Set<string>();
+  const deliver = (data: unknown) => {
+    if (!isOAuthPopupResult<TAuth>(data)) return;
+    // The same result can arrive on more than one channel.
+    const id = `${data.ok ? "ok" : "fail"}:${data.sessionId ?? ""}`;
+    if (seen.has(id)) return;
+    seen.add(id);
+    input.onResult(data);
+  };
+  const onMessage = (event: MessageEvent) => {
+    if (event.origin !== window.location.origin) return;
+    deliver(event.data);
+  };
+  const onStorage = (event: StorageEvent) => {
+    if (event.key !== input.channelName || event.newValue === null) return;
+    // oxlint-disable-next-line executor/no-try-catch-or-throw -- boundary: storage values are untrusted JSON
+    try {
+      // oxlint-disable-next-line executor/no-json-parse -- boundary: browser-only helper, no Effect runtime; parsing a same-origin localStorage signal
+      const data: unknown = JSON.parse(event.newValue);
+      deliver(data);
+    } catch {
+      // Not a result; ignore.
+    }
+  };
+  const channel =
+    typeof BroadcastChannel !== "undefined" ? new BroadcastChannel(input.channelName) : null;
+  window.addEventListener("message", onMessage);
+  window.addEventListener("storage", onStorage);
+  if (channel) channel.onmessage = (event) => deliver(event.data);
+  return () => {
+    window.removeEventListener("message", onMessage);
+    window.removeEventListener("storage", onStorage);
+    channel?.close();
+  };
+};
