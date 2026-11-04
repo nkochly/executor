@@ -116,7 +116,7 @@ const normalizeSlugEffect = (input: {
     return Effect.fail(
       new ToolkitError({
         message:
-          "Toolkit slug must be 1-63 lowercase letters, numbers, or hyphens, and cannot start or end with a hyphen.",
+          "Workspace slug must be 1-63 lowercase letters, numbers, or hyphens, and cannot start or end with a hyphen.",
       }),
     );
   }
@@ -319,14 +319,14 @@ const makeToolkitsExtension = (
 
   const requireToolkit = (toolkitId: string) =>
     getEntry(toolkitId).pipe(
-      Effect.flatMap((entry) => (entry ? Effect.succeed(entry) : fail("Toolkit not found."))),
+      Effect.flatMap((entry) => (entry ? Effect.succeed(entry) : fail("Workspace not found."))),
     );
 
   const assertSlugAvailable = (slug: string, ignoreToolkitId?: string) =>
     storage.toolkits.query({ where: { slug } }).pipe(
       Effect.flatMap((entries) => {
         const collision = entries.find((entry) => entry.data.id !== ignoreToolkitId);
-        return collision ? fail(`Toolkit slug "${slug}" is already in use.`) : Effect.void;
+        return collision ? fail(`Workspace slug "${slug}" is already in use.`) : Effect.void;
       }),
     );
 
@@ -347,7 +347,7 @@ const makeToolkitsExtension = (
         Effect.flatMap((entry) =>
           entry && entry.data.toolkitId === toolkitId
             ? Effect.succeed(entry)
-            : fail("Toolkit policy not found."),
+            : fail("Workspace policy not found."),
         ),
       );
 
@@ -358,7 +358,7 @@ const makeToolkitsExtension = (
         Effect.flatMap((entry) =>
           entry && entry.data.toolkitId === toolkitId
             ? Effect.succeed(entry)
-            : fail("Toolkit connection not found."),
+            : fail("Workspace connection not found."),
         ),
       );
 

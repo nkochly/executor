@@ -210,31 +210,40 @@ type ToolkitConnectionGroup = {
   readonly owner: Owner;
   readonly integration: string;
   readonly connection: string;
-  /** The connection's display label (its account, or the tenant its server names), when it has one. */
+  /** The connection's display label (the tenant its server names, or its account), when it has one. */
   readonly label?: string;
+  /** Who signed in, when the label names something else (the server's tenant). */
+  readonly account?: string;
   readonly patterns: readonly string[];
   readonly tools: readonly ToolRow[];
 };
 
 /** Display labels by `owner:integration:connection`, from the connections list. */
-type ConnectionLabels = ReadonlyMap<string, string>;
+type ConnectionLabels = ReadonlyMap<string, { readonly label: string; readonly account?: string }>;
 
 const connectionKey = (owner: string, integration: string, connection: string): string =>
   `${owner}:${integration}:${connection}`;
 
-/** Each connection's display label, so several connections to one server read apart. */
+/**
+ * Each connection's display label, so several connections to one server read
+ * apart. A server that answers one tenant per connection names it in its title
+ * (the health check's identity), and that wins over the sign-in's account,
+ * which stays beside it as who signed in.
+ */
 const useConnectionLabels = (): ConnectionLabels => {
   const connections = useAtomValue(connectionsAllAtom);
   return useMemo(() => {
-    const labels = new Map<string, string>();
+    const labels = new Map<string, { label: string; account?: string }>();
     if (!AsyncResult.isSuccess(connections)) return labels;
     for (const row of connections.value) {
-      const label = row.identityLabel?.trim();
+      const title = row.lastHealth?.status === "healthy" ? row.lastHealth.identity?.trim() : "";
+      const account = row.identityLabel?.trim();
+      const label = title || account;
       if (label) {
-        labels.set(
-          connectionKey(String(row.owner), String(row.integration), String(row.name)),
+        labels.set(connectionKey(String(row.owner), String(row.integration), String(row.name)), {
           label,
-        );
+          ...(title && account && account !== title ? { account } : {}),
+        });
       }
     }
     return labels;
@@ -319,7 +328,7 @@ const buildConnectionGroups = (
       existing.tools.push(tool);
       continue;
     }
-    const label = labels.get(
+    const named = labels.get(
       connectionKey(String(owner), String(tool.integration), toolConnectionName(tool)),
     );
     groups.set(key, {
@@ -327,7 +336,8 @@ const buildConnectionGroups = (
       owner,
       integration: String(tool.integration),
       connection: toolConnectionName(tool),
-      ...(label ? { label } : {}),
+      ...(named ? { label: named.label } : {}),
+      ...(named?.account ? { account: named.account } : {}),
       patterns: [],
       tools: [tool],
     });
@@ -347,22 +357,22 @@ const buildConnectionGroups = (
 const compareTools = (a: ToolRow, b: ToolRow): number =>
   String(a.name).localeCompare(String(b.name)) || toolMatchId(a).localeCompare(toolMatchId(b));
 
-const connectionTitle = (group: ToolkitConnectionGroup): string =>
-  `${ownerLabel(group.owner)} ${group.integration} / ${group.connection}`;
-
-const connectionTitleForHost = (group: ToolkitConnectionGroup, showOwnerLabels: boolean): string =>
-  showOwnerLabels ? connectionTitle(group) : `${group.integration} / ${group.connection}`;
-
 const connectionDisplayTitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
   group.label ??
   (group.connection === "built-in" || group.connection === "default"
     ? meta.name
     : group.connection);
 
+const toolCountLabel = (count: number): string => `${count} ${count === 1 ? "tool" : "tools"}`;
+
 const connectionDisplaySubtitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
-  group.connection === "built-in" || group.connection === "default"
-    ? `${group.tools.length} ${group.tools.length === 1 ? "tool" : "tools"}`
-    : `${meta.name} · ${group.tools.length} ${group.tools.length === 1 ? "tool" : "tools"}`;
+  [
+    group.connection === "built-in" || group.connection === "default" ? null : meta.name,
+    toolCountLabel(group.tools.length),
+    group.account ? `signed in as ${group.account}` : null,
+  ]
+    .filter((part) => part !== null)
+    .join(" · ");
 
 const connectionDisplaySubtitleForHost = (
   group: ToolkitConnectionGroup,
@@ -423,7 +433,7 @@ const configuredConnectionViews = (
         title: connection.pattern === "*" ? "Every connection" : connection.pattern,
         subtitle:
           connection.pattern === "*"
-            ? "Remove this to pick connections one by one"
+            ? "Everything you can pick, also connections added later"
             : "Configured pattern",
         pattern: connection.pattern,
         integrationId: connection.pattern.split(".")[0] ?? "toolkit",
@@ -506,8 +516,11 @@ function ToolkitConnectionIconStack(props: { connections: readonly ConfiguredCon
   );
 }
 
-const connectionCountLabel = (count: number): string =>
-  count === 0 ? "No connections" : `${count} ${count === 1 ? "connection" : "connections"}`;
+/** What a workspace tile says it is connected to: the connections by name. */
+const connectionNamesLabel = (connections: readonly ConfiguredConnectionView[]): string =>
+  connections.length === 0
+    ? "No connections"
+    : connections.map((connection) => connection.title).join(", ");
 
 function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse }) {
   const toolkit = props.toolkit;
@@ -551,7 +564,7 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
     <Link
       to="/{-$orgSlug}/toolkits/$toolkitSlug"
       params={{ toolkitSlug: toolkit.slug }}
-      aria-label={`Open toolkit ${toolkit.name}`}
+      aria-label={`Open workspace ${toolkit.name}`}
       className="group flex min-h-36 min-w-0 self-start flex-col justify-between rounded-md border border-border/70 bg-card p-3.5 text-left text-card-foreground shadow-xs transition-[border-color,background-color,box-shadow] hover:border-foreground/25 hover:bg-muted/20 hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
       style={toolkitCardStyle}
     >
@@ -563,8 +576,8 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
         )}
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-semibold text-foreground">{toolkit.name}</div>
-          <div className="mt-1 truncate text-xs text-muted-foreground">
-            {tileDataReady ? connectionCountLabel(configuredConnections.length) : "Loading"}
+          <div className="mt-1 line-clamp-3 text-xs leading-5 text-muted-foreground">
+            {tileDataReady ? connectionNamesLabel(configuredConnections) : "Loading"}
           </div>
         </div>
       </div>
@@ -573,13 +586,13 @@ function ToolkitTile(props: { showOwnerLabels: boolean; toolkit: ToolkitResponse
 }
 
 const addToolkitScopeLabel = (owner: Owner, showOwnerLabels: boolean): string =>
-  showOwnerLabels ? (owner === "org" ? "workspace" : "personal") : "";
+  showOwnerLabels ? (owner === "org" ? "team" : "personal") : "";
 const addToolkitTitle = (owner: Owner, showOwnerLabels: boolean): string =>
   showOwnerLabels
     ? owner === "org"
-      ? "New workspace toolkit"
-      : "New personal toolkit"
-    : "New toolkit";
+      ? "New team workspace"
+      : "New personal workspace"
+    : "New workspace";
 
 function CreateToolkitDialog(props: {
   owner: Owner;
@@ -622,18 +635,18 @@ function CreateToolkitDialog(props: {
           <DialogHeader className="px-4 pb-1 pt-4">
             <DialogTitle className="text-sm">{title}</DialogTitle>
             <DialogDescription className="text-xs">
-              Group tools and expose them at a dedicated MCP URL.
+              A workspace is one agent: it picks its connections and has its own MCP URL.
             </DialogDescription>
           </DialogHeader>
           <div className="grid gap-1.5 px-4 py-3">
             <Label htmlFor={inputId} className="text-xs text-muted-foreground">
-              Toolkit name
+              Workspace name
             </Label>
             <Input
               id={inputId}
               value={name}
               onChange={(event) => setName(event.target.value)}
-              placeholder="e.g. Support tools"
+              placeholder="e.g. Team_Eichten agent"
               autoFocus
               className="h-9"
             />
@@ -643,10 +656,10 @@ function CreateToolkitDialog(props: {
               type="submit"
               size="sm"
               disabled={!trimmed}
-              aria-label="Create toolkit"
+              aria-label="Create workspace"
               className="h-8"
             >
-              Create toolkit
+              Create workspace
             </Button>
           </DialogFooter>
         </form>
@@ -662,7 +675,7 @@ function AddToolkitCard(props: { owner: Owner; showOwnerLabels: boolean; onClick
       type="button"
       variant="ghost"
       onClick={props.onClick}
-      aria-label={scopeLabel ? `Add ${scopeLabel} toolkit` : "Add toolkit"}
+      aria-label={scopeLabel ? `Add ${scopeLabel} workspace` : "Add workspace"}
       className="group flex h-auto min-h-36 min-w-0 self-start items-center justify-center rounded-md border border-dashed border-border/75 bg-card/40 p-0 text-muted-foreground transition-[border-color,background-color,box-shadow,color] hover:border-foreground/25 hover:bg-muted/20 hover:text-foreground hover:shadow-sm focus-visible:ring-[3px] focus-visible:ring-ring/30 focus-visible:outline-none"
       style={toolkitCardStyle}
     >
@@ -750,14 +763,14 @@ function ToolkitGrid(props: {
         <ToolkitSection
           owner="org"
           showOwnerLabels
-          title="Workspace"
+          title="Team workspaces"
           toolkits={workspaceToolkits}
           onCreate={props.onCreate}
         />
         <ToolkitSection
           owner="user"
           showOwnerLabels
-          title="Personal"
+          title="Personal workspaces"
           toolkits={personalToolkits}
           onCreate={props.onCreate}
         />
@@ -775,10 +788,10 @@ function ToolkitContentsEmpty(props: { onManageConnections: () => void }) {
         </div>
         <h3 className="mt-4 text-sm font-semibold text-foreground">No connections added</h3>
         <p className="mt-1.5 text-sm leading-6 text-muted-foreground">
-          Add a connection to decide what this toolkit exposes.
+          Add a connection to decide what this workspace can use.
         </p>
         <Button type="button" size="sm" onClick={props.onManageConnections} className="mt-4">
-          Manage connections
+          Add a connection
         </Button>
       </div>
     </div>
@@ -797,7 +810,7 @@ function ToolkitToolsPanel(props: {
   return (
     <div
       role="region"
-      aria-label="Toolkit tools"
+      aria-label="Workspace tools"
       className="flex min-h-0 shrink-0 flex-col border-r border-border/60"
       style={toolkitToolTreeStyle}
     >
@@ -819,83 +832,172 @@ function ToolkitToolsPanel(props: {
   );
 }
 
-function AddConnectionDialog(props: {
-  open: boolean;
+const EVERY_CONNECTION_PATTERN = "*";
+
+function ConnectionIcon(props: { icon?: string | null; integrationId: string; url?: string }) {
+  return (
+    <span className="flex size-9 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/30">
+      <IntegrationFavicon
+        icon={props.icon}
+        integrationId={props.integrationId}
+        url={props.url}
+        size={18}
+      />
+    </span>
+  );
+}
+
+function ConnectionRow(props: {
+  icon?: string | null;
+  integrationId: string;
+  url?: string;
+  title: string;
+  subtitle: string;
+  badge?: string;
+  action: "add" | "remove";
+  busy: boolean;
+  onAction: () => void;
+}) {
+  const remove = props.action === "remove";
+  return (
+    <li className="flex min-w-0 items-center gap-3 border-b border-border/50 px-4 py-3 last:border-b-0">
+      <ConnectionIcon icon={props.icon} integrationId={props.integrationId} url={props.url} />
+      <div className="min-w-0 flex-1">
+        <div className="flex min-w-0 items-center gap-2">
+          <span className="truncate text-sm font-medium text-foreground">{props.title}</span>
+          {props.badge ? (
+            <Badge variant="outline" className="shrink-0 text-[10px]">
+              {props.badge}
+            </Badge>
+          ) : null}
+        </div>
+        <div className="mt-0.5 truncate text-xs text-muted-foreground">{props.subtitle}</div>
+      </div>
+      <Button
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={props.busy}
+        aria-label={`${remove ? "Remove" : "Add"} ${props.title}`}
+        onClick={props.onAction}
+        className={cn(
+          "h-8 shrink-0 px-3 text-xs",
+          remove
+            ? "text-muted-foreground hover:border-destructive/40 hover:text-destructive"
+            : "border-primary/30 text-primary hover:bg-primary/10",
+        )}
+      >
+        {remove ? <Trash2Icon className="size-3.5" /> : <PlusIcon className="size-3.5" />}
+        {remove ? "Remove" : "Add"}
+      </Button>
+    </li>
+  );
+}
+
+/**
+ * A workspace's connections, as the page's main content: what it is connected
+ * to, each with its own Remove, and every other connection it may pick, each
+ * with Add.
+ */
+function WorkspaceConnectionsPanel(props: {
   groups: readonly ToolkitConnectionGroup[];
   configuredConnections: readonly ConfiguredConnectionView[];
   hiddenPersonalConnectionCount: number;
   integrations: readonly Integration[];
   integrationPlugins: readonly IntegrationPlugin[];
   showOwnerLabels: boolean;
-  onOpenChange: (open: boolean) => void;
   onAddPatterns: (patterns: readonly string[]) => Promise<void> | void;
   onRemoveConnection: (connectionId: string) => Promise<void> | void;
 }) {
   const searchId = useId();
   const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  // The mutations resolve with an Exit, so the row frees up either way.
+  const run = (key: string, action: () => Promise<void> | void) => {
+    setBusy(key);
+    void Promise.resolve(action()).then(
+      () => setBusy(null),
+      () => setBusy(null),
+    );
+  };
+
+  const configuredPatterns = new Set(
+    props.configuredConnections.map((connection) => connection.pattern),
+  );
+  const takesEverything = configuredPatterns.has(EVERY_CONNECTION_PATTERN);
+  const available = props.groups.filter(
+    (group) => !group.patterns.some((pattern) => configuredPatterns.has(pattern)),
+  );
   const trimmedQuery = query.trim().toLowerCase();
-  const filteredGroups = useMemo(() => {
-    if (!trimmedQuery) return props.groups;
-    return props.groups.filter((group) => {
-      const corpus = [
-        connectionTitle(group),
-        ...group.patterns,
-        ownerLabel(group.owner),
-        ...group.tools.flatMap((tool) => [tool.name, tool.description ?? ""]),
-      ]
-        .join(" ")
-        .toLowerCase();
-      return corpus.includes(trimmedQuery);
-    });
-  }, [props.groups, trimmedQuery]);
-
-  const addConnection = async (patterns: readonly string[]) => {
-    await props.onAddPatterns(patterns);
-  };
-
-  const removeConnection = async (connectionId: string) => {
-    await props.onRemoveConnection(connectionId);
-  };
+  const filtered = trimmedQuery
+    ? available.filter((group) => {
+        const meta = integrationMetaFor(group, props.integrations, props.integrationPlugins);
+        return [connectionDisplayTitle(group, meta), meta.name, group.integration, group.connection]
+          .join(" ")
+          .toLowerCase()
+          .includes(trimmedQuery);
+      })
+    : available;
 
   return (
-    <Dialog
-      open={props.open}
-      onOpenChange={(nextOpen) => {
-        props.onOpenChange(nextOpen);
-        if (!nextOpen) {
-          setQuery("");
-        }
-      }}
-    >
-      <DialogContent
-        className="gap-0 overflow-hidden rounded-md border-border/80 bg-card p-0 shadow-2xl"
-        style={{
-          width: "min(36rem, calc(100vw - 2rem))",
-          maxWidth: "min(36rem, calc(100vw - 2rem))",
-          maxHeight: "min(42rem, calc(100vh - 4rem))",
-        }}
-      >
-        <DialogHeader className="border-b border-border/60 px-5 py-4">
-          <div className="flex items-start gap-3">
-            <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/30 text-muted-foreground">
-              <PlugIcon className="size-4" />
+    <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="mx-auto w-full max-w-3xl space-y-8 px-5 py-6">
+        <section aria-labelledby={`${searchId}-connected`}>
+          <div className="mb-2 flex items-baseline justify-between">
+            <h3 id={`${searchId}-connected`} className="text-sm font-semibold text-foreground">
+              Connected to
+            </h3>
+            <span className="text-xs tabular-nums text-muted-foreground">
+              {props.configuredConnections.length}
             </span>
-            <div className="min-w-0">
-              <DialogTitle className="text-sm">Manage connections</DialogTitle>
-              <DialogDescription className="mt-1 text-xs">
-                Choose which connected accounts this toolkit can use.
-              </DialogDescription>
-            </div>
           </div>
-        </DialogHeader>
+          {props.configuredConnections.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+              Not connected to anything yet. Add a connection below.
+            </div>
+          ) : (
+            <ul className="overflow-hidden rounded-md border border-border/70 bg-card">
+              {props.configuredConnections.map((connection) => (
+                <ConnectionRow
+                  key={connection.id}
+                  icon={connection.icon}
+                  integrationId={connection.integrationId}
+                  url={connection.url}
+                  title={connection.title}
+                  subtitle={connection.subtitle}
+                  action="remove"
+                  busy={busy !== null}
+                  onAction={() => run(connection.id, () => props.onRemoveConnection(connection.id))}
+                />
+              ))}
+            </ul>
+          )}
+        </section>
 
-        <div className="flex min-h-0 flex-col overflow-hidden">
-          <div className="border-b border-border/50 p-3">
-            <Label htmlFor={searchId} className="sr-only">
-              Search connections and tools
-            </Label>
-            <div className="flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3 transition-colors focus-within:border-primary/35 focus-within:bg-muted/25 focus-within:ring-1 focus-within:ring-primary/15">
+        <section aria-labelledby={`${searchId}-add`}>
+          <div className="mb-2 flex items-baseline justify-between gap-3">
+            <h3 id={`${searchId}-add`} className="text-sm font-semibold text-foreground">
+              Add a connection
+            </h3>
+            <Link
+              to="/{-$orgSlug}"
+              className="text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+            >
+              Connect a new account on Integrations
+            </Link>
+          </div>
+          {takesEverything ? (
+            <p className="mb-2 text-xs leading-5 text-muted-foreground">
+              &ldquo;Every connection&rdquo; already includes these. Remove it above to pick
+              connections one by one.
+            </p>
+          ) : null}
+          {available.length > 6 ? (
+            <div className="mb-2 flex items-center gap-2 rounded-md border border-border/70 bg-muted/20 px-3">
               <SearchIcon className="size-3.5 shrink-0 text-muted-foreground" />
+              <Label htmlFor={searchId} className="sr-only">
+                Search connections
+              </Label>
               <Input
                 id={searchId}
                 value={query}
@@ -904,104 +1006,48 @@ function AddConnectionDialog(props: {
                 className="h-8 min-w-0 border-0 bg-transparent px-0 text-xs shadow-none focus-visible:ring-0"
               />
             </div>
-            {props.hiddenPersonalConnectionCount > 0 ? (
-              <p className="mt-2 px-1 text-xs leading-5 text-muted-foreground">
-                You have {props.hiddenPersonalConnectionCount} personal{" "}
-                {props.hiddenPersonalConnectionCount === 1 ? "connection" : "connections"} that{" "}
-                {props.hiddenPersonalConnectionCount === 1 ? "is" : "are"} not shown because this is
-                a shared toolkit.
-              </p>
-            ) : null}
-          </div>
-          <div className="min-h-0 overflow-y-auto p-3" style={{ maxHeight: "32rem" }}>
-            <div className="mb-2 flex items-center justify-between px-1">
-              <span className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-                Connections
-              </span>
-              <span className="text-xs tabular-nums text-muted-foreground">
-                {filteredGroups.length}
-              </span>
+          ) : null}
+          {filtered.length === 0 ? (
+            <div className="rounded-md border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+              {available.length === 0
+                ? "Every connection you can pick is already added."
+                : "No connections match."}
             </div>
-            {filteredGroups.length === 0 ? (
-              <div className="rounded-md border border-dashed border-border/70 px-4 py-8 text-center text-xs text-muted-foreground">
-                No connections match.
-              </div>
-            ) : (
-              <div className="overflow-hidden rounded-md border border-border/70 bg-background/30">
-                {filteredGroups.map((group) => {
-                  const title = connectionTitleForHost(group, props.showOwnerLabels);
-                  const configuredConnection = props.configuredConnections.find((connection) =>
-                    group.patterns.includes(connection.pattern),
-                  );
-                  const added = configuredConnection !== undefined;
-                  const meta = integrationMetaFor(
-                    group,
-                    props.integrations,
-                    props.integrationPlugins,
-                  );
-                  return (
-                    <div
-                      key={group.id}
-                      className="flex min-w-0 items-center gap-3 border-b border-border/50 px-3 py-2.5 last:border-b-0 hover:bg-muted/20"
-                    >
-                      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/30">
-                        <IntegrationFavicon
-                          icon={meta.icon}
-                          integrationId={meta.integrationId}
-                          url={meta.url}
-                          size={18}
-                        />
-                      </span>
-                      <div className="min-w-0 flex-1 space-y-1">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-xs font-medium text-foreground">
-                            {connectionDisplayTitle(group, meta)}
-                          </span>
-                          {props.showOwnerLabels ? (
-                            <Badge variant="outline" className="shrink-0 text-[10px]">
-                              {ownerLabel(group.owner)}
-                            </Badge>
-                          ) : null}
-                        </div>
-                        <div className="flex min-w-0 items-center gap-2">
-                          <span className="truncate text-[11px] text-muted-foreground">
-                            {connectionDisplaySubtitle(group, meta)}
-                          </span>
-                        </div>
-                      </div>
-                      <Button
-                        type="button"
-                        variant={added ? "outline" : "default"}
-                        size="sm"
-                        aria-label={`${added ? "Remove connection" : "Add connection"} ${title}`}
-                        onClick={() =>
-                          void (added && configuredConnection
-                            ? removeConnection(configuredConnection.id)
-                            : addConnection(group.patterns))
-                        }
-                        className={cn(
-                          "h-7 shrink-0 px-2.5 text-xs",
-                          added
-                            ? "border-border/70 bg-transparent text-muted-foreground hover:text-destructive"
-                            : "bg-primary/10 text-primary hover:bg-primary/15",
-                        )}
-                      >
-                        {added ? (
-                          <Trash2Icon className="size-3.5" />
-                        ) : (
-                          <PlusIcon className="size-3.5" />
-                        )}
-                        {added ? "Remove" : "Add"}
-                      </Button>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      </DialogContent>
-    </Dialog>
+          ) : (
+            <ul className="overflow-hidden rounded-md border border-border/70 bg-card">
+              {filtered.map((group) => {
+                const meta = integrationMetaFor(
+                  group,
+                  props.integrations,
+                  props.integrationPlugins,
+                );
+                return (
+                  <ConnectionRow
+                    key={group.id}
+                    icon={meta.icon}
+                    integrationId={meta.integrationId}
+                    url={meta.url}
+                    title={connectionDisplayTitle(group, meta)}
+                    subtitle={connectionDisplaySubtitle(group, meta)}
+                    {...(props.showOwnerLabels ? { badge: ownerLabel(group.owner) } : {})}
+                    action="add"
+                    busy={busy !== null}
+                    onAction={() => run(group.id, () => props.onAddPatterns(group.patterns))}
+                  />
+                );
+              })}
+            </ul>
+          )}
+          {props.hiddenPersonalConnectionCount > 0 ? (
+            <p className="mt-2 text-xs leading-5 text-muted-foreground">
+              {props.hiddenPersonalConnectionCount} of your personal{" "}
+              {props.hiddenPersonalConnectionCount === 1 ? "connection is" : "connections are"} not
+              shown because this is a team workspace.
+            </p>
+          ) : null}
+        </section>
+      </div>
+    </div>
   );
 }
 
@@ -1010,7 +1056,6 @@ function ToolkitHeader(props: {
   showOwnerLabels: boolean;
   mcpUrl: string;
   onBack: () => void;
-  onManageConnections: () => void;
   onRemove: () => void;
 }) {
   return (
@@ -1025,13 +1070,13 @@ function ToolkitHeader(props: {
             className="-ml-1 h-6 px-1 text-xs text-muted-foreground hover:text-foreground"
           >
             <ArrowLeftIcon className="size-3.5" />
-            Toolkits
+            Workspaces
           </Button>
           <div className="mt-1 flex min-w-0 items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-foreground">{props.toolkit.name}</h2>
             {props.showOwnerLabels ? (
               <Badge variant="outline" className="text-[10px]">
-                {ownerLabel(props.toolkit.owner)}
+                {props.toolkit.owner === "org" ? "Team" : "Personal"}
               </Badge>
             ) : null}
           </div>
@@ -1046,24 +1091,13 @@ function ToolkitHeader(props: {
           </div>
         </div>
         <div className="flex shrink-0 items-center gap-1 pt-0.5">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            aria-label="Manage toolkit connections"
-            onClick={props.onManageConnections}
-            className="h-8 text-muted-foreground hover:text-foreground"
-          >
-            <PlugIcon className="size-3.5" />
-            Connections
-          </Button>
           <AlertDialog>
             <AlertDialogTrigger asChild>
               <Button
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                aria-label="Delete toolkit"
+                aria-label="Delete workspace"
                 className="text-muted-foreground hover:text-destructive"
               >
                 <Trash2Icon className="size-3.5" />
@@ -1073,8 +1107,7 @@ function ToolkitHeader(props: {
               <AlertDialogHeader>
                 <AlertDialogTitle>Delete {props.toolkit.name}?</AlertDialogTitle>
                 <AlertDialogDescription>
-                  This removes the toolkit and its dedicated MCP endpoint. Connections are not
-                  deleted.
+                  This removes the workspace and its MCP URL. Connections are not deleted.
                 </AlertDialogDescription>
               </AlertDialogHeader>
               <AlertDialogFooter>
@@ -1107,7 +1140,7 @@ function ToolkitWorkspace(props: {
   onSetPolicy: (pattern: string, action: ToolPolicyAction) => Promise<void> | void;
   onClearPolicy: (pattern: string) => Promise<void> | void;
 }) {
-  const [addOpen, setAddOpen] = useState(false);
+  const [view, setView] = useState<"connections" | "tools">("connections");
   const [selectedToolId, setSelectedToolId] = useState<string | null>(null);
   const takesPersonal = useWorkspaceTakesPersonal();
   const visibleTools = useMemo(
@@ -1195,53 +1228,83 @@ function ToolkitWorkspace(props: {
         showOwnerLabels={props.showOwnerLabels}
         mcpUrl={props.mcpUrl}
         onBack={props.onBack}
-        onManageConnections={() => setAddOpen(true)}
         onRemove={props.onRemoveToolkit}
       />
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
-        <ToolkitToolsPanel
-          tools={toolkitTools}
-          selectedToolId={selectedToolId}
-          policies={accessPolicies}
-          onManageConnections={() => setAddOpen(true)}
-          onSelectTool={setSelectedToolId}
-          onSetPolicy={(pattern, action) => void props.onSetPolicy(pattern, action)}
-          onClearPolicy={(pattern) => void props.onClearPolicy(pattern)}
-        />
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {selectedTool && selectedToolPolicy ? (
-            <ToolDetail
-              address={selectedTool.address}
-              toolName={toolMatchId(selectedTool)}
-              staticTool={selectedTool.static === true}
-              policy={selectedToolPolicy}
-              onSetPolicy={props.onSetPolicy}
-              onClearPolicy={props.onClearPolicy}
-              patternForDisplay={identityPattern}
-            />
-          ) : (
-            <ToolDetailEmpty hasTools={toolkitTools.length > 0} />
-          )}
-        </div>
+      <div
+        role="tablist"
+        aria-label="Workspace sections"
+        className="flex shrink-0 gap-1 border-b border-border/60 px-4"
+      >
+        {(
+          [
+            ["connections", `Connections (${configuredConnections.length})`],
+            ["tools", `Tools (${toolkitTools.length})`],
+          ] as const
+        ).map(([key, label]) => (
+          <Button
+            key={key}
+            type="button"
+            variant="ghost"
+            size="sm"
+            role="tab"
+            aria-selected={view === key}
+            onClick={() => setView(key)}
+            className={cn(
+              "-mb-px h-auto rounded-none border-b-2 px-3 py-2 text-xs font-medium",
+              view === key
+                ? "border-primary text-foreground"
+                : "border-transparent text-muted-foreground hover:text-foreground",
+            )}
+          >
+            {label}
+          </Button>
+        ))}
       </div>
 
-      <AddConnectionDialog
-        open={addOpen}
-        onOpenChange={setAddOpen}
-        groups={connectionGroups}
-        configuredConnections={configuredConnections}
-        hiddenPersonalConnectionCount={hiddenPersonalConnectionCount}
-        integrations={props.integrations}
-        integrationPlugins={props.integrationPlugins}
-        showOwnerLabels={props.showOwnerLabels}
-        onAddPatterns={async (patterns) => {
-          for (const pattern of patterns) {
-            await props.onAddConnection(pattern);
-          }
-        }}
-        onRemoveConnection={props.onRemoveConnection}
-      />
+      {view === "connections" ? (
+        <WorkspaceConnectionsPanel
+          groups={connectionGroups}
+          configuredConnections={configuredConnections}
+          hiddenPersonalConnectionCount={hiddenPersonalConnectionCount}
+          integrations={props.integrations}
+          integrationPlugins={props.integrationPlugins}
+          showOwnerLabels={props.showOwnerLabels}
+          onAddPatterns={async (patterns) => {
+            for (const pattern of patterns) {
+              await props.onAddConnection(pattern);
+            }
+          }}
+          onRemoveConnection={props.onRemoveConnection}
+        />
+      ) : (
+        <div className="flex min-h-0 flex-1 overflow-hidden">
+          <ToolkitToolsPanel
+            tools={toolkitTools}
+            selectedToolId={selectedToolId}
+            policies={accessPolicies}
+            onManageConnections={() => setView("connections")}
+            onSelectTool={setSelectedToolId}
+            onSetPolicy={(pattern, action) => void props.onSetPolicy(pattern, action)}
+            onClearPolicy={(pattern) => void props.onClearPolicy(pattern)}
+          />
+          <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+            {selectedTool && selectedToolPolicy ? (
+              <ToolDetail
+                address={selectedTool.address}
+                toolName={toolMatchId(selectedTool)}
+                staticTool={selectedTool.static === true}
+                policy={selectedToolPolicy}
+                onSetPolicy={props.onSetPolicy}
+                onClearPolicy={props.onClearPolicy}
+                patternForDisplay={identityPattern}
+              />
+            ) : (
+              <ToolDetailEmpty hasTools={toolkitTools.length > 0} />
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -1260,7 +1323,7 @@ function ToolkitTileSkeleton() {
 
 function ToolkitSectionSkeleton(props: { title?: string }) {
   return (
-    <section className="space-y-3" aria-label="Loading toolkits">
+    <section className="space-y-3" aria-label="Loading workspaces">
       {props.title ? (
         <div className="border-b border-border/60 pb-2">
           <h2 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
@@ -1282,8 +1345,8 @@ function ToolkitGridSkeleton(props: { showOwnerLabels: boolean }) {
       <div className="w-full space-y-7 px-4 py-4" style={toolkitGridContainerStyle}>
         {props.showOwnerLabels ? (
           <>
-            <ToolkitSectionSkeleton title="Workspace" />
-            <ToolkitSectionSkeleton title="Personal" />
+            <ToolkitSectionSkeleton title="Team workspaces" />
+            <ToolkitSectionSkeleton title="Personal workspaces" />
           </>
         ) : (
           <ToolkitSectionSkeleton />
@@ -1411,7 +1474,7 @@ function ToolkitDetailView(props: {
   };
 
   if (AsyncResult.isFailure(policies) || AsyncResult.isFailure(connections)) {
-    return <div className="p-6 text-sm text-destructive">Failed to load toolkit</div>;
+    return <div className="p-6 text-sm text-destructive">Failed to load workspace</div>;
   }
   if (!AsyncResult.isSuccess(policies) || !AsyncResult.isSuccess(connections)) {
     return <ToolkitDetailSkeleton />;
@@ -1486,10 +1549,10 @@ export function ToolkitsPage(props: PluginPageProps) {
       {selectedToolkitSlug === null ? (
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border bg-background/95 px-4 backdrop-blur-sm">
           <div className="flex min-w-0 items-center gap-3">
-            <h1 className="truncate text-sm font-semibold text-foreground">Toolkits</h1>
+            <h1 className="truncate text-sm font-semibold text-foreground">Workspaces</h1>
             {AsyncResult.isSuccess(toolkits) && (
               <span className="hidden text-xs tabular-nums text-muted-foreground sm:block">
-                {toolkitRows.length} {toolkitRows.length === 1 ? "toolkit" : "toolkits"}
+                {toolkitRows.length} {toolkitRows.length === 1 ? "workspace" : "workspaces"}
               </span>
             )}
           </div>
@@ -1498,19 +1561,19 @@ export function ToolkitsPage(props: PluginPageProps) {
 
       {selectedToolkitSlug !== null && !toolkitsReady ? (
         toolkitsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkit</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspace</div>
         ) : (
           <ToolkitDetailSkeleton />
         )
       ) : !toolkitsReady ? (
         toolkitsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkits</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspaces</div>
         ) : (
           <ToolkitGridSkeleton showOwnerLabels={ownerDisplay.showOwnerLabels} />
         )
       ) : selectedToolkit ? (
         toolsFailed ? (
-          <div className="p-6 text-sm text-destructive">Failed to load toolkit tools</div>
+          <div className="p-6 text-sm text-destructive">Failed to load workspace tools</div>
         ) : !toolsReady ? (
           <ToolkitDetailSkeleton />
         ) : (
@@ -1535,9 +1598,9 @@ export function ToolkitsPage(props: PluginPageProps) {
             className="mb-4 w-fit -ml-1 text-muted-foreground"
           >
             <ArrowLeftIcon className="size-3.5" />
-            Toolkits
+            Workspaces
           </Button>
-          <div className="text-sm text-muted-foreground">Toolkit not found</div>
+          <div className="text-sm text-muted-foreground">Workspace not found</div>
         </div>
       ) : (
         <ToolkitGrid toolkits={toolkitRows} onCreate={createToolkitHandler} />

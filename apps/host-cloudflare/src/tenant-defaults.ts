@@ -75,6 +75,22 @@ export const defaultPolicies = (server: Pick<DefaultServer, "slug" | "blocked">)
   ];
 };
 
+/**
+ * A server added by URL carries the URL's host as its name and description;
+ * give it the server's own. A name an admin chose stands.
+ */
+const renameHostNamed = (executor: Executor, server: DefaultServer): Effect.Effect<void, unknown> =>
+  executor.integrations.get(IntegrationSlug.make(integrationSlugFor(server.slug))).pipe(
+    Effect.flatMap((existing) =>
+      existing && existing.name === hostOf(server.endpoint)
+        ? executor.integrations.update(existing.slug, {
+            name: server.name,
+            description: server.summary,
+          })
+        : Effect.void,
+    ),
+  );
+
 const seed = (executor: Executor, server: DefaultServer): Effect.Effect<void, unknown> =>
   Effect.gen(function* () {
     // oxlint-disable-next-line executor/no-double-cast -- boundary: the host seam erases the plugin tuple; this host's executors always carry its plugins
@@ -89,20 +105,7 @@ const seed = (executor: Executor, server: DefaultServer): Effect.Effect<void, un
         auth: { kind: "oauth2" },
       })
       .pipe(
-        Effect.catchTag("IntegrationAlreadyExistsError", () =>
-          // Added earlier by URL, it carries the URL's host as its name; give
-          // it the server's. A name an admin chose stands.
-          executor.integrations.get(IntegrationSlug.make(integrationSlugFor(server.slug))).pipe(
-            Effect.flatMap((existing) =>
-              existing && existing.name === hostOf(server.endpoint)
-                ? executor.integrations.update(existing.slug, {
-                    name: server.name,
-                    description: server.summary,
-                  })
-                : Effect.void,
-            ),
-          ),
-        ),
+        Effect.catchTag("IntegrationAlreadyExistsError", () => renameHostNamed(executor, server)),
       );
     for (const rule of defaultPolicies(server)) {
       yield* executor.policies.create({ owner: "org", ...rule });
@@ -134,8 +137,13 @@ export const makeTenantDefaults = (
       );
       const done = new Set(rows.results.map((row) => row.item));
       const missing = defaults.filter((server) => !done.has(server.slug));
+      const executor = yield* seeder();
+      // A tenant admin can remove a default and add it back from the catalog
+      // by URL; it then needs its name again, so this runs every time.
+      for (const server of defaults.filter((server) => done.has(server.slug))) {
+        yield* renameHostNamed(executor, server);
+      }
       if (missing.length > 0) {
-        const executor = yield* seeder();
         for (const server of missing) {
           yield* seed(executor, server);
           yield* Effect.tryPromise(() =>

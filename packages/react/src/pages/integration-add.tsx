@@ -26,12 +26,13 @@ function AddIntegrationContent(props: {
   url?: string;
   preset?: string;
   namespace?: string;
+  name?: string;
   authHeader?: string;
   authNote?: string;
   authKind?: string;
   specOverrides?: string;
 }) {
-  const { pluginKey, url, preset, namespace, authHeader, authNote, authKind, specOverrides } =
+  const { pluginKey, url, preset, namespace, name, authHeader, authNote, authKind, specOverrides } =
     props;
   const navigate = useNavigate();
   const integrationPlugins = useIntegrationPlugins();
@@ -72,6 +73,7 @@ function AddIntegrationContent(props: {
             initialUrl={url}
             initialPreset={preset}
             initialNamespace={namespace}
+            initialName={name}
             initialAuthHeader={authHeader}
             initialAuthNote={authNote}
             initialAuthKind={authKind}

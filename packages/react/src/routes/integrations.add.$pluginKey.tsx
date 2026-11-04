@@ -8,6 +8,8 @@ const SearchParams = Schema.toStandardSchemaV1(
     url: Schema.optional(Schema.String),
     preset: Schema.optional(Schema.String),
     namespace: Schema.optional(Schema.String),
+    // Display name a host catalog entry gives the server.
+    name: Schema.optional(Schema.String),
     // Registry-declared credential placement, e.g. "Authorization: {api_key}".
     // Carried for surfaces whose connect target can't describe its own auth
     // (GraphQL endpoints have no spec document).
@@ -23,7 +25,7 @@ export const Route = createFileRoute("/{-$orgSlug}/integrations/add/$pluginKey")
   validateSearch: SearchParams,
   component: () => {
     const { pluginKey } = Route.useParams();
-    const { url, preset, namespace, authHeader, authNote, authKind, specOverrides } =
+    const { url, preset, namespace, name, authHeader, authNote, authKind, specOverrides } =
       Route.useSearch();
     return (
       <AddIntegrationPage
@@ -31,6 +33,7 @@ export const Route = createFileRoute("/{-$orgSlug}/integrations/add/$pluginKey")
         url={url}
         preset={preset}
         namespace={namespace}
+        name={name}
         authHeader={authHeader}
         authNote={authNote}
         authKind={authKind}
