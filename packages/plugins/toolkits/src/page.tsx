@@ -63,6 +63,7 @@ import { Skeleton } from "@executor-js/react/components/skeleton";
 import { ToolDetail, ToolDetailEmpty } from "@executor-js/react/components/tool-detail";
 import { ToolTree, type ToolSummary } from "@executor-js/react/components/tool-tree";
 import { cn } from "@executor-js/react/lib/utils";
+import { connectionNaming, NAME_SEPARATOR } from "@executor-js/react/lib/connection-naming";
 import { useCanCreateWorkspaceConnections } from "@executor-js/react/multiplayer/use-admin-nav";
 
 import {
@@ -211,7 +212,7 @@ type ToolkitConnectionGroup = {
   readonly owner: Owner;
   readonly integration: string;
   readonly connection: string;
-  /** The connection's display label (the tenant its server names, or its account), when it has one. */
+  /** What the connection reaches (the tenant its server names, or its account), when known. */
   readonly label?: string;
   /** Who signed in, when the label names something else (the server's tenant). */
   readonly account?: string;
@@ -226,10 +227,9 @@ const connectionKey = (owner: string, integration: string, connection: string): 
   `${owner}:${integration}:${connection}`;
 
 /**
- * Each connection's display label, so several connections to one server read
- * apart. A server that answers one tenant per connection names it in its title
- * (the health check's identity), and that wins over the sign-in's account,
- * which stays beside it as who signed in.
+ * Each connection's qualifier, so several connections to one server read
+ * apart: the tenant its server names in its title (the health check's
+ * identity), else the sign-in's account (`connectionNaming`).
  */
 const useConnectionLabels = (): ConnectionLabels => {
   const connections = useAtomValue(connectionsAllAtom);
@@ -237,13 +237,14 @@ const useConnectionLabels = (): ConnectionLabels => {
     const labels = new Map<string, { label: string; account?: string }>();
     if (!AsyncResult.isSuccess(connections)) return labels;
     for (const row of connections.value) {
-      const title = row.lastHealth?.status === "healthy" ? row.lastHealth.identity?.trim() : "";
-      const account = row.identityLabel?.trim();
-      const label = title || account;
-      if (label) {
+      const naming = connectionNaming({
+        identity: row.lastHealth?.status === "healthy" ? row.lastHealth.identity : null,
+        account: row.identityLabel,
+      });
+      if (naming.qualifier) {
         labels.set(connectionKey(String(row.owner), String(row.integration), String(row.name)), {
-          label,
-          ...(title && account && account !== title ? { account } : {}),
+          label: naming.qualifier,
+          ...(naming.account ? { account: naming.account } : {}),
         });
       }
     }
@@ -358,29 +359,29 @@ const buildConnectionGroups = (
 const compareTools = (a: ToolRow, b: ToolRow): number =>
   String(a.name).localeCompare(String(b.name)) || toolMatchId(a).localeCompare(toolMatchId(b));
 
-const connectionDisplayTitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
-  group.label ??
-  (group.connection === "built-in" || group.connection === "default"
+/** The host's own tools: one connection every workspace may pick. */
+const BUILT_IN_CONNECTION = "coreTools";
+
+const connectionDisplayTitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string => {
+  if (group.connection === BUILT_IN_CONNECTION) return `${meta.name} built-in tools`;
+  if (group.label) return `${meta.name}${NAME_SEPARATOR}${group.label}`;
+  return group.connection === "built-in" || group.connection === "default"
     ? meta.name
-    : group.connection);
+    : `${meta.name}${NAME_SEPARATOR}${group.connection}`;
+};
 
 const toolCountLabel = (count: number): string => `${count} ${count === 1 ? "tool" : "tools"}`;
 
-const connectionDisplaySubtitle = (group: ToolkitConnectionGroup, meta: IntegrationMeta): string =>
-  [
-    group.connection === "built-in" || group.connection === "default" ? null : meta.name,
-    toolCountLabel(group.tools.length),
-    group.account ? `signed in as ${group.account}` : null,
-  ]
+const connectionDisplaySubtitle = (group: ToolkitConnectionGroup): string =>
+  [toolCountLabel(group.tools.length), group.account ? `signed in as ${group.account}` : null]
     .filter((part) => part !== null)
     .join(" · ");
 
 const connectionDisplaySubtitleForHost = (
   group: ToolkitConnectionGroup,
-  meta: IntegrationMeta,
   showOwnerLabels: boolean,
 ): string => {
-  const subtitle = connectionDisplaySubtitle(group, meta);
+  const subtitle = connectionDisplaySubtitle(group);
   return showOwnerLabels ? `${ownerLabel(group.owner)} · ${subtitle}` : subtitle;
 };
 
@@ -444,7 +445,7 @@ const configuredConnectionViews = (
     return {
       id: connection.id,
       title: connectionDisplayTitle(group, meta),
-      subtitle: connectionDisplaySubtitleForHost(group, meta, showOwnerLabels),
+      subtitle: connectionDisplaySubtitleForHost(group, showOwnerLabels),
       pattern: connection.pattern,
       integrationId: meta.integrationId,
       icon: meta.icon,
@@ -1030,7 +1031,7 @@ function WorkspaceConnectionsPanel(props: {
                     integrationId={meta.integrationId}
                     url={meta.url}
                     title={connectionDisplayTitle(group, meta)}
-                    subtitle={connectionDisplaySubtitle(group, meta)}
+                    subtitle={connectionDisplaySubtitle(group)}
                     {...(props.showOwnerLabels ? { badge: ownerLabel(group.owner) } : {})}
                     action="add"
                     busy={busy !== null}

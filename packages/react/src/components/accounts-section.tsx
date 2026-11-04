@@ -21,6 +21,7 @@ import {
 } from "../api/atoms";
 import { connectionWriteKeys } from "../api/reactivity-keys";
 import { HEALTH_INDICATOR_COLOR, HEALTH_STATUS_LABEL } from "../lib/health-display";
+import { connectionNaming } from "../lib/connection-naming";
 import { useWorkspaceUses, workspacesUsing } from "../lib/use-connection-workspaces";
 import { useConnectionHealth } from "../lib/use-connection-health";
 import { messageFromExit } from "../api/error-reporting";
@@ -111,17 +112,16 @@ function DetailWithLinks(props: { readonly text: string }) {
   );
 }
 
-// The confirm dialog names the connection the way the row does: the persisted
-// probe's identity (a tenant-per-connection server's title) first, then the
-// stored identity label, then the connection name.
+// The confirm dialog names the connection the way the row does
+// (`connectionNaming`): the tenant its server names, else the account, else
+// the connection name.
 const connectionDisplayLabel = (connection: Connection | null): string => {
   if (connection === null) return "connection";
-  const probed =
-    connection.lastHealth?.status === "healthy" ? connection.lastHealth.identity : undefined;
-  if (probed && probed.length > 0) return probed;
-  return connection.identityLabel && connection.identityLabel.length > 0
-    ? connection.identityLabel
-    : String(connection.name);
+  const naming = connectionNaming({
+    identity: connection.lastHealth?.status === "healthy" ? connection.lastHealth.identity : null,
+    account: connection.identityLabel,
+  });
+  return naming.qualifier ?? String(connection.name);
 };
 
 function AccountRow(props: {
@@ -168,20 +168,15 @@ function AccountRow(props: {
   const indicator = HEALTH_INDICATOR_COLOR[status];
 
   // A server that answers one tenant per connection names it in its title,
-  // which a healthy probe reports as its identity: that names the row, and the
-  // stored label (the sign-in's account) stays beside it as who signed in.
-  // Otherwise the stored label, then a probed identity, then the name.
-  const storedLabel =
-    connection.identityLabel && connection.identityLabel.length > 0
-      ? connection.identityLabel
-      : null;
-  const probedIdentity =
-    probe?.status === "healthy" && probe.identity && probe.identity.length > 0
-      ? probe.identity
-      : null;
-  const displayLabel = probedIdentity ?? storedLabel ?? String(connection.name);
-  const signedInAs =
-    probedIdentity && storedLabel && storedLabel !== probedIdentity ? storedLabel : null;
+  // which a healthy probe reports as its identity: that tenant names the row,
+  // and the sign-in's account stays beside it as who signed in. Otherwise the
+  // account names the row, then the connection name (`connectionNaming`).
+  const naming = connectionNaming({
+    identity: probe?.status === "healthy" ? probe.identity : null,
+    account: connection.identityLabel,
+  });
+  const displayLabel = naming.qualifier ?? String(connection.name);
+  const signedInAs = naming.account;
 
   const expired = status === "expired";
   // `misconfigured` is deliberately NOT folded into `needsHealthAttention`: it
