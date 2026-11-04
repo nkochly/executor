@@ -122,9 +122,10 @@ const workspaceAgents = async (
 };
 
 /**
- * Make the agent's workspace toolkit as the person clicks Connect, read and
- * written through the app with the same Access sign-in, so the agent is in the
- * console before the client's first call. Best effort: the first MCP session
+ * Make the agent's workspace toolkit as the person clicks Connect, written
+ * through the app with the same Access sign-in, so the agent is in the console
+ * before the client's first call. It starts with no connections: the agent's
+ * settings pick each one. Best effort: the first MCP session
  * still makes it (ensureAgentToolkit) when this cannot.
  */
 export const createWorkspaceAgent = async (
@@ -148,16 +149,10 @@ export const createWorkspaceAgent = async (
   await Effect.runPromise(
     Effect.tryPromise({
       try: async () => {
-        const created = await call("POST", "/api/toolkits", {
+        await call("POST", "/api/toolkits", {
           owner: "org",
           name: agent.name,
           slug: agent.slug,
-        });
-        if (!created.ok) return;
-        const toolkit = (await created.json()) as { id?: string };
-        if (typeof toolkit.id !== "string") return;
-        await call("POST", `/api/toolkits/${encodeURIComponent(toolkit.id)}/connections`, {
-          pattern: "*",
         });
       },
       catch: () => null,
