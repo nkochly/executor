@@ -4,6 +4,7 @@ import { generateKeyBetween } from "fractional-indexing";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import {
   ensureStartingSet,
+  firstPartyIntegrations,
   STARTING_SET_SLUG,
   withExecutorAs,
   withHostExecutor,
@@ -87,6 +88,8 @@ export interface Pickable {
   readonly pattern: string;
   readonly label: string;
   readonly personal: boolean;
+  /** A team's own connection to a first-party server; the team pick adds it. */
+  readonly team: boolean;
 }
 
 /**
@@ -97,6 +100,7 @@ export const pickables = (
   tools: readonly ToolView[],
   integrationNames: ReadonlyMap<string, string>,
   titles: ReadonlyMap<string, string>,
+  teamIntegrations: readonly string[] = [],
 ): readonly Pickable[] => {
   const seen = new Map<string, Pickable>();
   for (const tool of tools) {
@@ -115,6 +119,7 @@ export const pickables = (
             ? `${server} (each person's own)`
             : `${server} · ${tool.connection}`,
       personal,
+      team: !tool.static && !personal && teamIntegrations.includes(tool.integration),
     });
   }
   return [...seen.values()].sort((a, b) => a.label.localeCompare(b.label));
@@ -250,7 +255,7 @@ export const handlePlatformAdmin = async (
         return {
           consolePath: `/${config.organizationSlug}/toolkits`,
           workspaces,
-          connections: pickables(tools, names, titles),
+          connections: pickables(tools, names, titles, firstPartyIntegrations(config)),
         };
       }),
     );

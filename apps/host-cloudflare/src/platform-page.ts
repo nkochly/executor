@@ -35,7 +35,7 @@ async function pick(workspace,pattern,on){say('Saving…');await call('/api/plat
 async function loadStart(){const d=await call('/api/platform/admin/workspaces');const set=d.workspaces.find(w=>w.startingSet);const box=$('#start-list');box.textContent='';
  if(!set){box.append(el('p',{className:'hint',textContent:'The starting set could not be made. Reload to try again.'}));return}
  const has=new Set(set.patterns);
- for(const c of d.connections){const cb=el('input',{type:'checkbox',checked:has.has(c.pattern)});cb.onchange=()=>pick(set.id,c.pattern,cb.checked);box.append(el('label',{className:'row'},cb,c.label,c.personal?el('span',{className:'tag',textContent:'each person signs in'}):''))}
+ for(const c of d.connections.filter(c=>!c.team||has.has(c.pattern))){const cb=el('input',{type:'checkbox',checked:has.has(c.pattern)});cb.onchange=()=>pick(set.id,c.pattern,cb.checked);box.append(el('label',{className:'row'},cb,c.label,c.personal?el('span',{className:'tag',textContent:'each person signs in'}):''))}
  const all=el('input',{type:'checkbox',checked:has.has('*')});all.onchange=()=>pick(set.id,'*',all.checked);box.append(el('label',{className:'row'},all,'Every connection',el('span',{className:'tag',textContent:'includes all of the above'})));
  $('#start-rules').href=d.consolePath+'/'+encodeURIComponent(set.slug)}
 const SETTINGS=[['show','Show'],['ask','Ask first'],['hide','Hidden']];
@@ -68,7 +68,7 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 </nav>
 <p id="msg" role="status"></p>
 <section id="tab-start" hidden>
-<p class="hint">Every new agent's workspace gets these connections once, when someone clicks Connect. Changing this list later leaves existing agents alone. A team picked at sign-in adds that team's Wiki and Muster.</p>
+<p class="hint">Every new agent's workspace gets these connections once, when someone clicks Connect. Changing this list later leaves existing agents alone. A team's own Wiki and Muster are not listed here: the team picked at sign-in adds them.</p>
 <div id="start-list"></div>
 <p class="hint">To hide or ask first for single tools in new workspaces, <a id="start-rules" href="#">open the starting set's tools</a>.</p>
 </section>

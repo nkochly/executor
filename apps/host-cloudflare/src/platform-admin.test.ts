@@ -66,14 +66,16 @@ describe("platform admin page", () => {
       ],
       new Map([["webex_meetings", "Webex Meetings"]]),
       new Map([["wiki.teamWiki", "Wiki · team-eichten"]]),
+      ["wiki"],
     );
     expect(rows).toEqual([
       {
         pattern: "webex_meetings.user.main.*",
         label: "Webex Meetings (each person's own)",
         personal: true,
+        team: false,
       },
-      { pattern: "wiki.org.teamWiki.*", label: "Wiki · team-eichten", personal: false },
+      { pattern: "wiki.org.teamWiki.*", label: "Wiki · team-eichten", personal: false, team: true },
     ]);
   });
 });
