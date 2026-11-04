@@ -91,6 +91,16 @@ export const canManageConnectionForAccess = (
 export const defaultConnectionOwnerForHost = (organizationId: string | null): Owner =>
   organizationId === null ? LOCAL_CONNECTION_OWNER : DEFAULT_CONNECTION_OWNER;
 
+/** The owner a new connection takes unless the person picks another: Workspace
+ *  for whoever may create Workspace connections, else the host default. */
+export const defaultConnectionOwnerForAccess = (
+  organizationId: string | null,
+  canCreateWorkspaceConnections: boolean,
+): Owner =>
+  organizationId !== null && canCreateWorkspaceConnections
+    ? "org"
+    : defaultConnectionOwnerForHost(organizationId);
+
 export const normalizeConnectionOwner = (
   value: Owner,
   options: readonly ConnectionOwnerOption[],

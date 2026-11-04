@@ -6,7 +6,6 @@ import * as Exit from "effect/Exit";
 import { IntegrationSlug } from "@executor-js/sdk/shared";
 import type { IntegrationAccountHandoff } from "@executor-js/sdk/client";
 import { AccountsSection } from "@executor-js/react/components/accounts-section";
-import { SharedSignInCard } from "@executor-js/react/components/shared-sign-in-card";
 import type { AuthMethod, Placement } from "@executor-js/react/lib/auth-placements";
 import {
   useCustomMethodActions,
@@ -101,7 +100,6 @@ export default function McpAccountsPanel(props: {
 
   return (
     <div className="mx-auto max-w-3xl space-y-8 px-6 py-8">
-      {remote !== null ? <SharedSignInCard integration={slug} /> : null}
       <AccountsSection
         integration={slug}
         integrationName={integrationName}

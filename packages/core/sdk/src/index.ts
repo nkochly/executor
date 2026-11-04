@@ -380,7 +380,6 @@ export {
   OAUTH_POPUP_MESSAGE_TYPE,
   type OAuthPopupResult,
   isOAuthPopupResult,
-  OAUTH_CHAIN_STORAGE_PREFIX,
 } from "./oauth-popup-types";
 
 // Plugin definition.

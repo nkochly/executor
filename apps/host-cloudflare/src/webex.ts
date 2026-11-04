@@ -13,9 +13,9 @@ import type { CloudflareConfig, SecretBinding } from "./config";
 // below, which is what the integration on developer.webex.com is registered
 // with.
 //
-// A Webex token acts as the person who signed in, and the servers take no
-// other kind, so Webex connections are personal only: a workspace connection
-// would let every member read and send as whoever authorized it.
+// A Webex token acts as the person who signed in. A Workspace connection is
+// allowed, so a workspace can turn Webex on or off like any other integration;
+// every agent using it reads and sends as the account that connected it.
 // ---------------------------------------------------------------------------
 
 export const WEBEX_MCP_ORIGIN = "https://mcp.webexapis.com";
