@@ -1202,7 +1202,22 @@ function ToolkitWorkspace(props: {
     () =>
       configuredTools.map((tool) => {
         const id = toolMatchId(tool);
+        const group = connectionGroups.find(
+          (candidate) =>
+            candidate.owner === toolOwner(tool) &&
+            candidate.integration === String(tool.integration) &&
+            candidate.connection === toolConnectionName(tool),
+        );
+        const meta = group
+          ? integrationMetaFor(group, props.integrations, props.integrationPlugins)
+          : null;
+        const connectionLabel =
+          group && meta
+            ? [connectionDisplayTitle(group, meta), group.account].filter(Boolean).join(" · ")
+            : undefined;
         return {
+          ...(meta ? { integrationLabel: meta.name } : {}),
+          ...(connectionLabel ? { connectionLabel } : {}),
           id,
           name: id,
           description: tool.description,
@@ -1212,7 +1227,13 @@ function ToolkitWorkspace(props: {
           integration: String(tool.integration),
         };
       }),
-    [accessPolicies, configuredTools],
+    [
+      accessPolicies,
+      configuredTools,
+      connectionGroups,
+      props.integrations,
+      props.integrationPlugins,
+    ],
   );
   const selectedTool = selectedToolId
     ? (configuredTools.find((tool) => toolMatchId(tool) === selectedToolId) ?? null)
