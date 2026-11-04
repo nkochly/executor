@@ -92,6 +92,14 @@ export interface ToolkitsPluginOptions {
    * default: a workspace toolkit then reaches workspace connections only.
    */
   readonly workspaceToolkitsTakePersonalConnections?: boolean;
+  /**
+   * Whether changing a workspace toolkit takes a workspace admin. Anyone may
+   * still make one, which starts with no connections and no rules, so an
+   * agent's sign-in can make its own; renaming it, removing it, and every
+   * change to its connections and rules are held to the executor's
+   * `orgWrites`. Personal toolkits stay their owner's to change.
+   */
+  readonly workspaceChangesNeedAdmin?: boolean;
 }
 
 const newId = (prefix: string): string =>
@@ -283,10 +291,14 @@ const makeToolkitStorage = (pluginStorage: PluginStorageFacade): ToolkitStorage 
 
 const makeToolkitsExtension = (
   ctx: PluginCtx<ToolkitStorage>,
-  options: Pick<ToolkitsPluginOptions, "workspaceToolkitsTakePersonalConnections"> = {},
+  options: Pick<
+    ToolkitsPluginOptions,
+    "workspaceToolkitsTakePersonalConnections" | "workspaceChangesNeedAdmin"
+  > = {},
 ) => {
   const storage = ctx.storage;
   const takesPersonal = options.workspaceToolkitsTakePersonalConnections === true;
+  const changesNeedAdmin = options.workspaceChangesNeedAdmin === true;
   /** Whether this toolkit is held to workspace connections only. */
   const workspaceOnly = (owner: Owner): boolean => owner === "org" && !takesPersonal;
 
@@ -320,6 +332,22 @@ const makeToolkitsExtension = (
   const requireToolkit = (toolkitId: string) =>
     getEntry(toolkitId).pipe(
       Effect.flatMap((entry) => (entry ? Effect.succeed(entry) : fail("Workspace not found."))),
+    );
+
+  /** The toolkit, once the caller may change it. */
+  const requireChangeableToolkit = (toolkitId: string) =>
+    requireToolkit(toolkitId).pipe(
+      Effect.tap((entry) =>
+        changesNeedAdmin && entry.owner === "org"
+          ? ctx.core.integrations
+              .authorizeWrite()
+              .pipe(
+                Effect.catchTag("OrgWriteDeniedError", () =>
+                  fail("Only an admin can change a workspace."),
+                ),
+              )
+          : Effect.void,
+      ),
     );
 
   const assertSlugAvailable = (slug: string, ignoreToolkitId?: string) =>
@@ -384,7 +412,7 @@ const makeToolkitsExtension = (
 
   const update = (toolkitId: string, input: { readonly name?: string; readonly slug?: string }) =>
     Effect.gen(function* () {
-      const existing = yield* requireToolkit(toolkitId);
+      const existing = yield* requireChangeableToolkit(toolkitId);
       const name = input.name === undefined ? existing.data.name : input.name.trim();
       if (!name) return yield* fail("Toolkit name is required.");
       const slug =
@@ -402,7 +430,7 @@ const makeToolkitsExtension = (
 
   const remove = (toolkitId: string) =>
     Effect.gen(function* () {
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       const policies = yield* listPoliciesForRecord(toolkitId);
       const connections = yield* listConnectionsForRecord(toolkitId);
       yield* ctx.pluginStorage.removeMany({
@@ -434,7 +462,7 @@ const makeToolkitsExtension = (
   ) =>
     Effect.gen(function* () {
       yield* validatePolicyPattern(input.pattern);
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       const existing = yield* listPoliciesForRecord(toolkitId);
       const minPosition = existing
         .map((row) => row.position)
@@ -469,7 +497,7 @@ const makeToolkitsExtension = (
   ) =>
     Effect.gen(function* () {
       if (input.pattern !== undefined) yield* validatePolicyPattern(input.pattern);
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       const existing = yield* requirePolicy(toolkitId, policyId, toolkit.owner);
       const entry = yield* storage.policies.put({
         owner: toolkit.owner,
@@ -487,7 +515,7 @@ const makeToolkitsExtension = (
 
   const removePolicy = (toolkitId: string, policyId: string) =>
     Effect.gen(function* () {
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       yield* requirePolicy(toolkitId, policyId, toolkit.owner);
       yield* storage.policies.remove({ owner: toolkit.owner, key: policyId });
     });
@@ -504,7 +532,7 @@ const makeToolkitsExtension = (
   ) =>
     Effect.gen(function* () {
       yield* validatePolicyPattern(input.pattern);
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       const existing = yield* listConnectionsForRecord(toolkitId);
       const duplicate = existing.find((connection) => connection.pattern === input.pattern);
       if (duplicate) return connectionToResponse(duplicate);
@@ -531,7 +559,7 @@ const makeToolkitsExtension = (
 
   const removeConnection = (toolkitId: string, connectionId: string) =>
     Effect.gen(function* () {
-      const toolkit = yield* requireToolkit(toolkitId);
+      const toolkit = yield* requireChangeableToolkit(toolkitId);
       yield* requireConnection(toolkitId, connectionId, toolkit.owner);
       yield* storage.connections.remove({ owner: toolkit.owner, key: connectionId });
     });
@@ -751,6 +779,7 @@ export const toolkitsPlugin = definePlugin((options: ToolkitsPluginOptions = {})
   const activeToolkitSlug = options.activeToolkitSlug;
   const extensionOptions = {
     workspaceToolkitsTakePersonalConnections: options.workspaceToolkitsTakePersonalConnections,
+    workspaceChangesNeedAdmin: options.workspaceChangesNeedAdmin,
   };
   return {
     id: "toolkits" as const,
