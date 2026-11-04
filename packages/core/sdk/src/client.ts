@@ -247,6 +247,8 @@ export interface IntegrationPlugin {
     readonly initialUrl?: string;
     readonly initialPreset?: string;
     readonly initialNamespace?: string;
+    /** Display name a host catalog entry gives the integration. */
+    readonly initialName?: string;
     /** Registry-declared credential placement for the surface, e.g.
      *  "Authorization: {api_key}" — the pattern Linear's no-Bearer personal
      *  keys need. Plugins whose surfaces can't self-describe auth (GraphQL)

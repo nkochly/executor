@@ -2032,6 +2032,8 @@ export const mcpPlugin = definePlugin((options?: McpPluginOptions) => {
     // Only checkHealth is implemented (no candidates/describe/set), so the
     // operation/identity editor stays hidden while the status dot + "Check now"
     // light up.
+    // The probe needs no declared operation, so OAuth connections get it too.
+    checksHealthWithoutSpec: true,
     checkHealth: ({ ctx, credential }) =>
       Effect.gen(function* () {
         const parsed = parseMcpIntegrationConfig(credential.config);

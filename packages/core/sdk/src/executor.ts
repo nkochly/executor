@@ -5396,7 +5396,9 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
           // so check-and-set is atomic against peer fibers.
           healthProbeInFlight.set(key, deferred);
           const freshVerdict: Effect.Effect<HealthProbeOutcome, StorageFailure> =
-            spec === undefined && connectionRow.oauth_client != null
+            spec === undefined &&
+            connectionRow.oauth_client != null &&
+            runtime.plugin.checksHealthWithoutSpec !== true
               ? // No probe operation is declared, so "healthy" here means only
                 // "the credential resolved (refreshing if due)" — a refresh
                 // failure is the one real signal this path can produce, and it

@@ -841,6 +841,11 @@ export interface PluginSpec<
     input: HealthCheckInput<TStore>,
   ) => Effect.Effect<HealthCheckResult, unknown>;
 
+  /** Whether `checkHealth` probes the upstream with no declared spec. When
+   *  set, an OAuth connection without a spec is probed instead of only
+   *  having its credential resolved. */
+  readonly checksHealthWithoutSpec?: boolean;
+
   /** URL autodetection hook for onboarding. */
   readonly detect?: (input: {
     readonly ctx: PluginCtx<TStore>;

@@ -727,6 +727,7 @@ export function IntegrationBrowsePage() {
             ? { url: entry.preset.url ?? entry.preset.endpoint }
             : {}),
           ...(entry.preset.defaultSlug ? { namespace: entry.preset.defaultSlug } : {}),
+          ...(entry.hostCatalog ? { name: entry.preset.name } : {}),
         },
       });
     },

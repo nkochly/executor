@@ -118,14 +118,13 @@ describe("tenant defaults", () => {
     ]);
 
     // A later isolate reads the record and leaves the tenant's choices alone.
-    let built = 0;
-    const { executor } = recordingExecutor();
+    const later = recordingExecutor();
     await Effect.runPromise(
-      makeTenantDefaults(db, configWith(ready))!("acme", () =>
-        Effect.sync(() => (built++, executor)),
-      ),
+      makeTenantDefaults(db, configWith(ready))!("acme", () => Effect.succeed(later.executor)),
     );
-    expect(built).toBe(0);
+    expect(later.added).toEqual([]);
+    expect(later.policies).toEqual([]);
+    expect(later.renamed).toEqual([]);
   });
 
   it("keeps a server a tenant admin already added and still records it", async () => {
@@ -173,6 +172,24 @@ describe("tenant defaults", () => {
     );
     expect(seeded.added).toEqual([]);
     expect(seeded.renamed).toEqual([{ slug: "muster", name: "Muster" }]);
+  });
+
+  it("names a recorded server again when an admin re-adds it by its URL", async () => {
+    const db = fakeD1();
+    await Effect.runPromise(
+      makeTenantDefaults(db, configWith(null, firstParty))!("acme", () =>
+        Effect.succeed(recordingExecutor().executor),
+      ),
+    );
+    const readded = recordingExecutor({ wiki: "wiki-connect.example.dev", muster: "Muster" });
+    await Effect.runPromise(
+      makeTenantDefaults(db, configWith(null, firstParty))!("acme", () =>
+        Effect.succeed(readded.executor),
+      ),
+    );
+    expect(readded.added).toEqual([]);
+    expect(readded.policies).toEqual([]);
+    expect(readded.renamed).toEqual([{ slug: "wiki", name: "Wiki" }]);
   });
 
   it("puts each block above the approval it narrows", () => {
