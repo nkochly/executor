@@ -85,8 +85,8 @@ export const ensureAgentToolkit = (toolkits: AgentToolkits, slug: string) =>
     if (existing.some((toolkit) => toolkit.owner === "org")) return;
     const personal = existing.find((toolkit) => toolkit.owner === "user");
     if (!personal) {
-      const created = yield* toolkits.create({ owner: "org", name: slug, slug });
-      yield* toolkits.createConnection(created.id, { pattern: "*" });
+      // No connections until the agent's settings pick them.
+      yield* toolkits.create({ owner: "org", name: slug, slug });
       return;
     }
     const connections = yield* toolkits.listConnections(personal.id);
