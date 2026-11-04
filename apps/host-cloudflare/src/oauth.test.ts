@@ -2,7 +2,13 @@ import { afterEach, describe, expect, it, vi } from "@effect/vitest";
 import { Effect } from "effect";
 
 import { loadConfig } from "./config";
-import { agentChoices, chosenAgent, createWorkspaceAgent, principalForGrant } from "./oauth";
+import {
+  addressCheck,
+  agentChoices,
+  chosenAgent,
+  createWorkspaceAgent,
+  principalForGrant,
+} from "./oauth";
 import { readTeamPages } from "./tenancy";
 import type { AgentGrant } from "./agent";
 
@@ -184,5 +190,35 @@ describe("agent made at Connect", () => {
     };
     await createWorkspaceAgent(signIn(), app, { slug: "x", name: "x" });
     expect(paths).toEqual(["/api/toolkits"]);
+  });
+});
+
+describe("addressCheck", () => {
+  const at = (resource?: string) =>
+    `https://executor.example.com/authorize?response_type=code&client_id=c${
+      resource === undefined ? "" : `&resource=${encodeURIComponent(resource)}`
+    }`;
+
+  it("passes the MCP address and a workspace's MCP address", () => {
+    expect(addressCheck(at("https://executor.example.com/mcp"))).toEqual({
+      refuse: false,
+      html: "",
+    });
+    expect(addressCheck(at("https://executor.example.com/mcp/toolkits/claude"))).toEqual({
+      refuse: false,
+      html: "",
+    });
+  });
+
+  it("refuses a console page as the resource and names the MCP address", () => {
+    const check = addressCheck(at("https://executor.example.com/default/toolkits"));
+    expect(check.refuse).toBe(true);
+    expect(check.html).toContain("https://executor.example.com/mcp");
+  });
+
+  it("warns, without refusing, when no resource is named", () => {
+    const check = addressCheck(at());
+    expect(check.refuse).toBe(false);
+    expect(check.html).toContain("https://executor.example.com/mcp");
   });
 });
