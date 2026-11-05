@@ -25,6 +25,16 @@ describe("classifyDurableObjectError", () => {
     ).toEqual({ kind: "code_update", disposition: "transient" });
   });
 
+  it("reads a call into a retired instance as transient", () => {
+    expect(
+      classifyDurableObjectError(
+        new Error(
+          "Connection closed: this Durable Object instance is no longer active. Reconnect or retry the request.",
+        ),
+      ),
+    ).toEqual({ kind: "instance_replaced", disposition: "transient" });
+  });
+
   it("reads a storage timeout reset as transient", () => {
     expect(
       classifyDurableObjectError(

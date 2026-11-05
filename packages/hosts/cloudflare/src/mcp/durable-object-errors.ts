@@ -31,6 +31,8 @@ export type DurableObjectFailureKind =
   | "destroyed"
   /** A deploy replaced the script and the runtime reset every live object. */
   | "code_update"
+  /** The instance the caller reached was replaced (a deploy or an eviction). */
+  | "instance_replaced"
   /** A storage op ran past the platform's ceiling; the object was reset. */
   | "storage_timeout"
   /** The storage backend failed internally and reset the object. */
@@ -83,6 +85,13 @@ const MESSAGE_PATTERNS: ReadonlyArray<{
   {
     fragment: "durable object reset because its code was updated",
     failure: { kind: "code_update", disposition: "transient" },
+  },
+  {
+    // The caller's connection to an instance the runtime has since retired,
+    // most often during a deploy's rollout. The object itself is untouched and
+    // the id still routes; a fresh stub reaches the replacement instance.
+    fragment: "durable object instance is no longer active",
+    failure: { kind: "instance_replaced", disposition: "transient" },
   },
   {
     fragment: "storage operation exceeded timeout",
