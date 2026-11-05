@@ -1,5 +1,7 @@
 import { Data, Effect, Fiber } from "effect";
 
+import { timeoutDrillTools } from "./timeout-drill";
+
 import {
   PAUSED_APPROVAL_TIMEOUT_MS,
   createExecutorMcpServer,
@@ -278,7 +280,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         engine,
         artifacts: executor.artifacts,
         connections: executor.connections,
-        tools: executor.tools,
+        tools: timeoutDrillTools(sessionMeta, executor.tools),
         integrations: executor.integrations,
         // Artifacts are on by default, opt-out per connection. A session
         // persisted without a value restores to the default, same as a fresh
