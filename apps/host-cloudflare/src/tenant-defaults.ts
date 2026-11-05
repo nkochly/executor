@@ -28,6 +28,17 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS tenant_default (
   PRIMARY KEY (tenant, item)
 )`;
 
+// The tool-list revision of each company server a tenant's connections last
+// re-listed under. A different revision in FIRST_PARTY_MCP (a deploy changed
+// the server's tools) revises the tenant's integration once, so every
+// connection of it re-lists on its next tools read, nobody pressing Refresh.
+const REVISION_SCHEMA = `CREATE TABLE IF NOT EXISTS tenant_default_revision (
+  tenant TEXT NOT NULL,
+  item TEXT NOT NULL,
+  revision TEXT NOT NULL,
+  PRIMARY KEY (tenant, item)
+)`;
+
 interface DefaultServer {
   readonly slug: string;
   readonly name: string;
@@ -35,6 +46,8 @@ interface DefaultServer {
   readonly endpoint: string;
   /** Tool ids (sanitized MCP tool names) the server's tools stay blocked for. */
   readonly blocked: readonly string[];
+  /** The server's tool-list revision, when the deploy supplies one. */
+  readonly revision?: string;
 }
 
 const WEBEX_BLOCKED: Readonly<Record<string, readonly string[]>> = {
@@ -52,6 +65,7 @@ const firstPartyDefaults = (config: CloudflareConfig): readonly DefaultServer[] 
     summary: `${server.name}, as yourself. Each sign-in picks one tenant; connect it again for another.`,
     endpoint: server.endpoint,
     blocked: [],
+    ...(server.revision ? { revision: server.revision } : {}),
   }));
 
 /** The name the console gives a server added by URL: its host. */
@@ -112,6 +126,49 @@ const seed = (executor: Executor, server: DefaultServer): Effect.Effect<void, un
     }
   });
 
+/**
+ * Revise each server whose tool-list revision differs from the one the tenant
+ * last re-listed under. The first revision a tenant sees is only recorded: its
+ * catalog was just listed when the server was added, or is re-listed by the
+ * freshness TTL as before.
+ */
+const reviseChanged = (
+  db: D1Database,
+  tenant: string,
+  executor: Executor,
+  defaults: readonly DefaultServer[],
+): Effect.Effect<void, unknown> =>
+  Effect.gen(function* () {
+    const revised = defaults.filter((server) => server.revision !== undefined);
+    if (revised.length === 0) return;
+    yield* Effect.tryPromise(() => db.prepare(REVISION_SCHEMA).run());
+    const rows = yield* Effect.tryPromise(() =>
+      db
+        .prepare("SELECT item, revision FROM tenant_default_revision WHERE tenant = ?")
+        .bind(tenant)
+        .all<{ item: string; revision: string }>(),
+    );
+    const known = new Map(rows.results.map((row) => [row.item, row.revision] as const));
+    for (const server of revised) {
+      const before = known.get(server.slug);
+      if (before === server.revision) continue;
+      if (before !== undefined) {
+        yield* executor.integrations
+          .reviseTools(IntegrationSlug.make(integrationSlugFor(server.slug)))
+          // A server the tenant's admins removed has nothing to re-list.
+          .pipe(Effect.catchTag("IntegrationNotFoundError", () => Effect.void));
+      }
+      yield* Effect.tryPromise(() =>
+        db
+          .prepare(
+            "INSERT INTO tenant_default_revision (tenant, item, revision) VALUES (?, ?, ?) ON CONFLICT (tenant, item) DO UPDATE SET revision = excluded.revision",
+          )
+          .bind(tenant, server.slug, server.revision!)
+          .run(),
+      );
+    }
+  });
+
 /** The host's `tenantDefaults`, or none when there is nothing to add. */
 export const makeTenantDefaults = (
   db: D1Database,
@@ -156,6 +213,7 @@ export const makeTenantDefaults = (
           );
         }
       }
+      yield* reviseChanged(db, tenant, executor, defaults);
       settled.add(tenant);
     }).pipe(
       Effect.catchCause((cause) =>

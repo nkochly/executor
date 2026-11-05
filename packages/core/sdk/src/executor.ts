@@ -448,6 +448,13 @@ export type Executor<TPlugins extends readonly AnyPlugin[] = readonly []> = {
       void,
       IntegrationRemovalNotAllowedError | OrgWriteDeniedError | StorageFailure
     >;
+    /** Record that the integration's upstream tool list changed: every
+     *  connection of it, in every partition, re-lists its tools on its next
+     *  tools read. An operational write (the same stamp a config change sets),
+     *  so it runs whatever the workspace-settings gate says. */
+    readonly reviseTools: (
+      slug: IntegrationSlug,
+    ) => Effect.Effect<void, IntegrationNotFoundError | StorageFailure>;
     readonly detect: (
       url: string,
     ) => Effect.Effect<readonly IntegrationDetectionResult[], StorageFailure>;
@@ -3575,6 +3582,18 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         const existing = yield* findIntegrationRow(slug);
         if (!existing) return yield* new IntegrationNotFoundError({ slug });
         yield* integrationsUpdate(slug, patch);
+      });
+
+    const integrationsReviseTools = (
+      slug: IntegrationSlug,
+    ): Effect.Effect<void, IntegrationNotFoundError | StorageFailure> =>
+      Effect.gen(function* () {
+        const existing = yield* findIntegrationRow(slug);
+        if (!existing) return yield* new IntegrationNotFoundError({ slug });
+        yield* core.updateMany("integration", {
+          where: (b: AnyCb) => b("slug", "=", String(slug)),
+          set: { config_revised_at: Date.now() },
+        });
       });
 
     const integrationsRemove = (
@@ -7643,6 +7662,7 @@ export const createExecutor = <const TPlugins extends readonly AnyPlugin[] = rea
         access: () => integrationAccessView,
         update: integrationsUpdatePublic,
         remove: integrationsRemove,
+        reviseTools: integrationsReviseTools,
         detect: integrationsDetect,
         healthCheck: {
           get: integrationHealthCheckGet,
