@@ -1,6 +1,6 @@
 import { describe, expect, it } from "@effect/vitest";
 
-import { isProbableMcpEndpoint } from "./probe-url";
+import { isProbableMcpEndpoint, mcpEndpointFromInput } from "./probe-url";
 
 describe("isProbableMcpEndpoint", () => {
   it("rejects the prefixes a URL passes through while it is typed", () => {
@@ -59,5 +59,17 @@ describe("isProbableMcpEndpoint", () => {
     ]) {
       expect(isProbableMcpEndpoint(wrongScheme), wrongScheme).toBe(false);
     }
+  });
+
+  it("reads an address typed without a scheme as https", () => {
+    expect(mcpEndpointFromInput("  salesforce-mcp.example.dev/mcp ")).toBe(
+      "https://salesforce-mcp.example.dev/mcp",
+    );
+    expect(mcpEndpointFromInput("localhost:4789/mcp")).toBe("https://localhost:4789/mcp");
+    expect(mcpEndpointFromInput("http://mcp.example.com")).toBe("http://mcp.example.com");
+    expect(mcpEndpointFromInput("mailto:someone@example.com")).toBe("mailto:someone@example.com");
+    expect(mcpEndpointFromInput("")).toBe("");
+    expect(isProbableMcpEndpoint("salesforce-mcp-server.example.workers.dev")).toBe(true);
+    expect(isProbableMcpEndpoint("example")).toBe(false);
   });
 });

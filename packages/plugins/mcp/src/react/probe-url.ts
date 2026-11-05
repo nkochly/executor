@@ -8,7 +8,7 @@
  *  while the user is still typing. Format-only: it says nothing about whether a
  *  server answers there. */
 export const isProbableMcpEndpoint = (value: string): boolean => {
-  const trimmed = value.trim();
+  const trimmed = mcpEndpointFromInput(value);
   if (!URL.canParse(trimmed)) return false;
 
   const url = new URL(trimmed);
@@ -22,4 +22,15 @@ export const isProbableMcpEndpoint = (value: string): boolean => {
   // Otherwise wait for a dot with a label on each side. A bare "example" is
   // still being typed; "example.com" is something we can dial.
   return hostname.includes(".") && !hostname.startsWith(".") && !hostname.endsWith(".");
+};
+
+/** The endpoint a typed server address names. An address typed without a
+ *  scheme ("mcp.example.com/mcp") means https, as it would in a browser's
+ *  address bar; anything else is passed through trimmed. */
+export const mcpEndpointFromInput = (value: string): string => {
+  const trimmed = value.trim();
+  if (trimmed.length === 0 || /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return trimmed;
+  // Another scheme ("mailto:", "file:") stays as typed; "host:4789" is a port.
+  if (/^[a-z][a-z0-9+.-]*:(?!\d)/i.test(trimmed)) return trimmed;
+  return `https://${trimmed.replace(/^\/+/, "")}`;
 };

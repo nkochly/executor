@@ -48,7 +48,7 @@ import {
 } from "./auth-method-config";
 import CodexPluginAdd from "./CodexPluginAdd";
 import { parseStdioArgs } from "./stdio-fields";
-import { isProbableMcpEndpoint } from "./probe-url";
+import { isProbableMcpEndpoint, mcpEndpointFromInput } from "./probe-url";
 import { cloudflareNeedsCodemodeOptOut } from "../sdk/cloudflare-codemode";
 import { isCodexPresetId } from "../sdk/codex-plugin-presets";
 import { mcpPresets, type McpPreset } from "../sdk/presets";
@@ -255,7 +255,7 @@ export default function AddMcpIntegration(props: {
         ? (probe?.serverName ??
           probe?.name ??
           initialNamespace.charAt(0).toUpperCase() + initialNamespace.slice(1))
-        : (integrationDisplayNameFromUrl(state.url, "MCP") ??
+        : (integrationDisplayNameFromUrl(mcpEndpointFromInput(state.url), "MCP") ??
           probe?.serverName ??
           probe?.name ??
           ""),
@@ -300,7 +300,7 @@ export default function AddMcpIntegration(props: {
     const run = (probeRunRef.current += 1);
     dispatch({ type: "probe-start" });
     const exit = await doProbe({
-      payload: { endpoint: state.url.trim(), ...(headers ? { headers } : {}) },
+      payload: { endpoint: mcpEndpointFromInput(state.url), ...(headers ? { headers } : {}) },
     });
     if (run !== probeRunRef.current) return;
     if (Exit.isFailure(exit)) {
@@ -346,7 +346,7 @@ export default function AddMcpIntegration(props: {
           ...(resolvedDescription.trim().length > 0
             ? { description: resolvedDescription.trim() }
             : {}),
-          endpoint: state.url.trim(),
+          endpoint: mcpEndpointFromInput(state.url),
           ...(slug ? { slug } : {}),
           ...(headers ? { headers } : {}),
           authenticationTemplate,
@@ -481,6 +481,16 @@ export default function AddMcpIntegration(props: {
             onRetry={handleProbe}
           />
 
+          {/* Nothing is dialled until the address looks complete; say what is
+              missing instead of leaving the form with nothing to do. */}
+          {state.step === "url" &&
+          state.url.trim().length > 0 &&
+          !isProbableMcpEndpoint(state.url) ? (
+            <p className="px-1 text-xs text-muted-foreground">
+              Enter the server&apos;s full address, for example https://mcp.example.com/mcp.
+            </p>
+          ) : null}
+
           {/* Cloudflare's MCP server defaults to code mode, which collapses the
               catalog into one code-execution tool; executor already provides
               code execution, so nudge the user toward the opt-out. */}
@@ -550,11 +560,9 @@ export default function AddMcpIntegration(props: {
             >
               Cancel
             </Button>
-            {(probe || isProbing) && (
-              <Button type="button" onClick={handleAddRemote} disabled={!canAdd} loading={isAdding}>
-                Add integration
-              </Button>
-            )}
+            <Button type="button" onClick={handleAddRemote} disabled={!canAdd} loading={isAdding}>
+              Add integration
+            </Button>
           </FloatActions>
         </>
       ) : (
