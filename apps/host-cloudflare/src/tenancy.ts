@@ -84,6 +84,9 @@ const toMembership = (entry: typeof DirectoryMembership.Type): TenantMembership 
   role: entry.role === "owner" || entry.role === "admin" ? "admin" : "member",
 });
 
+// A directory read that has not answered in this long counts as a failed read.
+const DIRECTORY_READ_TIMEOUT_MS = 8_000;
+
 const readDirectory = (directory: TenantDirectoryConfig, path: string) =>
   Effect.tryPromise({
     try: async () => {
@@ -92,7 +95,11 @@ const readDirectory = (directory: TenantDirectoryConfig, path: string) =>
         headers["cf-access-client-id"] = directory.clientId;
         headers["cf-access-client-secret"] = directory.clientSecret;
       }
-      const response = await fetch(`${directory.url}${path}`, { headers, redirect: "manual" });
+      const response = await fetch(`${directory.url}${path}`, {
+        headers,
+        redirect: "manual",
+        signal: AbortSignal.timeout(DIRECTORY_READ_TIMEOUT_MS),
+      });
       return response.ok ? ((await response.json()) as unknown) : null;
     },
     catch: () => null,
@@ -113,50 +120,55 @@ const DIRECTORY_CACHE_MAX = 500;
 
 interface DirectoryCacheEntry {
   readonly at: number;
-  readonly body: Promise<unknown>;
-  /** The answer, once it arrived and was not a failed read. */
-  value?: unknown;
-  refreshing?: boolean;
+  readonly value: unknown;
+  /** When a background read to replace this answer began, if one is running. */
+  refreshingSince?: number;
 }
 const directoryCache = new Map<string, DirectoryCacheEntry>();
 
-const fetchIntoCache = (directory: TenantDirectoryConfig, key: string, path: string) => {
+// Only settled answers are shared between requests, never a read still in
+// flight: on Workers a request's I/O ends with it, so a read another request
+// started can be cancelled and never settle, and a request waiting on it would
+// wait for good. A background refresh that has not settled in this long is
+// taken as lost and may be started again.
+const DIRECTORY_REFRESH_LOST_MS = 15_000;
+
+const keepAnswer = (key: string, value: unknown) => {
+  if (value === null) return;
   if (directoryCache.size >= DIRECTORY_CACHE_MAX) directoryCache.clear();
-  const body = Effect.runPromise(readDirectory(directory, path));
-  const entry: DirectoryCacheEntry = { at: Date.now(), body };
-  directoryCache.set(key, entry);
-  void body.then((value) => {
-    if (directoryCache.get(key) !== entry) return;
-    if (value === null) directoryCache.delete(key);
-    else entry.value = value;
-  });
-  return entry;
+  directoryCache.set(key, { at: Date.now(), value });
 };
 
 const readDirectoryCached = (directory: TenantDirectoryConfig, path: string, staleMs = 0) => {
   const key = `${directory.url}${path}`;
   const hit = directoryCache.get(key);
-  const age = hit ? Date.now() - hit.at : Infinity;
-  if (hit && age < DIRECTORY_CACHE_TTL_MS) {
-    return Effect.promise(() => hit.body);
-  }
-  if (hit && hit.value !== undefined && age < DIRECTORY_CACHE_TTL_MS + staleMs) {
-    if (!hit.refreshing) {
-      hit.refreshing = true;
+  const now = Date.now();
+  const age = hit ? now - hit.at : Infinity;
+  if (hit && age < DIRECTORY_CACHE_TTL_MS) return Effect.succeed(hit.value);
+  if (hit && age < DIRECTORY_CACHE_TTL_MS + staleMs) {
+    if (
+      hit.refreshingSince === undefined ||
+      now - hit.refreshingSince > DIRECTORY_REFRESH_LOST_MS
+    ) {
+      hit.refreshingSince = now;
       // The stale answer stays until a good one replaces it.
-      void Effect.runPromise(readDirectory(directory, path)).then((value) => {
-        if (directoryCache.get(key) !== hit) return;
-        if (value === null) {
-          hit.refreshing = false;
-          return;
-        }
-        directoryCache.set(key, { at: Date.now(), body: Promise.resolve(value), value });
-      });
+      void Effect.runPromise(
+        readDirectory(directory, path).pipe(
+          Effect.tap((value) =>
+            Effect.sync(() => {
+              if (directoryCache.get(key) !== hit) return;
+              if (value === null) hit.refreshingSince = undefined;
+              else keepAnswer(key, value);
+            }),
+          ),
+        ),
+      );
     }
     return Effect.succeed(hit.value);
   }
-  const entry = fetchIntoCache(directory, key, path);
-  return Effect.promise(() => entry.body);
+  return readDirectory(directory, path).pipe(
+    Effect.tap((value) => Effect.sync(() => keepAnswer(key, value))),
+  );
 };
 
 /** Forget every cached directory answer (tests). */

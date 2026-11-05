@@ -3,6 +3,7 @@ import { Effect } from "effect";
 
 import { loadConfig } from "./config";
 import {
+  startTimedOutBody,
   addressCheck,
   agentChoices,
   chosenAgent,
@@ -244,5 +245,15 @@ describe("registered client name", () => {
     const { helpers } = helpersWith({ bare: {} });
     expect(await registeredClientName(helpers, "bare")).toBeUndefined();
     expect(await registeredClientName(helpers, "gone")).toBeUndefined();
+  });
+});
+
+describe("startTimedOutBody", () => {
+  it("answers the request's id and tells the agent what failed and what to do", () => {
+    const body = startTimedOutBody("checking who you are", 7);
+    expect(body.id).toBe(7);
+    expect(body.error.message).toContain("Executor timed out checking who you are");
+    expect(body.error.message).toContain("this request was not run");
+    expect(body.error.message).toContain("try the same request again");
   });
 });

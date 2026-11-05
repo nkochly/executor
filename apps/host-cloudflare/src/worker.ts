@@ -35,12 +35,34 @@ let handlerPromise: Promise<{
   ) => Promise<Response>;
 }> | null = null;
 
+// The app is built once per isolate and every request shares that build. A
+// build still unsettled after this long is taken as lost (its request was cut
+// off with its I/O) and the next request starts another.
+const HANDLER_BUILD_LOST_MS = 20_000;
+let handlerBuildStartedAt = 0;
+let handlerBuilt = false;
+
 const resolveHandler = (env: CloudflareEnv) => {
-  if (!handlerPromise) {
-    handlerPromise = makeCloudflareApp(env).then(({ toWebHandler, mcpAgentHandler }) => ({
+  if (
+    !handlerPromise ||
+    (!handlerBuilt && Date.now() - handlerBuildStartedAt > HANDLER_BUILD_LOST_MS)
+  ) {
+    handlerBuildStartedAt = Date.now();
+    handlerBuilt = false;
+    const building = makeCloudflareApp(env).then(({ toWebHandler, mcpAgentHandler }) => ({
       app: toWebHandler().handler,
       mcp: mcpAgentHandler,
     }));
+    handlerPromise = building;
+    // A failed build is not kept: the next request builds again.
+    building.then(
+      () => {
+        if (handlerPromise === building) handlerBuilt = true;
+      },
+      () => {
+        if (handlerPromise === building) handlerPromise = null;
+      },
+    );
   }
   return handlerPromise;
 };

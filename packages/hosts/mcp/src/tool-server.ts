@@ -1581,6 +1581,38 @@ const directInputSchema = (view: ToolSchemaView | null) => {
   return converted instanceof z.ZodObject ? converted : z.looseObject({});
 };
 
+/** How long a session waits for one direct integration's tool list. */
+const DIRECT_LIST_TIMEOUT_MS = 10_000;
+
+interface DirectListing {
+  readonly integration: string;
+  readonly tools: readonly Tool[];
+  /** Why the list could not be read, when it could not. */
+  readonly failure?: string;
+}
+
+/** What an agent is told about an integration whose tools did not load. */
+export const unavailableIntegrationMessage = (integration: string, failure: string): string =>
+  [
+    `Executor could not load the tools of the ${integration} integration: reading its tool list ${failure}.`,
+    `None of its tools are available in this session. Tell the person that ${integration} is not responding through Executor and that nothing was done with it.`,
+    "Start a new session to try again. If it keeps failing, ask a platform admin to check the integration in Executor.",
+  ].join(" ");
+
+const registerUnavailableIntegration = (server: McpServer, integration: string, failure: string) =>
+  Effect.sync(() => {
+    const message = unavailableIntegrationMessage(integration, failure);
+    server.registerTool(
+      `${toolNamePart(integration)}_unavailable`.slice(0, MCP_TOOL_NAME_LIMIT),
+      {
+        description: message,
+        inputSchema: z.looseObject({}),
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      () => Promise.resolve({ content: [{ type: "text" as const, text: message }], isError: true }),
+    );
+  });
+
 /** Register each visible tool of the direct integrations as its own MCP tool. */
 const registerDirectTools = <E extends Cause.YieldableError>(
   server: McpServer,
@@ -1595,15 +1627,36 @@ const registerDirectTools = <E extends Cause.YieldableError>(
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
+    // An integration whose tools cannot be read is never dropped in silence:
+    // the agent would see fewer tools and no reason. It gets one tool in their
+    // place whose description and answer say what failed and what to do.
     const listed = yield* Effect.forEach(
       integrations,
       (integration) =>
-        tools
-          .list({ integration: IntegrationSlug.make(integration) })
-          .pipe(Effect.orElseSucceed(() => [] as readonly Tool[])),
+        tools.list({ integration: IntegrationSlug.make(integration) }).pipe(
+          Effect.map((found): DirectListing => ({ integration, tools: found })),
+          Effect.timeoutOrElse({
+            duration: Duration.millis(DIRECT_LIST_TIMEOUT_MS),
+            orElse: () =>
+              Effect.succeed<DirectListing>({
+                integration,
+                tools: [],
+                failure: `timed out after ${DIRECT_LIST_TIMEOUT_MS / 1000} seconds`,
+              }),
+          }),
+          Effect.catchCause(() =>
+            Effect.succeed<DirectListing>({ integration, tools: [], failure: "failed" }),
+          ),
+        ),
       { concurrency: "unbounded" },
     );
-    const visible = listed.flat().filter((tool) => tool.static !== true);
+    for (const listing of listed) {
+      if (listing.failure === undefined) continue;
+      yield* registerUnavailableIntegration(server, listing.integration, listing.failure);
+    }
+    const visible = listed
+      .flatMap((listing) => listing.tools)
+      .filter((tool) => tool.static !== true);
     const named = [...directToolNames(visible)];
     yield* mark("directList");
     // One policy snapshot for every tool, reads side by side, input side only:
@@ -1623,7 +1676,16 @@ const registerDirectTools = <E extends Cause.YieldableError>(
             named.map(([, tool]) => tool.address),
             { typeScript: false, outputSchema: false },
           )
-          .pipe(Effect.catch(() => oneByOne))
+          .pipe(
+            Effect.catch(() => oneByOne),
+            // Past this a tool is registered without its input schema rather
+            // than the session waiting on it: still callable, and the upstream
+            // checks the arguments.
+            Effect.timeoutOrElse({
+              duration: Duration.millis(DIRECT_LIST_TIMEOUT_MS),
+              orElse: () => Effect.succeed(new Map<string, ToolSchemaView | null>()),
+            }),
+          )
       : yield* oneByOne;
     yield* mark("directSchemas");
     for (const [name, tool] of named) {

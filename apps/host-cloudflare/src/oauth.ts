@@ -1,5 +1,5 @@
 import { OAuthProvider, type OAuthHelpers } from "@cloudflare/workers-oauth-provider";
-import { Effect } from "effect";
+import { Duration, Effect, Option, Schema } from "effect";
 
 import type { Principal } from "@executor-js/host-mcp";
 
@@ -432,6 +432,44 @@ const unauthorized = (): Response =>
     },
   );
 
+/** How long an MCP request may take to start before it is answered with an
+ *  error the agent can read, rather than left waiting on the client's timeout. */
+const MCP_START_DEADLINE_MS = 25_000;
+
+const JsonRpcId = Schema.Struct({
+  id: Schema.optional(Schema.NullOr(Schema.Union([Schema.String, Schema.Number]))),
+});
+const decodeJsonRpcId = Schema.decodeUnknownOption(Schema.fromJsonString(JsonRpcId));
+
+/** The JSON-RPC error a request gets when Executor could not start it in time:
+ *  the agent is told what failed and what to do, and nothing was run. */
+export const startTimedOutBody = (step: string, id: string | number | null) => ({
+  jsonrpc: "2.0" as const,
+  id,
+  error: {
+    code: -32603,
+    message:
+      `Executor timed out ${step} (more than ${MCP_START_DEADLINE_MS / 1000} seconds), so this request was not run. ` +
+      "Tell the person Executor is not responding right now, then try the same request again. " +
+      "If it keeps failing, ask a platform admin to check Executor.",
+  },
+});
+
+const startTimedOut = async (request: Request, step: string): Promise<Response> => {
+  console.log("[executor] MCP request start timed out", JSON.stringify({ step }));
+  const text = await Effect.runPromise(
+    Effect.tryPromise(() => request.text()).pipe(Effect.orElseSucceed(() => "")),
+  );
+  const id = Option.match(decodeJsonRpcId(text), {
+    onNone: () => null,
+    onSome: (body) => body.id ?? null,
+  });
+  return new Response(JSON.stringify(startTimedOutBody(step, id)), {
+    status: 200,
+    headers: { "content-type": "application/json" },
+  });
+};
+
 type Serve = {
   readonly app: (request: Request) => Promise<Response>;
   readonly mcp: (
@@ -500,13 +538,30 @@ export const oauthProviderFor = (
         // Wall time of each step before and of the MCP answer, logged when
         // the whole request is slow, so a slow start can be attributed.
         const started = Date.now();
-        // The app is built once per isolate; build it while the person is
-        // re-checked rather than after. Nothing is served until both are done.
-        const serving = resolve(env);
-        const principal = await Effect.runPromise(principalForGrant(grant, config));
+        // The app is built once per isolate and shared by every request on
+        // it, so only a request that will be served may start that build: a
+        // build begun by a request that then returns early can be cancelled
+        // with it and leave every later request waiting.
+        const principal = await Effect.runPromise(
+          principalForGrant(grant, config).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.millis(MCP_START_DEADLINE_MS),
+              orElse: () => Effect.succeed("timeout" as const),
+            }),
+          ),
+        );
+        if (principal === "timeout") return await startTimedOut(request, "checking who you are");
         if (!principal) return unauthorized();
         const checked = Date.now();
-        const serve = await serving;
+        const serve = await Effect.runPromise(
+          Effect.promise(() => resolve(env)).pipe(
+            Effect.timeoutOrElse({
+              duration: Duration.millis(MCP_START_DEADLINE_MS),
+              orElse: () => Effect.succeed("timeout" as const),
+            }),
+          ),
+        );
+        if (serve === "timeout") return await startTimedOut(request, "starting up");
         const resolved = Date.now();
         const clientName = await registeredClientName(
           (env as CloudflareEnv & { OAUTH_PROVIDER: Helpers }).OAUTH_PROVIDER,
