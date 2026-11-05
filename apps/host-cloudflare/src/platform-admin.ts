@@ -3,14 +3,23 @@ import { generateKeyBetween } from "fractional-indexing";
 
 import { handleCatalogAdmin } from "./catalog-admin";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
+import { AGENT_SLUG, agentSlug } from "./agent";
 import {
   ensureStartingSet,
   firstPartyIntegrations,
   STARTING_SET_SLUG,
+  startWorkspace,
+  teamConnectionPatterns,
   withExecutorAs,
   withHostExecutor,
   workspaceConnections,
 } from "./new-workspace";
+import {
+  parsePeople,
+  readWorkspacePeople,
+  setWorkspacePeople,
+  teamsFromConnections,
+} from "./workspace-people";
 
 // ---------------------------------------------------------------------------
 // The admin page's data: every agent workspace against every connection it
@@ -150,7 +159,19 @@ const SettingBody = Schema.Struct({
   setting: Schema.Literals(["inherit", "show", "ask", "hide"]),
 });
 
+const NewWorkspaceBody = Schema.Struct({
+  name: Schema.String,
+  team: Schema.optional(Schema.NullOr(Schema.String)),
+  people: Schema.Array(Schema.String),
+});
+const WorkspacePeopleBody = Schema.Struct({
+  slug: Schema.String,
+  people: Schema.Array(Schema.String),
+});
+
 const decodePick = Schema.decodeUnknownOption(PickBody);
+const decodeNewWorkspace = Schema.decodeUnknownOption(NewWorkspaceBody);
+const decodeWorkspacePeople = Schema.decodeUnknownOption(WorkspacePeopleBody);
 const decodeSetting = Schema.decodeUnknownOption(SettingBody);
 
 const listTools = (executor: {
@@ -276,7 +297,8 @@ export const handlePlatformAdmin = async (
       Effect.gen(function* () {
         const tools = yield* asAdmin((executor) => listTools(executor));
         const people = yield* Effect.tryPromise(() => agentPeople(env.OAUTH_KV));
-        const { workspaces, titles, names } = yield* withHostExecutor(env, config, (host) =>
+        const assigned = yield* Effect.tryPromise(() => readWorkspacePeople(env.DB));
+        const { workspaces, titles, names, teams } = yield* withHostExecutor(env, config, (host) =>
           Effect.gen(function* () {
             yield* ensureStartingSet(host.toolkits);
             const list = (yield* host.toolkits.list()).filter((toolkit) => toolkit.owner === "org");
@@ -289,12 +311,15 @@ export const handlePlatformAdmin = async (
                 name: toolkit.name,
                 startingSet: toolkit.slug === STARTING_SET_SLUG,
                 people: people.get(toolkit.slug) ?? [],
+                setUpFor: assigned.get(toolkit.slug) ?? [],
                 patterns: connections.map((connection) => connection.pattern),
                 updatedAt: toolkit.updatedAt,
               });
             }
+            const shared = yield* workspaceConnections(host);
+            const teams = teamsFromConnections(shared, firstPartyIntegrations(config));
             const titles = new Map(
-              (yield* workspaceConnections(host)).flatMap((connection) =>
+              shared.flatMap((connection) =>
                 connection.title
                   ? [[`${connection.integration}.${connection.name}`, connection.title] as const]
                   : [],
@@ -305,7 +330,7 @@ export const handlePlatformAdmin = async (
                 (integration) => [String(integration.slug), integration.name] as const,
               ),
             );
-            return { workspaces, titles, names };
+            return { workspaces, titles, names, teams };
           }),
         );
         workspaces.sort(
@@ -314,11 +339,60 @@ export const handlePlatformAdmin = async (
         return {
           consolePath: `/${config.organizationSlug}/toolkits`,
           me: admin.email,
+          teams,
           workspaces,
           connections: pickables(tools, names, titles, firstPartyIntegrations(config)),
         };
       }),
     );
+  }
+
+  if (route === "POST /workspaces") {
+    const body = decodeNewWorkspace(await readBody(request));
+    if (Option.isNone(body)) return json({ error: "Give the workspace a name." }, 400);
+    const name = body.value.name.trim();
+    const slug = agentSlug(name);
+    if (!AGENT_SLUG.test(slug) || slug === STARTING_SET_SLUG) {
+      return json({ error: "Give the workspace a name with at least one letter or digit." }, 400);
+    }
+    const team = body.value.team?.trim() ?? "";
+    const result = await Effect.runPromise(
+      withHostExecutor(env, config, (host) =>
+        Effect.gen(function* () {
+          yield* ensureStartingSet(host.toolkits);
+          const taken = (yield* host.toolkits.list()).some((toolkit) => toolkit.slug === slug);
+          if (taken) return "taken" as const;
+          const extra = team
+            ? teamConnectionPatterns(
+                yield* workspaceConnections(host),
+                firstPartyIntegrations(config),
+                { slug: team, name: team },
+              )
+            : [];
+          yield* startWorkspace(host.toolkits, { slug, name }, extra);
+          return "made" as const;
+        }),
+      ).pipe(
+        Effect.catchCause((cause) =>
+          Effect.logWarning("admin new workspace failed", cause).pipe(Effect.as("failed" as const)),
+        ),
+      ),
+    );
+    if (result === "taken") {
+      return json({ error: `There is already a workspace named like "${name}".` }, 409);
+    }
+    if (result === "failed") return json({ error: "That did not work. Try again." }, 500);
+    await setWorkspacePeople(env.DB, slug, body.value.people);
+    return json({ ok: true, slug });
+  }
+
+  if (route === "POST /workspaces/people") {
+    const body = decodeWorkspacePeople(await readBody(request));
+    if (Option.isNone(body) || !AGENT_SLUG.test(body.value.slug)) {
+      return json({ error: "Name a workspace." }, 400);
+    }
+    await setWorkspacePeople(env.DB, body.value.slug, body.value.people);
+    return json({ ok: true, people: parsePeople(body.value.people) });
   }
 
   if (route === "POST /workspaces/connection") {
