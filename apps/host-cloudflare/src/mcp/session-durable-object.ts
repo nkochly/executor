@@ -34,7 +34,7 @@ import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execut
 import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
 import { startWorkspace, withHostExecutor } from "../new-workspace";
 import { makeAttributionMeta } from "../attribution";
-import { catalogIntegrations, refreshCatalog } from "../platform";
+import { catalogIntegrations, refreshCatalog, unservedCatalogIntegrations } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions, type TeamPage } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 import { sharedTeamPages } from "../team-page-cache";
@@ -245,6 +245,31 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         ),
       );
       yield* mark("executor");
+      // A catalog server the org has no integration for under the slug this
+      // session serves would list no tools and say nothing. Logged off the
+      // session's path, so a mismatch is seen without slowing `initialize`.
+      yield* executor.integrations.list().pipe(
+        Effect.map((found) =>
+          unservedCatalogIntegrations(
+            catalog,
+            found.map((integration) => String(integration.slug)),
+          ),
+        ),
+        Effect.tap((missing) =>
+          Effect.sync(() => {
+            if (missing.length === 0) return;
+            console.warn(
+              JSON.stringify({
+                event: "mcp_catalog_integration_missing",
+                organizationId: sessionMeta.organizationId,
+                missing,
+              }),
+            );
+          }),
+        ),
+        Effect.ignore,
+        Effect.forkDetach,
+      );
       // An agent's first connection makes its workspace toolkit, narrowed
       // from the console. Its personal picks run as whoever calls it, through
       // their own sign-ins; the tenant ceiling bounds it either way.

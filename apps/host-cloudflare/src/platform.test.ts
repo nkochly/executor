@@ -4,7 +4,13 @@ import { describe, expect, it } from "@effect/vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 
 import type { CloudflareConfig, CloudflareEnv } from "./config";
-import { catalogIntegrations, catalogPresets, handlePlatform, refreshCatalog } from "./platform";
+import {
+  catalogIntegrations,
+  catalogPresets,
+  handlePlatform,
+  refreshCatalog,
+  unservedCatalogIntegrations,
+} from "./platform";
 
 // A D1 stand-in over node:sqlite: the calls platform.ts makes, nothing more.
 const fakeD1 = (): D1Database => {
@@ -86,6 +92,9 @@ describe("company MCP catalog", () => {
       "webex_messaging",
       "service_now",
     ]);
+    expect(
+      unservedCatalogIntegrations(listed, ["wiki", "webex_meetings", "webex-messaging"]),
+    ).toEqual(["webex_messaging", "service_now"]);
   });
 
   it("refuses changes from anyone else, and stack-fixed slugs", async () => {

@@ -100,6 +100,19 @@ export const catalogNow = (config: CloudflareConfig): readonly CatalogServer[] =
 export const catalogIntegrations = (servers: readonly CatalogServer[]): readonly string[] =>
   servers.map((server) => integrationSlugFor(server.slug));
 
+/**
+ * The catalog's integration slugs the org has no integration under. Each one
+ * is a catalog server whose tools no session can serve; a workspace that picked
+ * it would list none of its tools.
+ */
+export const unservedCatalogIntegrations = (
+  servers: readonly CatalogServer[],
+  known: readonly string[],
+): readonly string[] => {
+  const have = new Set(known);
+  return catalogIntegrations(servers).filter((slug) => !have.has(slug));
+};
+
 /** The catalog as MCP add-screen presets. */
 export const catalogPresets = (servers: readonly CatalogServer[]) =>
   servers.map((server) => ({
