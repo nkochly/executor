@@ -1547,7 +1547,7 @@ const toolNamePart = (value: string): string => value.replace(/[^A-Za-z0-9_-]+/g
 /**
  * The words a connection's tools are named by when one integration has
  * several: the part after the last " · " of the identity its health check
- * reports ("Muster · beta" gives "beta"), else of its identity label. A
+ * reports ("Tasks · pilot" gives "pilot"), else of its identity label. A
  * connection with neither, or whose label another connection of the same
  * integration shares, is named by its connection name.
  */
@@ -1588,7 +1588,7 @@ const connectionKey = (integration: unknown, owner: unknown, name: unknown): str
  * MCP names for a direct integration's tools: `<integration>_<tool>`, with
  * the connection added when one integration has tools from several. The
  * connection is named by its label from {@link connectionToolLabels} when it
- * has one (`muster_beta_find_tasks`), else by its connection name.
+ * has one (`tasks_pilot_find_tasks`), else by its connection name.
  */
 export const directToolNames = (
   tools: readonly Tool[],
