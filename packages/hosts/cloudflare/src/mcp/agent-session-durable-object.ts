@@ -195,6 +195,13 @@ interface SessionMetaBase {
    * unknown, which behaves as disabled until the next `initialize`.
    */
   readonly appsEnabled?: boolean;
+  /**
+   * The direct tool names this session's client was given, each mapped to the
+   * tool address it calls. A client keeps its tool list for the whole session,
+   * so every rebuild answers these names again (see `servedToolNames` on
+   * `createExecutorMcpServer`). Grows only.
+   */
+  readonly servedToolNames?: Readonly<Record<string, string>>;
 }
 
 /** Durable session metadata, including the pre-role-model persisted shape. */
@@ -721,6 +728,45 @@ export abstract class McpAgentSessionDOBase<
     );
   }
 
+  /**
+   * Persist the direct tool names this build answers, so the next rebuild
+   * answers them too. When the build added names the client has not seen, the
+   * client is told its tool list changed once the server is connected.
+   * Subclasses hand this to `createExecutorMcpServer` as `onServedToolNames`.
+   */
+  protected persistServedToolNames(
+    names: Readonly<Record<string, string>>,
+    added: boolean,
+  ): Effect.Effect<void> {
+    const self = this;
+    return Effect.gen(function* () {
+      if (added) self.toolListChangedPending = true;
+      const stored = yield* self.loadSessionMeta();
+      if (!stored) return;
+      const before = stored.servedToolNames ?? {};
+      const same =
+        Object.keys(before).length === Object.keys(names).length &&
+        Object.entries(names).every(([name, address]) => before[name] === address);
+      if (same) return;
+      yield* Effect.promise(() => self.saveSessionMeta({ ...stored, servedToolNames: names }));
+    }).pipe(
+      Effect.withSpan("mcp.session.persist_served_tool_names"),
+      Effect.ignoreCause({ log: false }),
+    );
+  }
+
+  private toolListChangedPending = false;
+
+  /** Tell the client its tool list changed, when a rebuild added names. Best effort. */
+  private announceToolListChanged(): void {
+    if (!this.toolListChangedPending || !this.server) return;
+    this.toolListChangedPending = false;
+    const server = this.server;
+    Effect.runFork(
+      Effect.sync(() => server.sendToolListChanged()).pipe(Effect.ignoreCause({ log: false })),
+    );
+  }
+
   private async markActivity(now = Date.now()): Promise<void> {
     this.lastActivityMs = now;
     // Keeps the isolate-wide eviction registry's LRU order current. A no-op
@@ -1126,6 +1172,9 @@ export abstract class McpAgentSessionDOBase<
         ...resolved,
         ...(token.webOrigin ? { webOrigin: token.webOrigin } : {}),
         ...(stored?.appsEnabled === undefined ? {} : { appsEnabled: stored.appsEnabled }),
+        ...(stored?.servedToolNames === undefined
+          ? {}
+          : { servedToolNames: stored.servedToolNames }),
       };
       yield* Effect.promise(() => self.saveSessionMeta(sessionMeta)).pipe(
         Effect.withSpan("mcp.session.save_meta"),
@@ -1419,6 +1468,7 @@ export abstract class McpAgentSessionDOBase<
     starting.then(
       () => {
         if (this.onStartPromise === starting) this.onStartPromise = null;
+        this.announceToolListChanged();
       },
       () => {
         if (this.onStartPromise === starting) this.onStartPromise = null;

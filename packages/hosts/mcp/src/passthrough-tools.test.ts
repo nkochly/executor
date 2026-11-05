@@ -1047,4 +1047,72 @@ describe("direct integrations", () => {
       },
     );
   });
+
+  it("keeps answering the names a session was given when a rebuild renames them", async () => {
+    const recording = makeRecordingEngine({ ok: true, data: { hits: 1 } });
+    const one = [projection({ integration: "wiki", name: "guides", connection: "acme" })];
+    const two = [...one, projection({ integration: "wiki", name: "guides", connection: "beta" })];
+    let served: Readonly<Record<string, string>> = {};
+    const added: boolean[] = [];
+    const onServedToolNames = (names: Readonly<Record<string, string>>, isNew: boolean) =>
+      Effect.sync(() => {
+        served = names;
+        added.push(isNew);
+      });
+    await withClient(
+      {
+        engine: recording.engine,
+        tools: toolPort(one),
+        directIntegrations: ["wiki"],
+        onServedToolNames,
+      },
+      async (client) => {
+        expect((await client.listTools()).tools.map((tool) => tool.name)).toContain("wiki_guides");
+      },
+    );
+    expect(served).toEqual({ wiki_guides: "tools.wiki.org.acme.guides" });
+    // The rebuilt session: a second connection renamed the tools.
+    await withClient(
+      {
+        engine: recording.engine,
+        tools: toolPort(two),
+        directIntegrations: ["wiki"],
+        servedToolNames: served,
+        onServedToolNames,
+      },
+      async (client) => {
+        const names = (await client.listTools()).tools.map((tool) => tool.name);
+        expect(names).toEqual(
+          expect.arrayContaining(["wiki_guides", "wiki_acme_guides", "wiki_beta_guides"]),
+        );
+        const result = await client.callTool({ name: "wiki_guides", arguments: {} });
+        expect(result.isError ?? false).toBe(false);
+        expect(recording.executed.at(-1)).toContain("wiki.org.acme.guides");
+      },
+    );
+    expect(added).toEqual([false, true]);
+    expect(Object.keys(served).sort()).toEqual([
+      "wiki_acme_guides",
+      "wiki_beta_guides",
+      "wiki_guides",
+    ]);
+  });
+
+  it("tells the agent when a name it was given lost its connection", async () => {
+    const recording = makeRecordingEngine();
+    await withClient(
+      {
+        engine: recording.engine,
+        tools: toolPort([projection({ integration: "wiki", name: "guides", connection: "beta" })]),
+        directIntegrations: ["wiki"],
+        servedToolNames: { wiki_search_wiki: "tools.wiki.org.acme.search_wiki" },
+      },
+      async (client) => {
+        const result = await client.callTool({ name: "wiki_search_wiki", arguments: {} });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("is no longer available");
+        expect(recording.executed).toEqual([]);
+      },
+    );
+  });
 });
