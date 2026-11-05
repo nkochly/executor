@@ -245,6 +245,24 @@ type SharedMcpServerConfig = {
    */
   readonly directIntegrations?: readonly string[];
   /**
+   * The direct tool names this session already gave its client, each mapped
+   * to the tool address it called. A client keeps the tool list it was given
+   * for the whole session, so a rebuilt server (cold restore, idle reclaim)
+   * still answers every one of these names: by its tool while the tool is
+   * visible, else with an error saying its connection is gone. Names never
+   * change meaning within a session.
+   */
+  readonly servedToolNames?: Readonly<Record<string, string>>;
+  /**
+   * Called once per build with every direct tool name the session now
+   * answers, mapped to its address, and whether any is new since
+   * {@link servedToolNames}. Hosts persist the names for the next rebuild.
+   */
+  readonly onServedToolNames?: (
+    names: Readonly<Record<string, string>>,
+    added: boolean,
+  ) => Effect.Effect<void>;
+  /**
    * Renders an artifact once, server-side, before it is saved — so a component
    * that throws on its first render is refused at create time with the real
    * error instead of saving cleanly and dying on the user's page.
@@ -1685,7 +1703,14 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     extra: McpRequestJoinKeys,
   ) => Effect.Effect<McpToolResult, E>,
   mark: (step: string) => Effect.Effect<void> = () => Effect.void,
-  connections?: McpConnectionsPort,
+  options: {
+    readonly connections?: McpConnectionsPort;
+    readonly served?: Readonly<Record<string, string>>;
+    readonly onServed?: (
+      names: Readonly<Record<string, string>>,
+      added: boolean,
+    ) => Effect.Effect<void>;
+  } = {},
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
@@ -1722,8 +1747,8 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     // Tools of an integration with several connections are named by each
     // connection's tenant; a failed read names them by connection instead.
     const labels =
-      connections && severalConnections(visible)
-        ? yield* connections.list().pipe(
+      options.connections && severalConnections(visible)
+        ? yield* options.connections.list().pipe(
             Effect.map(connectionToolLabels),
             Effect.timeoutOrElse({
               duration: Duration.millis(DIRECT_LIST_TIMEOUT_MS),
@@ -1732,7 +1757,16 @@ const registerDirectTools = <E extends Cause.YieldableError>(
             Effect.catchCause(() => Effect.succeed(new Map<string, string>())),
           )
         : new Map<string, string>();
-    const named = [...directToolNames(visible, labels)];
+    const fresh = directToolNames(visible, labels);
+    const named = [...fresh];
+    // Names the client was given earlier in this session answer as before.
+    const byAddress = new Map(visible.map((tool) => [String(tool.address), tool] as const));
+    const kept = Object.entries(options.served ?? {}).filter(([name]) => !fresh.has(name));
+    for (const [name, address] of kept) {
+      const tool = byAddress.get(address);
+      if (tool) named.push([name, tool]);
+    }
+    const gone = kept.filter(([, address]) => !byAddress.has(address)).map(([name]) => name);
     yield* mark("directList");
     // One policy snapshot for every tool, reads side by side, input side only:
     // a direct tool is registered with its JSON input schema alone, so no
@@ -1791,8 +1825,39 @@ const registerDirectTools = <E extends Cause.YieldableError>(
         ),
       );
     }
+    for (const name of gone) yield* registerRemovedTool(server, name);
+    if (options.onServed) {
+      const served: Record<string, string> = { ...options.served };
+      let added = false;
+      for (const [name, tool] of named) {
+        if (served[name] === undefined) added = true;
+        served[name] = String(tool.address);
+      }
+      yield* options.onServed(served, added && Object.keys(options.served ?? {}).length > 0);
+    }
     yield* mark("directRegister");
   }).pipe(Effect.withSpan("mcp.host.register_direct_tools"));
+
+/** What an agent is told when it calls a tool whose connection left the workspace. */
+export const removedToolMessage = (name: string): string =>
+  [
+    `The tool ${name} is no longer available: its connection was removed from this workspace or its tool is no longer offered.`,
+    "Nothing was done. Tell the person, and start a new session to see the tools this workspace has now.",
+  ].join(" ");
+
+const registerRemovedTool = (server: McpServer, name: string) =>
+  Effect.sync(() => {
+    const message = removedToolMessage(name);
+    server.registerTool(
+      name,
+      {
+        description: message,
+        inputSchema: z.looseObject({}),
+        annotations: { readOnlyHint: true, openWorldHint: false },
+      },
+      () => Promise.resolve({ content: [{ type: "text" as const, text: message }], isError: true }),
+    );
+  });
 
 // ---------------------------------------------------------------------------
 // Server factory
@@ -2352,7 +2417,11 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         config.directIntegrations,
         executePassthroughCall,
         mark,
-        config.connections,
+        {
+          ...(config.connections ? { connections: config.connections } : {}),
+          ...(config.servedToolNames ? { served: config.servedToolNames } : {}),
+          ...(config.onServedToolNames ? { onServed: config.onServedToolNames } : {}),
+        },
       );
     }
 

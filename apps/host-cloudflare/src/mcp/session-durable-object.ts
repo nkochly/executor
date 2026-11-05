@@ -317,6 +317,8 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         mode: sessionMeta.toolMode ?? "codemode",
         instructions: sessionInstructions(teamPages),
         directIntegrations: catalogIntegrations(catalog),
+        ...(sessionMeta.servedToolNames ? { servedToolNames: sessionMeta.servedToolNames } : {}),
+        onServedToolNames: (names, added) => self.persistServedToolNames(names, added),
         builtinTools,
         onStep: (step, ms) => {
           steps[`tools.${step}`] = ms;
