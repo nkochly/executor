@@ -55,6 +55,7 @@ const recordingExecutor = (existing: Readonly<Record<string, string>> | readonly
     : { ...existing };
   const added: { slug: string; name: string }[] = [];
   const renamed: { slug: string; name: string }[] = [];
+  const revised: string[] = [];
   const policies: { pattern: string; action: string }[] = [];
   const executor = {
     mcp: {
@@ -67,6 +68,7 @@ const recordingExecutor = (existing: Readonly<Record<string, string>> | readonly
       get: (slug: string) => Effect.succeed(slug in names ? { slug, name: names[slug] } : null),
       update: (slug: string, patch: { name: string }) =>
         Effect.sync(() => void renamed.push({ slug, name: patch.name })),
+      reviseTools: (slug: string) => Effect.sync(() => void revised.push(slug)),
     },
     policies: {
       create: (input: { owner: string; pattern: string; action: string }) =>
@@ -81,6 +83,7 @@ const recordingExecutor = (existing: Readonly<Record<string, string>> | readonly
     },
     addedNames: added,
     renamed,
+    revised,
     policies,
   };
 };
@@ -190,6 +193,30 @@ describe("tenant defaults", () => {
     expect(readded.added).toEqual([]);
     expect(readded.policies).toEqual([]);
     expect(readded.renamed).toEqual([{ slug: "wiki", name: "Wiki" }]);
+  });
+
+  it("re-lists a server's tools in every connection when its tool-list revision changes", async () => {
+    const db = fakeD1();
+    const at = (muster: string) => [
+      { ...firstParty[0]!, revision: "w1" },
+      { ...firstParty[1]!, revision: muster },
+    ];
+    const run = async (muster: string) => {
+      const seeded = recordingExecutor(["wiki", "muster"]);
+      await Effect.runPromise(
+        makeTenantDefaults(db, configWith(null, at(muster)))!("acme", () =>
+          Effect.succeed(seeded.executor),
+        ),
+      );
+      return seeded.revised;
+    };
+    // The first revision a tenant sees is only recorded.
+    expect(await run("m1")).toEqual([]);
+    // The same revision on a later isolate changes nothing.
+    expect(await run("m1")).toEqual([]);
+    // A deploy that changed Muster's tools revises Muster alone, once.
+    expect(await run("m2")).toEqual(["muster"]);
+    expect(await run("m2")).toEqual([]);
   });
 
   it("puts each block above the approval it narrows", () => {

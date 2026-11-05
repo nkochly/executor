@@ -1964,7 +1964,7 @@ describe("tool catalog sync safety", () => {
 
         // Let the clock move past the stamp `create` wrote, so the catalog is
         // older than the zero TTL on the read below.
-        yield* Effect.sleep("5 millis");
+        yield* Effect.promise(() => new Promise<void>((done) => setTimeout(done, 5)));
 
         // The upstream listing is held open. A read that waited on it would
         // pay the full grace budget; this one must answer at once from the
@@ -2036,6 +2036,57 @@ describe("tool catalog sync safety", () => {
             set: { tools_synced_at: null },
           }),
         );
+        const tools = yield* executor.tools.list({ integration: INTEG });
+        expect(tools.map((tool) => String(tool.name)).sort()).toEqual(["deploy", "list"]);
+      }),
+    ),
+  );
+
+  it.effect("integrations.reviseTools makes the next read re-list a fresh catalog", () =>
+    Effect.scoped(
+      Effect.gen(function* () {
+        let resolutions = 0;
+        const remotePlugin = definePlugin(() => ({
+          id: "remote" as const,
+          credentialProviders: [memoryProvider()],
+          storage: () => ({}),
+          remoteToolCatalog: true,
+          resolveTools: () =>
+            Effect.sync(() => {
+              resolutions += 1;
+              return {
+                tools:
+                  resolutions === 1
+                    ? [{ name: ToolName.make("deploy"), description: "deploy" }]
+                    : [
+                        { name: ToolName.make("deploy"), description: "deploy" },
+                        { name: ToolName.make("list"), description: "list" },
+                      ],
+              };
+            }),
+          invokeTool: ({ toolRow }) => Effect.succeed({ ran: toolRow.name }),
+          extension: (ctx) => ({
+            seed: () =>
+              ctx.core.integrations.register({ slug: INTEG, description: "Vercel", config: {} }),
+          }),
+        }))();
+        const config = makeTestConfig({ plugins: [remotePlugin] as const });
+        const executor = yield* createExecutor(config);
+        yield* executor.remote.seed();
+        yield* executor.connections.create({
+          owner: "org",
+          name: ConnectionName.make("main"),
+          integration: INTEG,
+          template: TEMPLATE,
+          value: "secret-token",
+        });
+        // The first read lists and persists the catalog.
+        const first = yield* executor.tools.list({ integration: INTEG });
+        expect(first.map((tool) => String(tool.name))).toEqual(["deploy"]);
+        yield* Effect.promise(() => new Promise<void>((done) => setTimeout(done, 5)));
+        // The upstream's tool list changed (a deploy): every connection of the
+        // integration re-lists on its next read, without waiting for the TTL.
+        yield* executor.integrations.reviseTools(INTEG);
         const tools = yield* executor.tools.list({ integration: INTEG });
         expect(tools.map((tool) => String(tool.name)).sort()).toEqual(["deploy", "list"]);
       }),

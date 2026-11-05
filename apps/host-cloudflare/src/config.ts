@@ -151,10 +151,19 @@ export interface FirstPartyMcp {
   readonly slug: string;
   readonly name: string;
   readonly endpoint: string;
+  /** Changes exactly when the server's tool list does (the deploy reads it
+   *  from the server's own deploy check). A new value makes every connection
+   *  of the server re-list its tools on its next read. */
+  readonly revision?: string;
 }
 
 const FirstPartyList = Schema.Array(
-  Schema.Struct({ slug: Schema.String, name: Schema.String, endpoint: Schema.String }),
+  Schema.Struct({
+    slug: Schema.String,
+    name: Schema.String,
+    endpoint: Schema.String,
+    revision: Schema.optional(Schema.String),
+  }),
 );
 
 const decodeFirstParty = Schema.decodeUnknownOption(Schema.fromJsonString(FirstPartyList));
