@@ -28,7 +28,10 @@ const Cached = Schema.Struct({
 const decodeCached = Schema.decodeUnknownOption(Schema.fromJsonString(Cached));
 const encodeCached = Schema.encodeSync(Schema.fromJsonString(Cached));
 
-const refreshing = new Set<string>();
+// A background refresh runs on the request that started it and can be cut off
+// with it; one not settled in this long is taken as lost.
+const REFRESH_LOST_MS = 15_000;
+const refreshing = new Map<string, number>();
 
 /** `caches.default` is a Workers extension the standard lib type omits. */
 type WorkersCacheStorage = CacheStorage & { readonly default?: Cache };
@@ -74,8 +77,9 @@ export const sharedTeamPages = (
     const cached = hit === null ? Option.none() : decodeCached(hit);
     const age = Option.isSome(cached) ? Date.now() - cached.value.at : Infinity;
     if (Option.isSome(cached) && age < STALE_MS) {
-      if (age >= FRESH_MS && !refreshing.has(key)) {
-        refreshing.add(key);
+      const since = refreshing.get(key);
+      if (age >= FRESH_MS && (since === undefined || Date.now() - since > REFRESH_LOST_MS)) {
+        refreshing.set(key, Date.now());
         void Effect.runPromise(
           load.pipe(
             Effect.flatMap((pages) => store(cache, key, pages)),

@@ -991,6 +991,47 @@ describe("direct integrations", () => {
     expect(singleReads).toEqual(batches[0]!.addresses);
   });
 
+  const withMuster = (muster: McpToolsPort["list"]): McpToolsPort => {
+    const base = toolPort(WIKI);
+    return {
+      ...base,
+      list: (filter) => (filter?.integration === "muster" ? muster(filter) : base.list(filter)),
+    };
+  };
+
+  const expectUnavailable = async (port: McpToolsPort, failure: string) => {
+    const recording = makeRecordingEngine();
+    await withClient(
+      { engine: recording.engine, tools: port, directIntegrations: ["wiki", "muster"] },
+      async (client) => {
+        const { tools } = await client.listTools();
+        const names = tools.map((tool) => tool.name);
+        expect(names).toContain("wiki_search_wiki");
+        const notice = tools.find((tool) => tool.name === "muster_unavailable")!;
+        expect(notice.description).toContain(
+          `Executor could not load the tools of the muster integration: reading its tool list ${failure}.`,
+        );
+        const result = await client.callTool({ name: "muster_unavailable", arguments: {} });
+        expect(result.isError).toBe(true);
+        expect(JSON.stringify(result.content)).toContain("None of its tools are available");
+        expect(recording.executed).toEqual([]);
+      },
+    );
+  };
+
+  it("tells the agent when an integration's tools failed to load", () =>
+    expectUnavailable(
+      withMuster(() => Effect.die("upstream down")),
+      "failed",
+    ));
+
+  it("tells the agent when an integration's tools timed out", { timeout: 20_000 }, () =>
+    expectUnavailable(
+      withMuster(() => Effect.never),
+      "timed out after 10 seconds",
+    ),
+  );
+
   it("adds the connection to the name when an integration has several", async () => {
     const recording = makeRecordingEngine();
     const two = [
