@@ -35,6 +35,7 @@ import { makeAttributionMeta } from "../attribution";
 import { refreshCatalog } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions, type TeamPage } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
+import { sharedTeamPages } from "../team-page-cache";
 
 // ---------------------------------------------------------------------------
 // Cloudflare (self-host) MCP Session Durable Object — the host-cloudflare
@@ -197,15 +198,22 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       // in one company org, the page of every tenant the person is in. No
       // page, no block. Read beside the executor build, which never needs it.
       const teamPagesStart = Date.now();
+      const email = sessionMeta.email;
       const teamPagesFiber = yield* Effect.forkChild(
-        (!sessionMeta.email
+        (!email
           ? Effect.succeed<readonly TeamPage[]>([])
           : config.directory
-            ? readTeamPage(config.directory, sessionMeta.organizationId, sessionMeta.email).pipe(
-                Effect.map((page): readonly TeamPage[] => (page === null ? [] : [page])),
+            ? sharedTeamPages(
+                `tenant:${sessionMeta.organizationId}:${email.toLowerCase()}`,
+                readTeamPage(config.directory, sessionMeta.organizationId, email).pipe(
+                  Effect.map((page): readonly TeamPage[] => (page === null ? [] : [page])),
+                ),
               )
             : config.operatorDirectory
-              ? readTeamPages(config.operatorDirectory, sessionMeta.email)
+              ? sharedTeamPages(
+                  `company:${email.toLowerCase()}`,
+                  readTeamPages(config.operatorDirectory, email),
+                )
               : Effect.succeed<readonly TeamPage[]>([])
         ).pipe(
           Effect.tap(() => Effect.sync(() => (steps.teamPages = Date.now() - teamPagesStart))),
