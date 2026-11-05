@@ -6,6 +6,7 @@ import type { CloudflareConfig, CloudflareEnv, FirstPartyMcp } from "./config";
 import { ADMIN_PAGE } from "./platform-page";
 import { handlePlatformAdmin } from "./platform-admin";
 import { isOperator } from "./tenancy";
+import { integrationSlugFor } from "./tenant-defaults";
 import { WEBEX_SERVERS, webexOAuthClients } from "./webex";
 
 // ---------------------------------------------------------------------------
@@ -89,6 +90,28 @@ export const refreshCatalog = async (
 /** This isolate's copy of the catalog, as of the last refresh. */
 export const catalogNow = (config: CloudflareConfig): readonly CatalogServer[] =>
   cached?.servers ?? fixedEntries(config, false);
+
+/**
+ * The integration slugs a session serves the catalog's tools under. The console
+ * and the tenant defaults add a catalog server under its slug with underscores
+ * (`webex-meetings` becomes `webex_meetings`); a session that looked for the
+ * hyphenated slug would find no tools and list none.
+ */
+export const catalogIntegrations = (servers: readonly CatalogServer[]): readonly string[] =>
+  servers.map((server) => integrationSlugFor(server.slug));
+
+/**
+ * The catalog's integration slugs the org has no integration under. Each one
+ * is a catalog server whose tools no session can serve; a workspace that picked
+ * it would list none of its tools.
+ */
+export const unservedCatalogIntegrations = (
+  servers: readonly CatalogServer[],
+  known: readonly string[],
+): readonly string[] => {
+  const have = new Set(known);
+  return catalogIntegrations(servers).filter((slug) => !have.has(slug));
+};
 
 /** The catalog as MCP add-screen presets. */
 export const catalogPresets = (servers: readonly CatalogServer[]) =>

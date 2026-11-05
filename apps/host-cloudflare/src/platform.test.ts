@@ -4,7 +4,13 @@ import { describe, expect, it } from "@effect/vitest";
 import type { D1Database } from "@cloudflare/workers-types";
 
 import type { CloudflareConfig, CloudflareEnv } from "./config";
-import { catalogPresets, handlePlatform, refreshCatalog } from "./platform";
+import {
+  catalogIntegrations,
+  catalogPresets,
+  handlePlatform,
+  refreshCatalog,
+  unservedCatalogIntegrations,
+} from "./platform";
 
 // A D1 stand-in over node:sqlite: the calls platform.ts makes, nothing more.
 const fakeD1 = (): D1Database => {
@@ -69,6 +75,26 @@ describe("company MCP catalog", () => {
       endpoint: "https://jira.example/mcp",
       featured: true,
     });
+  });
+
+  it("serves each catalog server's tools under the integration slug the console adds it as", async () => {
+    const db = fakeD1();
+    const webex = configFor(["ops@example.com"], { clientId: "id", clientSecret: "secret" });
+    await handlePlatform(
+      add({ slug: "service-now", name: "ServiceNow", endpoint: "https://sn.example/mcp" }),
+      envOf(db),
+      webex,
+    );
+    const listed = await refreshCatalog(db, webex);
+    expect(catalogIntegrations(listed)).toEqual([
+      "wiki",
+      "webex_meetings",
+      "webex_messaging",
+      "service_now",
+    ]);
+    expect(
+      unservedCatalogIntegrations(listed, ["wiki", "webex_meetings", "webex-messaging"]),
+    ).toEqual(["webex_messaging", "service_now"]);
   });
 
   it("refuses changes from anyone else, and stack-fixed slugs", async () => {
