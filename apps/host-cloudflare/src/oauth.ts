@@ -16,6 +16,7 @@ import {
   withHostExecutor,
   workspaceConnections,
 } from "./new-workspace";
+import { missingOwnSignIns, workspacesFor } from "./workspace-people";
 import { isOperator, listMemberships, resolveTenant, type TenantMembership } from "./tenancy";
 
 // ---------------------------------------------------------------------------
@@ -81,12 +82,6 @@ export const chosenAgent = (
 };
 
 /**
- * The agent choices: every workspace agent, then a new one named `suggested`.
- * The listed agent whose name matches `suggested` starts checked; otherwise a
- * new agent does, so connecting a new app makes a new agent unless the person
- * picks one to join. Typing a name selects the new agent.
- */
-/**
  * What the sign-in page says about the address the app was given. An MCP
  * client that found Executor's MCP address names it as the OAuth `resource`;
  * one pointed at a console page (behind Access, so it can never reach the
@@ -120,18 +115,52 @@ export const addressCheck = (
   };
 };
 
-export const agentChoices = (existing: readonly ExistingAgent[], suggested: string): string => {
-  const match = agentSlug(suggested);
+/**
+ * The agent choices: the workspaces an admin set up for the person first, then
+ * every other workspace agent, then a new one named `suggested`. The first one
+ * set up for the person starts checked; else the listed agent whose name
+ * matches `suggested`; else a new agent, so connecting a new app makes a new
+ * agent unless the person picks one to join. Typing a name selects the new
+ * agent.
+ */
+export const agentChoices = (
+  existing: readonly ExistingAgent[],
+  suggested: string,
+  /** Slugs of the workspaces an admin set up for this person, first one checked. */
+  assigned: readonly string[] = [],
+): string => {
+  const mine = assigned.filter((slug) => existing.some((agent) => agent.slug === slug));
+  const match = mine[0] ?? agentSlug(suggested);
   const joinsExisting = existing.some((agent) => agent.slug === match);
-  const rows = existing.map(
+  const ordered = [
+    ...mine.flatMap((slug) => existing.filter((agent) => agent.slug === slug)),
+    ...existing.filter((agent) => !mine.includes(agent.slug)),
+  ];
+  const rows = ordered.map(
     (agent) =>
-      `<label><input type="radio" name="pick" value="${escapeHtml(agent.slug)}"${agent.slug === match ? " checked" : ""}> ${escapeHtml(agent.name)}</label>`,
+      `<label><input type="radio" name="pick" value="${escapeHtml(agent.slug)}"${agent.slug === match ? " checked" : ""}> ${escapeHtml(agent.name)}${mine.includes(agent.slug) ? ' <span class="hint">set up for you</span>' : ""}</label>`,
   );
   rows.push(
     `<label><input type="radio" name="pick" id="pick-new" value="${NEW_AGENT}"${joinsExisting ? "" : " checked"}> New agent named <input type="text" name="agent" maxlength="63" value="${escapeHtml(suggested)}" aria-label="New agent name" onfocus="document.getElementById('pick-new').checked=true" oninput="document.getElementById('pick-new').checked=true"></label>`,
   );
   return rows.join("");
 };
+
+/** The sign-ins a workspace set up for the person still needs from them. */
+export interface PendingSignIns {
+  readonly workspace: string;
+  readonly integrations: readonly string[];
+}
+
+/** What the sign-in page says about the person's own sign-ins still to do. */
+export const ownSignInsNote = (pending: readonly PendingSignIns[], consoleUrl: string): string =>
+  pending
+    .filter((entry) => entry.integrations.length > 0)
+    .map(
+      (entry) =>
+        `<p class="warn">${escapeHtml(entry.workspace)} also uses ${escapeHtml(entry.integrations.join(", "))}, which each person signs in to themselves. After you connect, open <a href="${escapeHtml(consoleUrl)}">Executor</a> and add your own sign-in so the agent can use it.</p>`,
+    )
+    .join("");
 
 /**
  * The workspace's agents as the signed-in person sees them in the console,
@@ -209,6 +238,77 @@ export const createWorkspaceAgent = async (
   );
 };
 
+/**
+ * The workspaces an admin set up for the person, among the listed agents, and
+ * for each one the personal sign-ins it picks that the person has not made.
+ * The person's own connections are read through the app with their Access
+ * sign-in; the workspace's picks are read as the host. Best effort: nothing
+ * set up when either cannot be read.
+ */
+const setUpFor = (
+  request: Request,
+  env: CloudflareEnv,
+  config: CloudflareConfig,
+  app: (request: Request) => Promise<Response>,
+  email: string,
+  existing: readonly ExistingAgent[],
+): Promise<{ readonly slugs: readonly string[]; readonly pending: readonly PendingSignIns[] }> => {
+  const none = { slugs: [] as readonly string[], pending: [] as readonly PendingSignIns[] };
+  const ownConnections = Effect.tryPromise(async () => {
+    const headers = new Headers(request.headers);
+    headers.set("accept", "application/json");
+    headers.delete("content-type");
+    headers.delete("content-length");
+    const response = await app(
+      new Request(new URL("/api/connections?owner=user", request.url), { method: "GET", headers }),
+    );
+    return response.ok ? decodeOwnConnections(await response.json()) : [];
+  });
+  return Effect.runPromise(
+    Effect.gen(function* () {
+      const assigned = yield* Effect.tryPromise(() => workspacesFor(env.DB, email));
+      const slugs = assigned.filter((slug) => existing.some((agent) => agent.slug === slug));
+      if (slugs.length === 0) return none;
+      const own = yield* ownConnections;
+      const pending = yield* withHostExecutor(env, config, (host) =>
+        Effect.gen(function* () {
+          const toolkits = (yield* host.toolkits.list()).filter(
+            (toolkit) => toolkit.owner === "org",
+          );
+          const names = new Map(
+            (yield* host.integrations.list()).map(
+              (integration) => [String(integration.slug), integration.name] as const,
+            ),
+          );
+          const out: PendingSignIns[] = [];
+          for (const slug of slugs) {
+            const toolkit = toolkits.find((candidate) => candidate.slug === slug);
+            if (!toolkit) continue;
+            const patterns = (yield* host.toolkits.listConnections(toolkit.id)).map(
+              (connection) => connection.pattern,
+            );
+            const missing = missingOwnSignIns(patterns, own);
+            out.push({
+              workspace: toolkit.name,
+              integrations: [
+                ...new Set(missing.map((m) => names.get(m.integration) ?? m.integration)),
+              ],
+            });
+          }
+          return out;
+        }),
+      );
+      return { slugs, pending };
+    }).pipe(Effect.orElseSucceed(() => none)),
+  );
+};
+
+const decodeOwnRows = Schema.decodeUnknownOption(
+  Schema.Array(Schema.Struct({ integration: Schema.String, name: Schema.String })),
+);
+const decodeOwnConnections = (body: unknown): readonly { integration: string; name: string }[] =>
+  Option.getOrElse(decodeOwnRows(body), () => []);
+
 /** The team radios for a new agent, "No team" first and checked. */
 export const teamChoices = (teams: readonly TenantMembership[]): string =>
   teams.length === 0
@@ -280,6 +380,11 @@ const authorize = async (
   // the console's list belongs to the tenant the form names, so the name is
   // typed.
   const existing = directory ? [] : await workspaceAgents(request, app);
+  // One company org: the workspaces an admin set up for this person.
+  const setUp =
+    directory || request.method === "POST"
+      ? { slugs: [], pending: [] }
+      : await setUpFor(request, env, config, app, email, existing);
   // One company org: the teams a new agent may take its Wiki and Muster from.
   const teams =
     !directory && config.operatorDirectory
@@ -373,7 +478,11 @@ const authorize = async (
       (directory
         ? `<h2>Agent</h2><label>Name <input type="text" name="agent" required maxlength="63" value="${escapeHtml(clientName)}"></label>` +
           `<p class="hint">Using a name again joins that agent and its tool list. A new name starts a new agent.</p>`
-        : `<h2>Agent</h2>${agentChoices(existing, clientName)}` +
+        : `<h2>Agent</h2>${agentChoices(existing, clientName, setUp.slugs)}` +
+          ownSignInsNote(
+            setUp.pending,
+            new URL(`/${config.organizationSlug}/toolkits`, request.url).href,
+          ) +
           `<p class="hint">Agents belong to the workspace. Joining one gives this app that agent's tool list, run with your own sign-ins.</p>` +
           teamChoices(teams)) +
       `<input type="hidden" name="handle" value="${escapeHtml(consent.handle)}"><button type="submit">Connect</button></form>`,

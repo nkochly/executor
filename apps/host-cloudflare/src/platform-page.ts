@@ -1,6 +1,7 @@
 // The platform admins' page, `/platform`: what new agents start with, which
 // tools are hidden company-wide, every agent workspace against every
-// connection, and the company's MCP servers. A client of
+// connection (and making one ahead for named people), and the company's MCP
+// servers. A client of
 // `/api/platform/admin/*` and `/api/platform/mcp-servers` only.
 
 const STYLE = `
@@ -25,6 +26,8 @@ details{border-bottom:1px solid var(--line)}summary{display:flex;justify-content
 small.who{display:block;color:var(--muted);font-size:.8rem}
 .filters{display:flex;flex-wrap:wrap;gap:.5rem 1.25rem;align-items:center;margin-bottom:.25rem}.filters label{display:flex;gap:.4rem;align-items:center}
 #msg{min-height:1.4rem;color:var(--muted)}a{color:var(--brand)}
+button.link{background:none;border:0;padding:0;font:inherit;color:var(--brand);cursor:pointer;text-decoration:underline}
+#new-box{border:1px solid var(--line);border-radius:6px;padding:.25rem .75rem;margin-bottom:1rem}
 `;
 
 const SCRIPT = `
@@ -46,13 +49,17 @@ async function setTool(integration,tool,setting){say('Saving…');await call('/a
 async function loadHidden(){const d=await call('/api/platform/admin/tools');const box=$('#hidden-list');box.textContent='';
  for(const s of d.servers){const sum=el('summary',{},el('span',{},s.name,el('span',{className:'tag',textContent:s.tools.length+' tools'})));const sel=settingSelect(s.setting,false,v=>setTool(s.integration,null,v));sel.onclick=e=>e.stopPropagation();sum.append(sel);
   const det=el('details',{},sum);for(const t of s.tools){det.append(el('div',{className:'tool'},el('span',{},t.name,el('small',{textContent:t.description})),settingSelect(t.setting,true,v=>setTool(s.integration,t.name,v))))}box.append(det)}}
+function fillTeams(){const s=$('#new-team');const keep=s.value;s.textContent='';s.append(el('option',{value:'',textContent:'No team'}));for(const t of gridData.teams)s.append(el('option',{value:t,textContent:t}));s.value=[...s.options].some(o=>o.value===keep)?keep:''}
+function forWhom(w){const box=el('small',{className:'who'});const draw=()=>{box.textContent='';box.append('Set up for: '+(w.setUpFor.length?w.setUpFor.join(', '):'nobody named')+' ');const b=el('button',{type:'button',className:'link',textContent:'change'});b.onclick=edit;box.append(b)};
+ const edit=()=>{box.textContent='';const i=el('input',{value:w.setUpFor.join(', '),placeholder:'name@company.com, …',size:30});const ok=el('button',{type:'button',className:'act',textContent:'Save'});ok.onclick=async()=>{say('Saving…');const out=await call('/api/platform/admin/workspaces/people',{slug:w.slug,people:i.value.split(/[\\s,;]+/)});w.setUpFor=out.people;say('Saved. Their sign-in page now picks this workspace.');draw()};box.append(i,' ',ok)};draw();return box}
+$('#new-ws').onsubmit=async(e)=>{e.preventDefault();const f=e.target;say('Making it…');const out=await call('/api/platform/admin/workspaces',{name:f.name.value,team:f.team.value||null,people:f.people.value.split(/[\\s,;]+/)});f.reset();say('Made. Tick its connections below; the people named get it when they click Connect.');await loadGrid();$('#grid-person').value='';const ws=$('#grid-workspace');fillWorkspaces();const row=gridData.workspaces.find(w=>w.slug===out.slug);if(row)ws.value=row.id;drawGrid()};
 const store={get(k){try{return localStorage.getItem(k)}catch{return null}},set(k,v){try{localStorage.setItem(k,v)}catch{}}};
 let gridData=null;
-async function loadGrid(){gridData=await call('/api/platform/admin/workspaces');const people=[...new Set(gridData.workspaces.flatMap(w=>w.people))].sort();
+async function loadGrid(){gridData=await call('/api/platform/admin/workspaces');const people=[...new Set(gridData.workspaces.flatMap(w=>[...w.people,...w.setUpFor]))].sort();fillTeams();
  const ps=$('#grid-person');ps.textContent='';ps.append(el('option',{value:'',textContent:'Everyone'}));for(const p of people)ps.append(el('option',{value:p,textContent:p===gridData.me?p+' (you)':p}));ps.append(el('option',{value:'-',textContent:'Nobody has connected yet'}));
  const saved=store.get('grid-person');ps.value=saved!==null&&[...ps.options].some(o=>o.value===saved)?saved:(people.includes(gridData.me)?gridData.me:'');
  $('#grid-all').checked=store.get('grid-all')==='1';fillWorkspaces();drawGrid()}
-function personRows(){const p=$('#grid-person').value;return gridData.workspaces.filter(w=>p===''||(p==='-'?w.people.length===0&&!w.startingSet:w.people.includes(p)))}
+function personRows(){const p=$('#grid-person').value;return gridData.workspaces.filter(w=>p===''||(p==='-'?w.people.length===0&&!w.startingSet:w.people.includes(p)||w.setUpFor.includes(p)))}
 function fillWorkspaces(){const ws=$('#grid-workspace');const keep=ws.value;ws.textContent='';ws.append(el('option',{value:'',textContent:'All of them'}));for(const w of personRows())ws.append(el('option',{value:w.id,textContent:w.name}));ws.value=[...ws.options].some(o=>o.value===keep)?keep:''}
 function drawGrid(){const t=$('#grid');t.textContent='';const d=gridData;const wid=$('#grid-workspace').value;const rows=personRows().filter(w=>!wid||w.id===wid);
  const used=new Set(rows.flatMap(w=>w.patterns));const all=$('#grid-all').checked;const cols=[...d.connections.map(c=>[c.pattern,c.label]),['*','Every connection']].filter(([p])=>all||used.has(p));
@@ -61,7 +68,7 @@ function drawGrid(){const t=$('#grid');t.textContent='';const d=gridData;const w
  const head=el('tr',{},el('th',{textContent:'Workspace'}));for(const [,label] of cols)head.append(el('th',{className:'col',textContent:label}));t.append(el('thead',{},head));
  const body=el('tbody');for(const w of rows){const has=new Set(w.patterns);const name=el('a',{href:d.consolePath+'/'+encodeURIComponent(w.slug),textContent:w.name});
   const who=el('small',{className:'who',textContent:w.startingSet?'':(w.people.length?w.people.join(', '):'nobody has connected yet')});
-  const tr=el('tr',{},el('td',{},name,w.startingSet?el('span',{className:'tag',textContent:'starting set'}):'',who));
+  const tr=el('tr',{},el('td',{},name,w.startingSet?el('span',{className:'tag',textContent:'starting set'}):'',who,w.startingSet?'':forWhom(w)));
   for(const [p] of cols){const cb=el('input',{type:'checkbox',checked:has.has(p),title:p});cb.onchange=async()=>{await pick(w.id,p,cb.checked);cb.checked?has.add(p):has.delete(p);w.patterns=[...has]};tr.append(el('td',{className:'tick'},cb))}body.append(tr)}t.append(body)}
 $('#grid-person').onchange=()=>{store.set('grid-person',$('#grid-person').value);fillWorkspaces();drawGrid()};
 $('#grid-workspace').onchange=()=>drawGrid();
@@ -119,6 +126,10 @@ export const ADMIN_PAGE = `<!doctype html><html lang="en"><head><meta charset="u
 </section>
 <section id="tab-grid" hidden>
 <p class="hint">Each row is an agent's workspace, with the people who connected it; a tick means it uses that connection. Click a name to open it in the console.</p>
+<details id="new-box"><summary><b>Set up a workspace for someone</b></summary>
+<p class="hint">Make an agent's workspace before anyone connects. It starts with what new workspaces start with, plus the team's Wiki and Muster if you pick a team. The people you name find it already picked when they click Connect in their app, so they join it as you set it up. Everyone else can still see and join it.</p>
+<form id="new-ws"><div class="filters"><label>Name <input name="name" required maxlength="63" placeholder="Team Eichten agent"></label><label>Team <select name="team" id="new-team"></select></label><label>For <input name="people" size="34" placeholder="name@company.com, …"></label><button class="act">Make it</button></div></form>
+</details>
 <div class="filters"><label>Person <select id="grid-person"></select></label><label>Workspace <select id="grid-workspace"></select></label><label><input type="checkbox" id="grid-all"> Show every connection</label></div>
 <p class="hint" id="grid-count"></p>
 <div class="grid"><table id="grid"></table></div>
