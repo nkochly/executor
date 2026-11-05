@@ -503,7 +503,6 @@ export const oauthProviderFor = (
         // The app is built once per isolate; build it while the person is
         // re-checked rather than after. Nothing is served until both are done.
         const serving = resolve(env);
-        serving.catch(() => undefined);
         const principal = await Effect.runPromise(principalForGrant(grant, config));
         if (!principal) return unauthorized();
         const checked = Date.now();
