@@ -22,11 +22,16 @@ import {
 import type { McpSessionProps } from "@executor-js/cloudflare/mcp/agent-durable-object";
 import { sessionOrgRoleMetadata } from "@executor-js/cloudflare/mcp/role-metadata";
 import { mcpSessionStub } from "@executor-js/cloudflare/mcp/session-stub";
+import {
+  classifyDurableObjectError,
+  durableObjectFailureResponse,
+} from "@executor-js/cloudflare/mcp/durable-object-errors";
 
 import type { CloudflareConfig, CloudflareEnv } from "../config";
 import { cloudflareAccessMcpAuth } from "./auth";
 import { sessionlessProbeAnswer } from "./pre-session";
 import { mcpResourceFromPath } from "./resource";
+import { checkSessionOwner, logPlatformFailure } from "./session-owner";
 import { McpSessionDO } from "./session-durable-object";
 
 const corsPreflightResponse = (): Response =>
@@ -155,13 +160,16 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
     }
 
     if (sessionId) {
-      const owner = await mcpSessionStub(env.MCP_SESSION, sessionId).validateMcpSessionOwner(
+      const owner = await checkSessionOwner(
+        env,
+        sessionId,
         {
           accountId: outcome.principal.accountId,
           organizationId: outcome.principal.organizationId,
         },
         resource,
       );
+      if (typeof owner !== "string") return durableObjectFailureResponse(owner);
       if (owner === "not_found") {
         return jsonRpcResponse(404, -32001, "Session not found");
       }
@@ -198,7 +206,23 @@ export const makeCloudflareMcpAgentHandler = (config: CloudflareConfig) => {
         subject: outcome.principal.email || outcome.principal.accountId,
       },
       request,
-      () => target.fetch(forwarded, env, ctx),
+      async () => {
+        // oxlint-disable-next-line executor/no-try-catch-or-throw -- adapter boundary: the agents SDK throws a platform reset out of the session fetch instead of answering
+        try {
+          return await target.fetch(forwarded, env, ctx);
+        } catch (error) {
+          // Not retried: the request may already have run a tool. A reset
+          // answers with the protocol envelope the client acts on (retry the
+          // same session, or reconnect) instead of an unhandled 500.
+          const failure = classifyDurableObjectError(error);
+          if (!failure) {
+            // oxlint-disable-next-line executor/no-try-catch-or-throw -- adapter boundary: an unrecognized failure is a real defect and must reach the runtime unchanged
+            throw error;
+          }
+          logPlatformFailure(failure, "session_fetch", 1);
+          return durableObjectFailureResponse(failure);
+        }
+      },
     );
   };
 };
