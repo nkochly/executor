@@ -500,10 +500,14 @@ export const oauthProviderFor = (
         // Wall time of each step before and of the MCP answer, logged when
         // the whole request is slow, so a slow start can be attributed.
         const started = Date.now();
+        // The app is built once per isolate; build it while the person is
+        // re-checked rather than after. Nothing is served until both are done.
+        const serving = resolve(env);
+        serving.catch(() => undefined);
         const principal = await Effect.runPromise(principalForGrant(grant, config));
         if (!principal) return unauthorized();
         const checked = Date.now();
-        const serve = await resolve(env);
+        const serve = await serving;
         const resolved = Date.now();
         const clientName = await registeredClientName(
           (env as CloudflareEnv & { OAUTH_PROVIDER: Helpers }).OAUTH_PROVIDER,

@@ -71,6 +71,10 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
    * Vite, and `wrangler dev` serves the same built `./dist` the binding reads.
    */
   private readonly loadAppShellHtml: () => Promise<string>;
+  /** When this instance started, and how long opening its db took: logged
+   *  with the first `init`, beside the build's own step times. */
+  private readonly constructedAt = Date.now();
+  private openDbMs: number | null = null;
 
   constructor(
     ctx: ConstructorParameters<typeof McpAgentSessionDOBase<CloudflareEnv, CfSessionDbHandle>>[0],
@@ -116,8 +120,28 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
   }
 
   protected override async openSessionDb(): Promise<CfSessionDbHandle> {
+    const opening = Date.now();
     const handle = await createD1ExecutorDb(this.cfEnv.DB, this.cfEnv.BLOBS);
+    this.openDbMs = Date.now() - opening;
     return { ...handle, end: () => handle.close() };
+  }
+
+  // The whole session start, of which the build is one part: the time from
+  // this instance starting to `init`, and `init` itself (session meta, db,
+  // build). A client waits for all of it before `initialize` answers.
+  override async init(): Promise<void> {
+    const starting = Date.now();
+    await super.init();
+    if (this.openDbMs === null) return;
+    console.log(
+      "[executor] MCP session init ms",
+      JSON.stringify({
+        beforeInit: starting - this.constructedAt,
+        init: Date.now() - starting,
+        openDb: this.openDbMs,
+      }),
+    );
+    this.openDbMs = null;
   }
 
   protected override resolveSessionMeta(
