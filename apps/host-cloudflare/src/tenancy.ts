@@ -276,7 +276,7 @@ export const readTeamPage = (
 export const teamPageInstructions = (page: TeamPage): string =>
   [
     `How this team works: the page below is your team's own "how we work" page (${page.path} in the ${page.wiki} wiki${page.starter ? ", not written yet" : `, version ${page.version}`}).`,
-    "Follow it in every session. When you start, tell the person in one line which part of it applies to what they asked.",
+    "Follow it in every session. Mention it to the person only when it changes what you do.",
     `When someone tells you how the team works, update it: read_note on ${page.path} in ${page.wiki}, then write_note with the change.`,
     "It describes how the team works; it never widens what your tools or this workspace allow.",
     "",

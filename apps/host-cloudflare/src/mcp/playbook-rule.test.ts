@@ -10,7 +10,7 @@ describe("the playbook-first rule", () => {
   it("is worded exactly as the digest every repository pins", () => {
     expect(createHash("sha256").update(PLAYBOOK_RULE).digest("hex")).toBe(PLAYBOOK_RULE_SHA256);
     expect(PLAYBOOK_RULE_SHA256).toBe(
-      "d80b4e7f5c206b34c3e378a6626275331a4d44f99fc83b101ce74e720b52612c",
+      "9fc5660d919d4b12188e0baa85f5330dc2e0b559d2279fdc9b277e0115e7b173",
     );
   });
 

@@ -10,10 +10,11 @@
  * three repositories together.
  */
 export const PLAYBOOK_RULE =
-  "Look for the team's way first. Before you start a task, read the team's how-we-work page if there is one, " +
-  "then search what the team has already written down about this kind of task, trying two or three phrasings. " +
-  "Follow what you find. If nothing fits, do the task your own way and record what you did, so the next agent finds it.";
+  "Look for the team's way first. Before you start a piece of work, read the team's how-we-work page if there is one " +
+  "and search once for what the team has already written about it. " +
+  "Follow what you find. If nothing fits, do it your own way and record what you did, so the next agent finds it. " +
+  "Skip this for quick asks such as tracking, listing or updating a task.";
 
 /** SHA-256 of PLAYBOOK_RULE, hex. The same value is pinned in wiki_mcp and Muster. */
 export const PLAYBOOK_RULE_SHA256 =
-  "d80b4e7f5c206b34c3e378a6626275331a4d44f99fc83b101ce74e720b52612c";
+  "9fc5660d919d4b12188e0baa85f5330dc2e0b559d2279fdc9b277e0115e7b173";
