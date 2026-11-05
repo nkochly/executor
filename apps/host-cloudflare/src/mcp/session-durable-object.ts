@@ -34,7 +34,7 @@ import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execut
 import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
 import { startWorkspace, withHostExecutor } from "../new-workspace";
 import { makeAttributionMeta } from "../attribution";
-import { refreshCatalog } from "../platform";
+import { catalogIntegrations, refreshCatalog } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions, type TeamPage } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
 import { sharedTeamPages } from "../team-page-cache";
@@ -291,7 +291,7 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         searchToolsEnabled: sessionMeta.searchToolsEnabled ?? false,
         mode: sessionMeta.toolMode ?? "codemode",
         instructions: sessionInstructions(teamPages),
-        directIntegrations: catalog.map((server) => server.slug),
+        directIntegrations: catalogIntegrations(catalog),
         builtinTools,
         onStep: (step, ms) => {
           steps[`tools.${step}`] = ms;
