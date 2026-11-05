@@ -80,6 +80,7 @@ describe("resolveTenant", () => {
   };
   afterEach(() => {
     vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     clearDirectoryCache();
   });
 
@@ -160,6 +161,33 @@ describe("resolveTenant", () => {
       expect(yield* readTeamPage(directory, "beta", "dev@acme.com")).toBeNull();
       stub({ "/tenants/beta/members/dev%40acme.com/team-page": { ...page, wiki: "beta/root" } });
       expect((yield* readTeamPage(directory, "beta", "dev@acme.com"))?.wiki).toBe("beta/root");
+    }),
+  );
+
+  it.effect("serves a past-window team page at once and refreshes it behind", () =>
+    Effect.gen(function* () {
+      const page = {
+        wiki: "acme/root",
+        path: "how-we-work.md",
+        starter: false,
+        version: 1,
+        body: "old",
+      };
+      const route = "/tenants/acme/members/dev%40acme.com/team-page";
+      const start = Date.now();
+      const now = vi.spyOn(Date, "now").mockReturnValue(start);
+      stub({ [route]: page });
+      yield* readTeamPage(directory, "acme", "dev@acme.com");
+      now.mockReturnValue(start + 60_000);
+      stub({ [route]: { ...page, version: 2, body: "new" } });
+      expect((yield* readTeamPage(directory, "acme", "dev@acme.com"))?.body).toBe("old");
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)));
+      expect(calls).toHaveLength(1);
+      expect((yield* readTeamPage(directory, "acme", "dev@acme.com"))?.body).toBe("new");
+      expect(calls).toHaveLength(1);
+      now.mockReturnValue(start + 60 * 60_000);
+      vi.stubGlobal("fetch", async () => new Response("unavailable", { status: 503 }));
+      expect(yield* readTeamPage(directory, "acme", "dev@acme.com")).toBeNull();
     }),
   );
 

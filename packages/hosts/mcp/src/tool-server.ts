@@ -1606,9 +1606,11 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     const visible = listed.flat().filter((tool) => tool.static !== true);
     const named = [...directToolNames(visible)];
     yield* mark("directList");
-    // One policy snapshot for every tool, reads side by side, no TypeScript
-    // previews (MCP clients read only the JSON input schema). Every session
-    // pays this before `initialize` answers.
+    // One policy snapshot for every tool, reads side by side, input side only:
+    // a direct tool is registered with its JSON input schema alone, so no
+    // TypeScript preview and no output schema (whose remembered shape costs a
+    // storage read per tool). Every session pays this before `initialize`
+    // answers.
     const oneByOne = Effect.forEach(named, ([, tool]) =>
       tools.schema(tool.address).pipe(
         Effect.orElseSucceed(() => null),
@@ -1619,7 +1621,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
       ? yield* tools
           .schemas(
             named.map(([, tool]) => tool.address),
-            { typeScript: false },
+            { typeScript: false, outputSchema: false },
           )
           .pipe(Effect.catch(() => oneByOne))
       : yield* oneByOne;
