@@ -1545,10 +1545,55 @@ const MCP_TOOL_NAME_LIMIT = 64;
 const toolNamePart = (value: string): string => value.replace(/[^A-Za-z0-9_-]+/g, "_");
 
 /**
- * MCP names for a direct integration's tools: `<integration>_<tool>`, with
- * the connection added when one integration has tools from several.
+ * The words a connection's tools are named by when one integration has
+ * several: the part after the last " · " of the identity its health check
+ * reports ("Muster · beta" gives "beta"), else of its identity label. A
+ * connection with neither, or whose label another connection of the same
+ * integration shares, is named by its connection name.
  */
-export const directToolNames = (tools: readonly Tool[]): Map<string, Tool> => {
+export const connectionToolLabels = (
+  connections: readonly (BindableConnection &
+    Partial<Pick<Connection, "identityLabel" | "lastHealth">>)[],
+): Map<string, string> => {
+  const tenantOf = (text: string | null | undefined): string | undefined => {
+    if (!text || !text.includes(" · ")) return undefined;
+    const label = text.slice(text.lastIndexOf(" · ") + 3).trim();
+    return label.length > 0 ? label : undefined;
+  };
+  const labelled = connections.map((connection) => ({
+    key: connectionKey(connection.integration, connection.owner, connection.name),
+    integration: String(connection.integration),
+    label: tenantOf(connection.lastHealth?.identity) ?? tenantOf(connection.identityLabel),
+  }));
+  const out = new Map<string, string>();
+  for (const entry of labelled) {
+    if (entry.label === undefined) continue;
+    const label = entry.label;
+    const shared = labelled.some(
+      (other) =>
+        other.key !== entry.key &&
+        other.integration === entry.integration &&
+        other.label !== undefined &&
+        toolNamePart(other.label).toLowerCase() === toolNamePart(label).toLowerCase(),
+    );
+    if (!shared) out.set(entry.key, label);
+  }
+  return out;
+};
+
+const connectionKey = (integration: unknown, owner: unknown, name: unknown): string =>
+  `${String(integration)}.${String(owner)}.${String(name)}`;
+
+/**
+ * MCP names for a direct integration's tools: `<integration>_<tool>`, with
+ * the connection added when one integration has tools from several. The
+ * connection is named by its label from {@link connectionToolLabels} when it
+ * has one (`muster_beta_find_tasks`), else by its connection name.
+ */
+export const directToolNames = (
+  tools: readonly Tool[],
+  labels: ReadonlyMap<string, string> = new Map(),
+): Map<string, Tool> => {
   const connections = new Map<string, Set<string>>();
   for (const tool of tools) {
     const set = connections.get(String(tool.integration)) ?? new Set<string>();
@@ -1558,9 +1603,12 @@ export const directToolNames = (tools: readonly Tool[]): Map<string, Tool> => {
   const named = new Map<string, Tool>();
   for (const tool of tools) {
     const several = (connections.get(String(tool.integration))?.size ?? 0) > 1;
+    const label =
+      labels.get(connectionKey(tool.integration, tool.owner, tool.connection)) ??
+      String(tool.connection);
     const name = [
       toolNamePart(String(tool.integration)),
-      ...(several ? [toolNamePart(String(tool.connection))] : []),
+      ...(several ? [toolNamePart(label)] : []),
       toolNamePart(String(tool.name)),
     ]
       .join("_")
@@ -1568,6 +1616,19 @@ export const directToolNames = (tools: readonly Tool[]): Map<string, Tool> => {
     if (!named.has(name)) named.set(name, tool);
   }
   return named;
+};
+
+/** True when one integration has tools from more than one connection. */
+const severalConnections = (tools: readonly Tool[]): boolean => {
+  const seen = new Map<string, string>();
+  for (const tool of tools) {
+    const integration = String(tool.integration);
+    const connection = connectionKey(tool.integration, tool.owner, tool.connection);
+    const first = seen.get(integration);
+    if (first === undefined) seen.set(integration, connection);
+    else if (first !== connection) return true;
+  }
+  return false;
 };
 
 const directInputSchema = (view: ToolSchemaView | null) => {
@@ -1624,6 +1685,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     extra: McpRequestJoinKeys,
   ) => Effect.Effect<McpToolResult, E>,
   mark: (step: string) => Effect.Effect<void> = () => Effect.void,
+  connections?: McpConnectionsPort,
 ): Effect.Effect<void> =>
   Effect.gen(function* () {
     const context = yield* Effect.context<never>();
@@ -1657,7 +1719,20 @@ const registerDirectTools = <E extends Cause.YieldableError>(
     const visible = listed
       .flatMap((listing) => listing.tools)
       .filter((tool) => tool.static !== true);
-    const named = [...directToolNames(visible)];
+    // Tools of an integration with several connections are named by each
+    // connection's tenant; a failed read names them by connection instead.
+    const labels =
+      connections && severalConnections(visible)
+        ? yield* connections.list().pipe(
+            Effect.map(connectionToolLabels),
+            Effect.timeoutOrElse({
+              duration: Duration.millis(DIRECT_LIST_TIMEOUT_MS),
+              orElse: () => Effect.succeed(new Map<string, string>()),
+            }),
+            Effect.catchCause(() => Effect.succeed(new Map<string, string>())),
+          )
+        : new Map<string, string>();
+    const named = [...directToolNames(visible, labels)];
     yield* mark("directList");
     // One policy snapshot for every tool, reads side by side, input side only:
     // a direct tool is registered with its JSON input schema alone, so no
@@ -2277,6 +2352,7 @@ export const createExecutorMcpServer = <E extends Cause.YieldableError>(
         config.directIntegrations,
         executePassthroughCall,
         mark,
+        config.connections,
       );
     }
 
