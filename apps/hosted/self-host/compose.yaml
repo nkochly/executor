@@ -16,6 +16,11 @@ services:
       SSO_CLIENT_ID: ${SSO_CLIENT_ID:-}
       SSO_CLIENT_SECRET: ${SSO_CLIENT_SECRET:-}
       SSO_ALLOWED_DOMAINS: ${SSO_ALLOWED_DOMAINS:-}
+      # Comma-separated emails that SSO sign-in makes organization admins (and nobody else).
+      SSO_ADMIN_EMAILS: ${SSO_ADMIN_EMAILS:-}
+      # true only for a provider that admits nobody without a verified email but sends no
+      # email_verified claim, such as Cloudflare Access for SaaS.
+      SSO_PROVIDER_VERIFIES_EMAIL: ${SSO_PROVIDER_VERIFIES_EMAIL:-}
       EXECUTOR_ENCRYPTION_KEY:
       # OAuth transport exceptions are explicit and parsed at startup.
       EXECUTOR_URL_ALLOW_LOOPBACK_HTTP:

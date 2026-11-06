@@ -12,6 +12,7 @@
     "apps/hosted/self-host",
     "apps/hosted/self-host/web",
     "apps/hosted/cloudflare",
+    "apps/hosted/cloudflare/apps-worker",
     "playground/catalog",
     "playground/hosted",
     "playground/sdk",

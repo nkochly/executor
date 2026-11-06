@@ -1,0 +1,6 @@
+{
+  "name": "executor-dev-host",
+  "main": "host-bindings.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat"],
+}
