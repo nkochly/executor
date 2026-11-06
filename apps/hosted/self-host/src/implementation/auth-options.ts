@@ -24,7 +24,15 @@ const Sso = Schema.Struct({
   clientId: Schema.NonEmptyString,
   clientSecret: Schema.Redacted(Schema.NonEmptyString),
   allowedDomains: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
+  adminEmails: Schema.Array(Schema.NonEmptyString),
+  providerVerifiesEmail: Schema.Boolean,
 });
+
+const list = (value: string) =>
+  value
+    .split(",")
+    .map((item) => item.trim().toLowerCase())
+    .filter(Boolean);
 
 /** SSO stays disabled unless explicitly configured; partial configuration fails startup. */
 export const selfHostAuthSettings = Effect.gen(function* () {
@@ -41,14 +49,16 @@ export const selfHostAuthSettings = Effect.gen(function* () {
     clientId: Config.String("SSO_CLIENT_ID"),
     clientSecret: Config.Redacted("SSO_CLIENT_SECRET"),
     domains: Config.String("SSO_ALLOWED_DOMAINS"),
+    admins: Config.String("SSO_ADMIN_EMAILS").pipe(Config.withDefault("")),
+    providerVerifiesEmail: Config.Boolean("SSO_PROVIDER_VERIFIES_EMAIL").pipe(
+      Config.withDefault(false),
+    ),
   });
   const sso = yield* Schema.decodeUnknownEffect(Sso)({
     ...configured,
     discoveryUrl: discovery.value,
-    allowedDomains: configured.domains
-      .split(",")
-      .map((domain) => domain.trim().toLowerCase())
-      .filter(Boolean),
+    allowedDomains: list(configured.domains),
+    adminEmails: list(configured.admins),
   });
   return { ...base, sso };
 });
@@ -113,6 +123,18 @@ export const selfHostSsoDiscovery = (settings: Effect.Success<typeof selfHostAut
   );
 };
 
+/**
+ * Whether the provider vouched for the address. An explicit claim always decides, whatever its
+ * spelling. Only an operator who has set `SSO_PROVIDER_VERIFIES_EMAIL` for a provider that admits
+ * nobody without a verified address (Cloudflare Access sends no `email_verified`) makes an
+ * absent claim a yes; otherwise absence stays a no.
+ */
+export const ssoEmailVerified = (claim: unknown, providerVerifiesEmail: boolean) => {
+  if (claim === true || claim === "true") return true;
+  if (claim === undefined || claim === null) return providerVerifiesEmail;
+  return false;
+};
+
 /** Public registration is handled by the atomic setup/invitation endpoints. */
 export const selfHostAuthOptions = (
   settings: Effect.Success<typeof selfHostAuthSettings>,
@@ -141,6 +163,12 @@ export const selfHostAuthOptions = (
                   clientSecret: Redacted.value(settings.sso.clientSecret),
                   requireIdTokenVerification: true,
                   scopes: ["openid", "email", "profile"],
+                  mapProfileToUser: (profile: Record<string, unknown>) => ({
+                    emailVerified: ssoEmailVerified(
+                      profile.email_verified,
+                      settings.sso?.providerVerifiesEmail ?? false,
+                    ),
+                  }),
                 },
               ],
       }),

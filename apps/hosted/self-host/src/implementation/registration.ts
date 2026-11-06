@@ -84,6 +84,43 @@ const instanceOrganization = (ctx: GenericEndpointContext) =>
     return yield* decode(Organization, organizations[0]);
   });
 
+const Member = Schema.Struct({ id: Schema.String, role: Schema.String });
+
+/**
+ * The role an SSO sign-in leaves a member with. When the operator lists admin emails, the list
+ * decides: a listed member is an admin and an unlisted admin is a member, so removing someone
+ * from the list takes effect at their next sign-in without anyone acting in the product. The
+ * owner and any role outside admin/member are never changed. An empty list changes nothing.
+ */
+export const ssoRole = (adminEmails: ReadonlyArray<string>, email: string, current: string) => {
+  if (adminEmails.length === 0 || (current !== "admin" && current !== "member")) return current;
+  return adminEmails.includes(email.toLowerCase()) ? "admin" : "member";
+};
+
+const syncSsoAdminRole = (
+  ctx: GenericEndpointContext,
+  adminEmails: ReadonlyArray<string>,
+  userId: string,
+  value: unknown,
+) =>
+  Effect.gen(function* () {
+    if (adminEmails.length === 0) return;
+    const member = yield* decode(Member, value);
+    const adapter = yield* adapterFor(ctx);
+    const user = yield* call(() =>
+      adapter.findOne({ model: "user", where: [{ field: "id", value: userId }] }),
+    ).pipe(Effect.flatMap((found) => decode(User, found)));
+    const role = ssoRole(adminEmails, user.email, member.role);
+    if (role === member.role) return;
+    yield* call(() =>
+      adapter.update({
+        model: "member",
+        where: [{ field: "id", value: member.id }],
+        update: { role },
+      }),
+    );
+  });
+
 /** Reject non-SSO user creation; only verified, allowlisted OIDC users can join automatically. */
 export const selfHostUserHooks = (settings: Effect.Success<typeof selfHostAuthSettings>) =>
   ({
@@ -130,6 +167,8 @@ export const selfHostUserHooks = (settings: Effect.Success<typeof selfHostAuthSe
                   ],
                 }),
               );
+              if (member !== null && isSsoCallback(ctx) && settings.sso !== null)
+                yield* syncSsoAdminRole(ctx, settings.sso.adminEmails, session.userId, member);
               if (member === null) {
                 // Re-check the policy on every SSO login; no email/password login can auto-join.
                 if (!isSsoCallback(ctx) || settings.sso === null)
@@ -162,7 +201,7 @@ export const selfHostUserHooks = (settings: Effect.Success<typeof selfHostAuthSe
                     data: {
                       organizationId: org.id,
                       userId: user.id,
-                      role: "member",
+                      role: ssoRole(settings.sso.adminEmails, user.email, "member"),
                       createdAt: new Date(),
                     },
                   }),
