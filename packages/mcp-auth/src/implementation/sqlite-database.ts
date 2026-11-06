@@ -37,6 +37,18 @@ const isRead = (sql: string) =>
 const isHostTable = (name: string) => name.startsWith("_cf_");
 
 /**
+ * Better Auth's migration reads every table's indexes in one statement, from `sqlite_master AS
+ * tables`, and takes no introspector for a Kysely instance. That statement skips the host's
+ * tables here, as the introspector below does.
+ */
+const indexScan =
+  /(\bFROM\s+sqlite_master\s+AS\s+tables\b[\s\S]*\bWHERE\s+tables\.type\s*=\s*'table')/iu;
+const withoutHostTables = (statement: string) =>
+  indexScan.test(statement)
+    ? statement.replace(indexScan, "$1 AND substr(tables.name, 1, 4) <> '_cf_'")
+    : statement;
+
+/**
  * Kysely's SQLite introspector, without the host's own tables: it reads every table's columns in
  * one statement, and a Durable Object refuses that statement once its `_cf_KV` table exists.
  */
@@ -115,7 +127,11 @@ export const makeSqliteAuthDatabase = (storage: SqliteStorage) =>
           const parameters = query.parameters.map((value) =>
             typeof value === "boolean" ? (value ? 1 : 0) : value,
           );
-          const rows = (yield* connection.execute(query.sql, parameters, undefined)) as Array<R>;
+          const rows = (yield* connection.execute(
+            withoutHostTables(query.sql),
+            parameters,
+            undefined,
+          )) as Array<R>;
           if (isRead(query.sql)) return { rows };
           return { rows, numAffectedRows: yield* changedRows(connection) };
         }).pipe(Effect.mapError(() => new DatabaseUnavailable({ stage: "query" }))),
