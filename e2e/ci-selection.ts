@@ -584,6 +584,7 @@ const suiteConfigs: Record<string, () => Promise<unknown>> = {
   "apps-published.config.ts": () => import("./apps-published.config.ts"),
   "billing.config.ts": () => import("./billing.config.ts"),
   "ci-selection.config.ts": () => import("./ci-selection.config.ts"),
+  "cloudflare-storage.config.ts": () => import("./cloudflare-storage.config.ts"),
   "dashboard-file-names.config.ts": () => import("./dashboard-file-names.config.ts"),
   "desktop-recovery.config.ts": () => import("./desktop-recovery.config.ts"),
   "desktop-release.config.ts": () => import("./desktop-release.config.ts"),

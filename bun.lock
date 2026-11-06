@@ -606,6 +606,18 @@
         "@effect/sql-pglite",
       ],
     },
+    "packages/hosted-cloudflare": {
+      "name": "@executor-js/hosted-cloudflare",
+      "dependencies": {
+        "@executor-js/app-source": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "effect": "4.0.1",
+      },
+      "devDependencies": {
+        "esbuild": "0.28.2",
+        "miniflare": "4.20260730.0",
+      },
+    },
     "packages/mcp": {
       "name": "@executor-js/mcp",
       "dependencies": {
@@ -1419,6 +1431,8 @@
     "@executor-js/hosted-cloud": ["@executor-js/hosted-cloud@workspace:apps/hosted/cloud"],
 
     "@executor-js/hosted-cloud-web": ["@executor-js/hosted-cloud-web@workspace:apps/hosted/cloud/web"],
+
+    "@executor-js/hosted-cloudflare": ["@executor-js/hosted-cloudflare@workspace:packages/hosted-cloudflare"],
 
     "@executor-js/hosted-self-host": ["@executor-js/hosted-self-host@workspace:apps/hosted/self-host"],
 
