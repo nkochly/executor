@@ -38,6 +38,8 @@ export const TestPlan = Schema.Struct({
    * Postgres-era rows that a product on SQLite never had, so it does not run there.
    */
   legacyStorageSqlite: Schema.optional(Schema.Literal(true)),
+  /** Why the scenario has no meaning for a self-host product on SQLite, when it has none. */
+  notOnSqlite: Schema.optional(Schema.NonEmptyString),
   managementApps: Schema.optional(Schema.Array(Schema.Literals(["owner", "admin", "member"]))),
   /** Labels of extra Testing SDK scenarios created during setup; each has its own closeable scope. */
   sdkScenarios: Schema.optional(Schema.Array(Schema.NonEmptyString)),
@@ -6851,6 +6853,8 @@ export const scenarios = plan({
   toolCallBatch: {
     fixtures: "actors",
     file: "tool-call-batch.spec.ts",
+    notOnSqlite:
+      "Counts Postgres pipeline round trips; SQLite runs in the product's own process and sends none.",
     title:
       "an MCP tool call sends its checks and reads in one batch, reads changed links in one more, and waits for a grant renewed meanwhile",
     targets: {
@@ -6877,6 +6881,8 @@ export const scenarios = plan({
   toolCallReadAhead: {
     fixtures: "actors",
     file: "tool-call-read-ahead.spec.ts",
+    notOnSqlite:
+      "Counts Postgres pipeline round trips; SQLite runs in the product's own process and sends none.",
     title:
       "an MCP tool call sends its independent reads together and uses none of them before its checks pass",
     targets: {
@@ -10045,15 +10051,16 @@ export const scenariosForSuite = (
     .map((scenario): typeof TestPlan.Type =>
       // `EXECUTOR_E2E_DATABASE=sqlite` runs the self-host product on SQLite.
       process.env.EXECUTOR_E2E_DATABASE === "sqlite" &&
-      scenario.legacyStorage === true &&
-      scenario.legacyStorageSqlite !== true &&
-      scenario.targets["self-host"].status === "scheduled"
+      scenario.targets["self-host"].status === "scheduled" &&
+      (scenario.notOnSqlite !== undefined ||
+        (scenario.legacyStorage === true && scenario.legacyStorageSqlite !== true))
         ? {
             ...scenario,
             targets: {
               ...scenario.targets,
               "self-host": na(
-                "Writes Postgres-era rows that a self-host product on SQLite never had.",
+                scenario.notOnSqlite ??
+                  "Writes Postgres-era rows that a self-host product on SQLite never had.",
               ),
             },
           }
