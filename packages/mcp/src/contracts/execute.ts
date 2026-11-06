@@ -485,6 +485,8 @@ export class CatalogUnavailable extends Schema.TaggedError<CatalogUnavailable>()
 export const McpLimits = Schema.Struct({
   timeoutMs: Schema.Int.check(Schema.isGreaterThan(0)),
   maxToolCalls: Schema.Int.check(Schema.isGreaterThan(0)),
+  /** UTF-8 bytes kept from a program's value and logs; CodeMode marks what it cut. Absent: whole. */
+  maxOutputBytes: Schema.optionalKey(Schema.Int.check(Schema.isGreaterThan(0))),
 });
 export type McpLimits = typeof McpLimits.Type;
 /** Default interpreter budgets; each product may supply different limits. */

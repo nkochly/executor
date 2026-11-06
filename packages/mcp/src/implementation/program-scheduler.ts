@@ -1,6 +1,10 @@
 /** Freeze the interpreter's scheduled work while human approval is pending. */
 import type { Scheduler } from "effect";
 
+/** Programs in this process whose work is held while they wait for a person. */
+const parked = { count: 0 };
+export const parkedPrograms = () => parked.count;
+
 /** Delegate normal scheduling and yielding to Effect; hold only this program's tasks when parked. */
 export function programScheduler(parent: Scheduler.Scheduler) {
   let paused = false;
@@ -26,9 +30,11 @@ export function programScheduler(parent: Scheduler.Scheduler) {
   return {
     scheduler,
     pause: () => {
+      if (!paused) parked.count += 1;
       paused = true;
     },
     resume: () => {
+      if (paused) parked.count -= 1;
       paused = false;
       for (const schedule of held.splice(0)) schedule();
     },

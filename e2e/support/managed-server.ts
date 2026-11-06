@@ -62,6 +62,9 @@ export const OperatorSettings = Schema.Struct({
   /** The Cloudflare Access team and application whose assertions name the MCP caller. */
   EXECUTOR_ACCESS_TEAM_DOMAIN: Schema.optionalKey(Schema.NonEmptyString),
   EXECUTOR_ACCESS_AUD: Schema.optionalKey(Schema.NonEmptyString),
+  /** Programs the product works on at once, and the bytes of a program value it returns. */
+  EXECUTOR_MCP_MAX_PROGRAMS: Schema.optionalKey(Schema.NonEmptyString),
+  EXECUTOR_MCP_MAX_OUTPUT_BYTES: Schema.optionalKey(Schema.NonEmptyString),
   /** The build an upgrade installs. */
   EXECUTOR_BUILD_VERSION: Schema.optionalKey(Schema.NonEmptyString),
   /**

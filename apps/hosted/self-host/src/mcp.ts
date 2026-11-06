@@ -11,10 +11,13 @@ import {
   makeHostedMcp,
   mcpSessionKey,
 } from "@executor-js/hosted-server";
-import { McpLimits, defaultMcpLimits } from "@executor-js/mcp";
-import { Config, Effect, RcMap, Schema } from "effect";
+import { ExecutionRejected, McpLimits, defaultMcpLimits, activePrograms } from "@executor-js/mcp";
+import { Config, Effect, Option, RcMap, Schema } from "effect";
 import { HttpServerResponse } from "effect/http";
 import { SelfHostStatementBatch } from "./contracts/statement-batch.ts";
+
+/** Programs one process works on at once. */
+const defaultMaxPrograms = 8;
 
 /** Own protocol sessions in the server scope; the returned handler receives SDK/auth per request. */
 export const selfHostMcp = Effect.gen(function* () {
@@ -24,11 +27,31 @@ export const selfHostMcp = Effect.gen(function* () {
     timeoutMs: yield* Config.Number("EXECUTOR_MCP_TIMEOUT_MS").pipe(
       Config.withDefault(defaultMcpLimits.timeoutMs),
     ),
+    // Unset, a program's value and logs reach the agent whole.
+    ...Option.match(yield* Config.Number("EXECUTOR_MCP_MAX_OUTPUT_BYTES").pipe(Config.option), {
+      onNone: () => ({}),
+      onSome: (maxOutputBytes) => ({ maxOutputBytes }),
+    }),
   });
+  const maxPrograms = yield* Config.Number("EXECUTOR_MCP_MAX_PROGRAMS").pipe(
+    Config.withDefault(defaultMaxPrograms),
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Int.check(Schema.isGreaterThan(0)))),
+  );
+  // Every program in this process shares its one thread, so past the cap of programs doing work
+  // (one parked on a person's answer does none) a new one is refused at once with a message the agent can act on, instead of slowing every caller.
+  const beforeExecute = Effect.suspend(() =>
+    activePrograms() < maxPrograms
+      ? Effect.void
+      : Effect.fail(
+          new ExecutionRejected({
+            message: `Executor is already running ${maxPrograms} programs. Retry in a minute; nothing from this request ran.`,
+          }),
+        ),
+  );
   const sessions = yield* RcMap.make({
     // Each session keeps what its callers' last tool calls read (CallStateCache).
     lookup: (_key: string) =>
-      Effect.map(makeHostedMcp(undefined, limits), (handler) => ({
+      Effect.map(makeHostedMcp(beforeExecute, limits), (handler) => ({
         ...handler,
         calls: new Map<string, CallState>(),
       })),

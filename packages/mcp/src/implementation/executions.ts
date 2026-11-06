@@ -51,7 +51,7 @@ import {
   type ResumeUnavailableReason,
 } from "../contracts/execute.ts";
 import type { BrowserApprovalView, BrowserApprovalAcknowledgement } from "../contracts/browser.ts";
-import { programScheduler } from "./program-scheduler.ts";
+import { parkedPrograms, programScheduler } from "./program-scheduler.ts";
 import { failureReference, reportFailure } from "./diagnostics.ts";
 import {
   executionProgress,
@@ -165,6 +165,8 @@ type Run = {
  */
 const live = { programs: 0 };
 export const runningPrograms = () => live.programs;
+/** Programs in this process doing work now: running ones not parked on a person's answer. */
+export const activePrograms = () => live.programs - parkedPrograms();
 
 /** Both transports drive this bounded, host-owned store. Closing it cancels programs and their tools. */
 export const makeExecutions = (

@@ -1404,6 +1404,16 @@ export const scenarios = plan({
       local: na("Local has no sign-in."),
     },
   },
+  selfHostProgramCap: {
+    file: "self-host-program-cap.spec.ts",
+    title:
+      "Self-host refuses a new program past its cap of programs doing work, with a message the agent can act on, admits the next once one ends, and cuts a value to its output budget",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Cloud runs programs in per-session objects with their own isolate limits."),
+      local: na("Local runs one person's programs."),
+    },
+  },
   selfHostSsoDiscoveryRedirect: {
     file: "self-host-sso.spec.ts",
     title: "Self-host SSO stays unavailable when its HTTPS discovery redirects to cleartext",

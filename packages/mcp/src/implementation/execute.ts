@@ -1701,8 +1701,12 @@ function runProgram(
               searchSignatures += 1;
             }),
           ),
-        // No output limit: the program's value and logs come back whole.
-        limits: { timeoutMs: limits.timeoutMs, maxToolCalls: limits.maxToolCalls },
+        // Without a product's output limit, the program's value and logs come back whole.
+        limits: {
+          timeoutMs: limits.timeoutMs,
+          maxToolCalls: limits.maxToolCalls,
+          ...(limits.maxOutputBytes === undefined ? {} : { maxOutputBytes: limits.maxOutputBytes }),
+        },
         // Both hooks run on the fiber that makes the call.
         onToolCallStart: ({ index, name }) =>
           Effect.map(Effect.fiberId, (fiber) => {
