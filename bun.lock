@@ -141,6 +141,26 @@
         "vite-plus": "0.3.3",
       },
     },
+    "apps/hosted/cloudflare": {
+      "name": "@executor-js/hosted-cloudflare-worker",
+      "dependencies": {
+        "@effect/platform-browser": "4.0.1",
+        "@executor-js/app-templates": "workspace:*",
+        "@executor-js/hosted-cloudflare": "workspace:*",
+        "@executor-js/hosted-self-host": "workspace:*",
+        "@executor-js/hosted-server": "workspace:*",
+        "@executor-js/sdk": "workspace:*",
+        "@executor-js/telemetry": "workspace:*",
+        "@executor-js/utils": "workspace:*",
+        "effect": "4.0.1",
+        "fumadb-effect": "workspace:*",
+      },
+      "devDependencies": {
+        "@cloudflare/workers-types": "5.20260729.1",
+        "@effect/platform-node": "4.0.1",
+        "wrangler": "4.157.0",
+      },
+    },
     "apps/hosted/cloudflare/apps-worker": {
       "name": "@executor-js/hosted-cloudflare-apps",
       "dependencies": {
@@ -1450,6 +1470,8 @@
     "@executor-js/hosted-cloudflare": ["@executor-js/hosted-cloudflare@workspace:packages/hosted-cloudflare"],
 
     "@executor-js/hosted-cloudflare-apps": ["@executor-js/hosted-cloudflare-apps@workspace:apps/hosted/cloudflare/apps-worker"],
+
+    "@executor-js/hosted-cloudflare-worker": ["@executor-js/hosted-cloudflare-worker@workspace:apps/hosted/cloudflare"],
 
     "@executor-js/hosted-self-host": ["@executor-js/hosted-self-host@workspace:apps/hosted/self-host"],
 

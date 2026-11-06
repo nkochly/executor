@@ -31,7 +31,7 @@ import {
   HttpServerRequest,
 } from "effect/http";
 import { FirstPartyOAuthClientsInvalid } from "@executor-js/hosted-server";
-import { selfHostDatabaseSchema } from "./implementation/database-schema.ts";
+import { selfHostDatabaseSchema } from "./implementation/database-schema-pglite.ts";
 import {
   selfHostExecutorServices,
   SelfHostWorkflowRequests,

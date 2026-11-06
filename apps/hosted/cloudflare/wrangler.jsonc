@@ -1,0 +1,40 @@
+// Executor on stock Cloudflare Workers. Secrets (BETTER_AUTH_SECRET, EXECUTOR_ENCRYPTION_KEY)
+// are set with `wrangler secret put`, or in `.dev.vars` for `wrangler dev`; see README.md.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "executor",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "no_brotli_content_encoding"],
+  "workers_dev": false,
+  "build": {
+    "command": "bun scripts/generate.ts",
+    "watch_dir": ["src", "scripts"],
+  },
+  "alias": {
+    "executor:skills": "./generated/skills.js",
+    "executor:dashboard": "./generated/dashboard.js",
+  },
+  // Every request runs the Worker first; the product serves only files in its asset manifest.
+  "assets": {
+    "directory": "../self-host/web/dist/client",
+    "binding": "ASSETS",
+    "run_worker_first": true,
+  },
+  "durable_objects": {
+    "bindings": [{ "name": "PRODUCT", "class_name": "ExecutorProduct" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ExecutorProduct"] }],
+  // Blobs. Without this binding blobs cannot be written; see README.md for app repositories.
+  "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "executor-blobs" }],
+  "services": [
+    { "binding": "SELF", "service": "executor", "entrypoint": "SelfOrigin" },
+    // The app host Worker; it calls back through this Worker's `WorkflowCallbacks` entrypoint.
+    { "binding": "APPS", "service": "executor-apps" },
+  ],
+  "observability": { "enabled": true },
+  "vars": {
+    "EXECUTOR_DATABASE": "sqlite",
+    "DO_NOT_TRACK": "1",
+  },
+}

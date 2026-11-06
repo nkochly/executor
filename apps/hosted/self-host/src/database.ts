@@ -6,7 +6,7 @@ import { nativeSqliteStorage } from "fumadb-effect/sqlite-native";
 import { lock } from "proper-lockfile";
 import { dataDirectory } from "./contracts/config.ts";
 import { DatabaseUnavailable } from "./contracts/database.ts";
-import { selfHostDatabaseSchema } from "./implementation/database-schema.ts";
+import { selfHostDatabaseSchema } from "./implementation/database-schema-pglite.ts";
 
 const databaseDirectory = (name: string) =>
   Effect.gen(function* () {
