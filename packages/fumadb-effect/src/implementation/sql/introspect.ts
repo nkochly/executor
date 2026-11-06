@@ -571,8 +571,10 @@ const listTables = Effect.fnUntraced(function* (provider: Provider) {
       );
     }
     case "sqlite": {
+      // A Durable Object refuses reads of its own `_cf_` tables (SQLITE_AUTH); they are not ours.
       const names = yield* sql<{ name: unknown }>`
-        SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name`;
+        SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+          AND substr(name, 1, 4) <> '_cf_' ORDER BY name`;
       const tables: Array<RawTable> = [];
       for (const row of names) {
         const tableName = optionalText(row.name);

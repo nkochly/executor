@@ -5,13 +5,17 @@ import type { SqliteStorage } from "fumadb-effect/sqlite";
 import type { Connection } from "effect/sql/SqlConnection";
 import {
   type CompiledQuery,
+  type DatabaseIntrospector,
+  type DatabaseMetadataOptions,
   Kysely,
   SqliteAdapter,
   SqliteIntrospector,
   SqliteQueryCompiler,
+  sql,
   type DatabaseConnection,
   type Driver,
   type QueryResult,
+  type TableMetadata,
 } from "kysely";
 
 /** A SQLite auth database operation failed; driver details remain private. */
@@ -28,6 +32,69 @@ const changedRows = (connection: Connection) =>
 
 const isRead = (sql: string) =>
   /^\s*(select|with|pragma)\b/iu.test(sql) || /\breturning\b/iu.test(sql);
+
+/** A Durable Object's own tables (`_cf_KV` and others), which refuse reads of their columns. */
+const isHostTable = (name: string) => name.startsWith("_cf_");
+
+/**
+ * Kysely's SQLite introspector, without the host's own tables: it reads every table's columns in
+ * one statement, and a Durable Object refuses that statement once its `_cf_KV` table exists.
+ */
+class HostSqliteIntrospector implements DatabaseIntrospector {
+  readonly #db: Kysely<unknown>;
+  readonly #base: SqliteIntrospector;
+  constructor(db: Kysely<unknown>) {
+    this.#db = db;
+    this.#base = new SqliteIntrospector(db);
+  }
+  getSchemas() {
+    return this.#base.getSchemas();
+  }
+  async getTables(options?: DatabaseMetadataOptions): Promise<Array<TableMetadata>> {
+    const hostTables = await sql<{ name: string }>`select name from sqlite_master
+      where type = 'table' and substr(name, 1, 4) = '_cf_'`.execute(this.#db);
+    if (hostTables.rows.length === 0) return this.#base.getTables(options);
+    const tables = await sql<{ name: string; type: string }>`select name, type from sqlite_master
+      where type in ('table', 'view') and name not like 'sqlite_%'
+        and substr(name, 1, 4) <> '_cf_'
+        ${options?.withInternalKyselyTables === true ? sql`` : sql`and name not in ('kysely_migration', 'kysely_migration_lock')`}
+      order by name`.execute(this.#db);
+    return Promise.all(
+      tables.rows
+        .filter(({ name }) => !isHostTable(name))
+        .map(async ({ name, type }) => {
+          const columns = await sql<{
+            name: string;
+            type: string;
+            notnull: number;
+            dflt_value: unknown;
+            pk: number;
+          }>`select name, type, "notnull", dflt_value, pk from pragma_table_info(${name})
+            order by cid`.execute(this.#db);
+          const keys = columns.rows.filter((column) => column.pk > 0);
+          const rowid =
+            keys.length === 1 && keys[0]?.type.toLowerCase() === "integer"
+              ? keys[0].name
+              : undefined;
+          return {
+            name,
+            isView: type === "view",
+            isForeign: false,
+            columns: columns.rows.map((column) => ({
+              name: column.name,
+              dataType: column.type,
+              isNullable: !column.notnull,
+              isAutoIncrementing: column.name === rowid,
+              hasDefaultValue: column.dflt_value != null,
+            })),
+          };
+        }),
+    );
+  }
+  async getMetadata(options?: DatabaseMetadataOptions) {
+    return { tables: await this.getTables(options) };
+  }
+}
 
 /**
  * Reserve Effect's connection for each Kysely checkout, including its entire transaction. A SQLite
@@ -122,7 +189,7 @@ export const makeSqliteAuthDatabase = (storage: SqliteStorage) =>
             dialect: {
               createDriver: () => driver,
               createAdapter: () => new SqliteAdapter(),
-              createIntrospector: (db) => new SqliteIntrospector(db),
+              createIntrospector: (db) => new HostSqliteIntrospector(db),
               createQueryCompiler: () => new SqliteQueryCompiler(),
             },
           }),
