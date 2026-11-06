@@ -18,7 +18,12 @@ import { serverDocument } from "../document.ts";
 /** Global auth, invitation and callback routes have no selected organization. */
 export const Route = createRootRoute({
   head: () => ({
-    links: [...fontPreloads, { rel: "stylesheet", href: styles }],
+    links: [
+      ...fontPreloads,
+      { rel: "stylesheet", href: styles },
+      // Deployment theme: the deploy writes brand.css into the built assets; absent, the default theme stands.
+      { rel: "stylesheet", href: "/brand.css" },
+    ],
     meta: [{ title: "Executor" }],
   }),
   shellComponent: DashboardDocument,
