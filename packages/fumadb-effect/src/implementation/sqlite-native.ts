@@ -55,7 +55,8 @@ export const nativeSqliteStorage = (
     sql: { exec: exec as unknown as SqlStorage["exec"] },
     transaction: async (closure) => {
       const savepoint = `executor_txn_${depth}`;
-      db.exec(depth === 0 ? "BEGIN IMMEDIATE" : `SAVEPOINT ${savepoint}`);
+      const outermost = depth === 0;
+      db.exec(outermost ? "BEGIN IMMEDIATE" : `SAVEPOINT ${savepoint}`);
       depth++;
       let rolledBack = false;
       try {
@@ -65,12 +66,16 @@ export const nativeSqliteStorage = (
           },
         });
         if (rolledBack) throw new Rollback();
+        // A refused COMMIT (a deferred foreign key) leaves the transaction open: the catch
+        // rolls it back.
+        db.exec(outermost ? "COMMIT" : `RELEASE ${savepoint}`);
         depth--;
-        db.exec(depth === 0 ? "COMMIT" : `RELEASE ${savepoint}`);
         return result;
       } catch (cause) {
         depth--;
-        db.exec(depth === 0 ? "ROLLBACK" : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
+        // SQLite may already have rolled the transaction back (a busy or full database).
+        if (db.isTransaction)
+          db.exec(outermost ? "ROLLBACK" : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         if (cause instanceof Rollback) return undefined as never;
         throw cause;
       }
