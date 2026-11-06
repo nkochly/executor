@@ -1,0 +1,34 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  // The app host. Only the product Worker binds it; it has no route or public URL.
+  "name": "executor-apps",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-07-30",
+  "compatibility_flags": ["nodejs_compat", "no_brotli_content_encoding"],
+  "workers_dev": false,
+  "worker_loaders": [{ "binding": "LOADER" }],
+  "durable_objects": {
+    "bindings": [{ "name": "DATA", "class_name": "AppDataSupervisor" }],
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AppDataSupervisor"] }],
+  "workflows": [
+    { "binding": "RUNS", "name": "executor-app-workflows", "class_name": "AppWorkflows" },
+  ],
+  "services": [
+    { "binding": "PUBLIC_FETCH", "service": "executor-apps", "entrypoint": "PublicFetch" },
+    // The product Worker's entrypoints: its own dashboard origin, and workflow callbacks.
+    { "binding": "SELF", "service": "executor", "entrypoint": "SelfOrigin" },
+    { "binding": "HOST", "service": "executor", "entrypoint": "WorkflowCallbacks" },
+  ],
+  "vars": {
+    // The product authenticates with this fixed value; the binding itself is the credential.
+    "AUTH": "service-binding",
+    "APPS_PRIVATE_FETCH": false,
+    // The product's public origin, so apps calling it go through SELF.
+    "SELF_ORIGIN": "",
+    "NPM_REGISTRY": "",
+    "APP_WORKERS": null,
+    "APP_WORKER_IDLE_SECONDS": null,
+  },
+  // Secret: CREDENTIAL_SECRET, derived from the product's encryption key (see README).
+}
