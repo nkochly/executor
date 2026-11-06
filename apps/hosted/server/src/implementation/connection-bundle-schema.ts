@@ -42,6 +42,21 @@ const statements = [
   )`,
 ];
 
+/**
+ * Hosted step 11 on both dialects: the app shares bundles made. Giving a bundle to a group shares
+ * the bundle's apps with that group; these rows say which `hosted_app_groups` rows a bundle added,
+ * so taking the bundle away removes only those.
+ */
+export const migrateBundleAppShares = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql.unsafe(`create table if not exists hosted_connection_bundle_app_shares (
+    organization_id text not null references organization(id) on delete cascade,
+    app_id text not null,
+    group_id text not null,
+    primary key (app_id, group_id)
+  )`).unprepared;
+});
+
 /** Hosted step 10 on both dialects: bundles, their groups, members' copies, and the setting. */
 export const migrateConnectionBundles = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;

@@ -301,6 +301,54 @@ const validate = (
     }
   });
 
+/**
+ * Share every bundle's apps with the bundle's groups, and stop the shares a bundle made once no
+ * bundle needs them. An app shared with everyone needs nothing; a private app becomes shared with
+ * groups. A share an admin made on the app's own page is never removed here.
+ */
+const syncBundleShares = (sql: SqlClient.SqlClient, organization: OrganizationId) =>
+  Effect.gen(function* () {
+    const bundles = yield* readBundles(sql, organization);
+    const wanted = new Set(
+      bundles.flatMap((bundle) =>
+        bundle.apps.flatMap((app) => bundle.groups.map((group) => `${app.app} ${group}`)),
+      ),
+    );
+    // A share removed on the app's page, or by deleting its group, is no longer a bundle's.
+    yield* sql`delete from hosted_connection_bundle_app_shares
+      where organization_id = ${organization} and not exists (select 1 from hosted_app_groups g
+        where g.app_id = hosted_connection_bundle_app_shares.app_id
+        and g.group_id = hosted_connection_bundle_app_shares.group_id)`;
+    const made = yield* sql`select app_id as app, group_id as "group"
+      from hosted_connection_bundle_app_shares where organization_id = ${organization}`;
+    for (const row of made) {
+      const app = String(row["app"]),
+        group = String(row["group"]);
+      if (wanted.has(`${app} ${group}`)) continue;
+      yield* sql`delete from hosted_app_groups where app_id = ${app} and group_id = ${group}`;
+      yield* sql`delete from hosted_connection_bundle_app_shares
+        where app_id = ${app} and group_id = ${group}`;
+      yield* sql`update hosted_app_access set revision = ${crypto.randomUUID()}
+        where id = ${app} and organization_id = ${organization}`;
+    }
+    for (const key of wanted) {
+      const [app, group] = key.split(" ") as [string, string];
+      const access = yield* sql`select audience from hosted_app_access
+        where id = ${app} and organization_id = ${organization}`;
+      const audience = access[0]?.["audience"];
+      if (audience === undefined || audience === "everyone") continue;
+      const shared = yield* sql`select 1 as one from hosted_app_groups
+        where app_id = ${app} and group_id = ${group}`;
+      if (shared.length > 0) continue;
+      yield* sql`update hosted_app_access set audience = 'groups', revision = ${crypto.randomUUID()}
+        where id = ${app} and organization_id = ${organization}`;
+      yield* sql`insert into hosted_app_groups (organization_id, app_id, group_id)
+        values (${organization}, ${app}, ${group})`;
+      yield* sql`insert into hosted_connection_bundle_app_shares (organization_id, app_id, group_id)
+        values (${organization}, ${app}, ${group})`;
+    }
+  });
+
 const saveBundle = (
   input: BundleInput,
   current?: { readonly id: BundleId; readonly revision: BundleRevision },
@@ -334,6 +382,7 @@ const saveBundle = (
           for (const group of input.groups)
             yield* sql`insert into hosted_connection_bundle_groups (organization_id, bundle_id, group_id)
               values (${organization}, ${id}, ${group})`;
+          yield* syncBundleShares(sql, organization);
           return { id, revision, ...input } satisfies Bundle;
         }),
       )
@@ -355,6 +404,7 @@ const removeBundle = (id: BundleId, revision: BundleRevision) =>
           if (rows[0]?.["revision"] !== revision)
             return yield* new BundleConflict({ reason: "changed" });
           yield* sql`delete from hosted_connection_bundles where id = ${id} and organization_id = ${organization}`;
+          yield* syncBundleShares(sql, organization);
         }),
       )
       .pipe(Effect.catchTag("SqlError", (error) => Effect.fail(storageFailure(error))));

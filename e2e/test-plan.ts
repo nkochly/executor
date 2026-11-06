@@ -6629,7 +6629,7 @@ export const scenarios = plan({
     fixtures: "actors",
     file: "connection-bundles.spec.ts",
     title:
-      "Admin bundles give groups locked connections, the switch limits members to them, and admins revoke any connection",
+      "Admin bundles give groups locked connections and share their apps, the switch limits members to them, and admins revoke any connection",
     targets: {
       "self-host": scheduled,
       cloud: na("The bundle handlers are shared hosted code; this scenario runs on self-host."),
