@@ -222,7 +222,7 @@ export const dispatchHostedMcp = <E, R>(
     const current = Effect.annotateCurrentSpan(caller).pipe(
       Effect.andThen(
         authentication
-          .authenticate(headers, address.mode, access.access.organization)
+          .authenticate(headers, address.mode, access.access.organization, address.connection)
           // A recheck is for this organization and user from its start, so one refused or failed
           // before its statement answers still names them.
           .pipe(Effect.annotateSpans(caller)),
@@ -474,7 +474,12 @@ export const authenticatedMcp = <E, R>(
     // The request's tool calls recheck the same token; they reuse its hash (see BearerHashes).
     const hashes = new Map<string, string>();
     const access = yield* Effect.result(
-      auth.authenticate(new Headers(request.headers), address.mode, requestedMcpOrganization(url)),
+      auth.authenticate(
+        new Headers(request.headers),
+        address.mode,
+        requestedMcpOrganization(url),
+        address.connection,
+      ),
     ).pipe(Effect.provideService(BearerHashes, hashes));
     if (Result.isSuccess(access))
       return yield* handle(access.success, address).pipe(

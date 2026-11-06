@@ -21,6 +21,8 @@ import {
   GroupsUnavailable,
   GroupDatabase,
 } from "../contracts/groups.ts";
+import { reconcileBundles } from "./connection-bundles.ts";
+import { McpAuthentication } from "../contracts/mcp.ts";
 
 const StoredGroup = Schema.Struct({
   id: GroupId,
@@ -173,14 +175,31 @@ const run = <A, R>(
 
 /** Shared typed handlers acquire storage only after request authentication and write permission. */
 export const hostedGroupHandlers = HttpApiBuilder.group(HostedApi, "groups", (handlers) =>
-  handlers
-    .handle("list", () => run(listGroups))
-    .handle("get", ({ params }) => run(readGroup(params.group)))
-    .handle("create", ({ payload }) => run(saveGroup(payload), true))
-    .handle("update", ({ params, payload }) =>
-      run(saveGroup(payload, { id: params.group, revision: payload.revision }), true),
-    )
-    .handle("remove", ({ params, payload }) =>
-      run(removeGroup(params.group, payload.revision), true),
-    ),
+  Effect.gen(function* () {
+    const auth = yield* McpAuthentication;
+    /** Membership decides who holds a bundle's copy, so every committed group change reconciles them. */
+    const reconcileAfter = <A, E, R>(write: Effect.Effect<A, E, R>) =>
+      write.pipe(
+        Effect.tap(() =>
+          Effect.flatMap(CurrentOrganization, (access) =>
+            reconcileBundles(access.organization),
+          ).pipe(
+            Effect.provideService(McpAuthentication, auth),
+            Effect.mapError(() => new GroupsUnavailable()),
+          ),
+        ),
+      );
+    return handlers
+      .handle("list", () => run(listGroups))
+      .handle("get", ({ params }) => run(readGroup(params.group)))
+      .handle("create", ({ payload }) => reconcileAfter(run(saveGroup(payload), true)))
+      .handle("update", ({ params, payload }) =>
+        reconcileAfter(
+          run(saveGroup(payload, { id: params.group, revision: payload.revision }), true),
+        ),
+      )
+      .handle("remove", ({ params, payload }) =>
+        reconcileAfter(run(removeGroup(params.group, payload.revision), true)),
+      );
+  }),
 );

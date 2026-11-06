@@ -2286,7 +2286,7 @@ export const linkConnectionAccount = (
 // ---------------------------------------------------------------------------------------------
 // Toolkits.
 
-type RunTarget = ConnectionApp["runsAs"][number];
+type RunTarget = NonNullable<ConnectionApp["runsAs"]>[number];
 
 /** How an earlier item request imported an integration: one app, or an app per connection. */
 export type ImportedIntegration =

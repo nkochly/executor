@@ -17,11 +17,12 @@ export const ConnectionName = Schema.String.check(
 );
 /**
  * One included app. Runs-as targets are exact: the account-free app, or accounts the user linked
- * to it. Everything not included is excluded.
+ * to it. Omitted, the app runs as whatever accounts its owner links to it, now and later, as a
+ * full-access grant does. Everything not included is excluded.
  */
 export const ConnectionApp = Schema.Struct({
   app: AppId,
-  runsAs: Schema.NonEmptyArray(RunTarget),
+  runsAs: Schema.optionalKey(Schema.NonEmptyArray(RunTarget)),
   tools: ToolScope,
   /** Omitted: every event the app declares, now or later. */
   events: Schema.optionalKey(EventScope),
@@ -97,13 +98,16 @@ export const ConnectionAccessInvalid = ApiError.define({
 });
 export type ConnectionAccessInvalid = typeof ConnectionAccessInvalid.Type;
 
-/** The connection's apps as shared authorization permissions. Targets are always explicit. */
+/**
+ * The connection's apps as shared authorization permissions. Listed runs-as targets are exact; an
+ * app without them leaves the owner's own linked accounts unrestricted.
+ */
 export const connectionPermissions = (policy: ConnectionPolicy): readonly AppPermission[] =>
   policy.apps.map((item) => ({
     app: item.app,
     tools: item.tools,
     ...(item.events === undefined ? {} : { events: item.events }),
-    targets: item.runsAs,
+    ...(item.runsAs === undefined ? {} : { targets: item.runsAs }),
   }));
 /**
  * The grant policy a connection currently authorizes. Approval delivery follows the MCP URL,

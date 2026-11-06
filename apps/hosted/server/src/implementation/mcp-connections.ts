@@ -4,6 +4,7 @@ import {
   ConnectionNotFound,
   type Connection,
   type ConnectionApp,
+  type ConnectionId,
 } from "@executor-js/mcp-auth/connections";
 import { mcpResource } from "@executor-js/mcp-auth";
 import type { App, Executor, OwnerId } from "@executor-js/sdk/core";
@@ -18,6 +19,19 @@ import { ScheduleWakeup } from "../contracts/schedules.ts";
 import { checkAccounts, currentOwner, usableApp } from "./access.ts";
 import { addLink, linkedAccounts, lockedChange } from "./app-accounts.ts";
 import { policyDatabase, requireAccountAccessAs } from "./resource-policy.ts";
+import { GroupDatabase } from "../contracts/groups.ts";
+import {
+  BundlesUnavailable,
+  ConnectionManaged,
+  ConnectionsRestricted,
+} from "../contracts/connection-bundles.ts";
+import {
+  copiesOf,
+  isBundleCopy,
+  membersCreateConnections,
+  reconcileBundles,
+  withBundles,
+} from "./connection-bundles.ts";
 
 const owner = Effect.gen(function* () {
   const organization = yield* CurrentOrganization;
@@ -52,7 +66,7 @@ const resolveApp = (
       .filter(([, requirement]) => requirement.scope === "user")
       .map(([slot, requirement]) => ({ slot, ...requirement }));
     const sql = yield* policyDatabase;
-    const linked = yield* Effect.forEach(input.runsAs, (target) =>
+    const linked = yield* Effect.forEach(input.runsAs ?? [], (target) =>
       Effect.gen(function* () {
         if (target.kind === "app") {
           if (requirements.length > 0) return yield* invalid("target");
@@ -116,6 +130,31 @@ const resolvePolicy = (apps: readonly ConnectionApp[]) =>
     };
   });
 
+/** A member who is not an admin may make a connection only while the organization allows it. */
+const requireCreate = Effect.gen(function* () {
+  const organization = yield* CurrentOrganization;
+  if (organization.role !== "member") return;
+  const sql = yield* Effect.flatten(GroupDatabase).pipe(
+    Effect.mapError(() => new BundlesUnavailable()),
+  );
+  const allowed = yield* membersCreateConnections(sql, organization.organization).pipe(
+    Effect.mapError(() => new BundlesUnavailable()),
+  );
+  if (!allowed) return yield* new ConnectionsRestricted();
+});
+
+/** A bundle's copy changes only through its bundle; its member may neither edit nor revoke it. */
+const requireOwnConnection = (connection: ConnectionId) =>
+  Effect.gen(function* () {
+    const sql = yield* Effect.flatten(GroupDatabase).pipe(
+      Effect.mapError(() => new BundlesUnavailable()),
+    );
+    const copy = yield* isBundleCopy(sql, connection).pipe(
+      Effect.mapError(() => new BundlesUnavailable()),
+    );
+    if (copy) return yield* new ConnectionManaged({ connection });
+  });
+
 /** RequireUser rejects bearer credentials; RequireOrganization checks current membership. */
 export const hostedMcpConnectionHandlers = HttpApiBuilder.group(
   HostedApi,
@@ -129,12 +168,20 @@ export const hostedMcpConnectionHandlers = HttpApiBuilder.group(
       });
       return handlers
         .handle("list", () =>
-          Effect.flatMap(owner, (current) => auth.connections.list(current)).pipe(
-            Effect.map((connections) => connections.map(view)),
-          ),
+          Effect.gen(function* () {
+            const current = yield* owner;
+            // Bring the member's bundle copies up to date before showing them.
+            yield* reconcileBundles(current.resource).pipe(
+              Effect.provideService(McpAuthentication, auth),
+            );
+            const copies = yield* copiesOf(current.resource, current.userId);
+            const connections = yield* auth.connections.list(current);
+            return withBundles(connections.map(view), copies);
+          }),
         )
         .handle("create", ({ payload }) =>
           Effect.gen(function* () {
+            yield* requireCreate;
             const policy = yield* resolvePolicy(payload.apps);
             return view(
               yield* auth.connections.create(yield* owner, {
@@ -147,6 +194,7 @@ export const hostedMcpConnectionHandlers = HttpApiBuilder.group(
         )
         .handle("update", ({ params, payload }) =>
           Effect.gen(function* () {
+            yield* requireOwnConnection(params.connection);
             // Check ownership before linking any account for this connection.
             const existing = yield* auth.connections.list(yield* owner);
             if (!existing.some((connection) => connection.id === params.connection))
@@ -162,7 +210,10 @@ export const hostedMcpConnectionHandlers = HttpApiBuilder.group(
           }),
         )
         .handle("revoke", ({ params }) =>
-          Effect.flatMap(owner, (current) => auth.connections.revoke(current, params.connection)),
+          requireOwnConnection(params.connection).pipe(
+            Effect.andThen(owner),
+            Effect.flatMap((current) => auth.connections.revoke(current, params.connection)),
+          ),
         )
         .handle("agents", () =>
           Effect.flatMap(owner, (current) => auth.connections.agents(current)),

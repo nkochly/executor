@@ -1397,7 +1397,7 @@ export const scenarios = plan({
   selfHostAccessProxyMcp: {
     file: "self-host-access-proxy.spec.ts",
     title:
-      "Self-host behind Cloudflare Access takes a verified Access assertion as the MCP caller and refuses forged, foreign or non-member ones",
+      "Self-host behind Cloudflare Access takes a verified Access assertion as the MCP caller, on its scoped connections too, and refuses forged, foreign or non-member ones",
     targets: {
       "self-host": scheduled,
       cloud: na("Cloud is not served behind Cloudflare Access."),
@@ -6613,6 +6613,17 @@ export const scenarios = plan({
       "self-host": scheduled,
       cloud: scheduled,
       local: na("Local grants come from scoped connections, which list each app once."),
+    },
+  },
+  connectionBundles: {
+    fixtures: "actors",
+    file: "connection-bundles.spec.ts",
+    title:
+      "Admin bundles give groups locked connections, the switch limits members to them, and admins revoke any connection",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("The bundle handlers are shared hosted code; this scenario runs on self-host."),
+      local: na("Local has one user and no organization admins."),
     },
   },
   scopedConnectionAccess: {

@@ -15,6 +15,7 @@ import { migrateApiKeyMemberships } from "./api-key-membership-schema.ts";
 import { queueExecutorAppUpgrades } from "./executor-app-upgrades.ts";
 import { migrateAppAccountLinks } from "./app-account-schema.ts";
 import { migrateSqliteBaseline } from "./sqlite-schema.ts";
+import { migrateConnectionBundles } from "./connection-bundle-schema.ts";
 import { isSqlite } from "fumadb-effect/dialect";
 
 /** The SQL dialects the hosted product stores its data in. */
@@ -130,6 +131,8 @@ const hostedPostgresMigrations = migrateProductSteps("private_hosted_migrations"
   // App and user account links; profiles become user links. Runs after SDK 4.0.13, which keeps
   // the profiles.
   "9_app_account_links": migrateAppAccountLinks,
+  // Additive: connection bundles and the members' connection setting; older servers never read them.
+  "10_connection_bundles": migrateConnectionBundles,
 });
 
 /**
@@ -146,6 +149,7 @@ const hostedSqliteMigrations = migrateProductSteps("private_hosted_migrations", 
   "7_require_connection_targets": Effect.void,
   "8_oauth_client_access": Effect.void,
   "9_app_account_links": Effect.void,
+  "10_connection_bundles": migrateConnectionBundles,
 });
 
 /**

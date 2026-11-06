@@ -5,6 +5,7 @@ import {
   FingerPrintIcon,
   Key01Icon,
   ConnectIcon,
+  PackageIcon,
   Settings05Icon,
   Shield01Icon,
   UserCircleIcon,
@@ -25,6 +26,7 @@ const items = [
   { to: "/org/$organizationSlug/accounts", label: "Accounts", icon: UserCircleIcon },
   { to: "/org/$organizationSlug/approvals", label: "Approvals", icon: Shield01Icon },
   { to: "/org/$organizationSlug/groups", label: "Groups", icon: UserGroupIcon },
+  { to: "/org/$organizationSlug/bundles", label: "Bundles", icon: PackageIcon },
 ] as const;
 const settings = {
   to: "/org/$organizationSlug/organization",

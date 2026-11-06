@@ -95,11 +95,11 @@ export const selfHostAuth = Effect.gen(function* () {
   const proxy = yield* accessProxy;
   const mcpIdentity = Layer.succeed(McpAuthentication, {
     ...origins,
-    authenticate: (headers, mode, organization) =>
+    authenticate: (headers, mode, organization, connection) =>
       proxy.verify(headers).pipe(
         Effect.flatMap((email) =>
           Option.isSome(email)
-            ? proxyMcpAccess(email.value, { headers, mode, organization })
+            ? proxyMcpAccess(email.value, { headers, mode, organization, connection })
             : mcpBearerAccess(origins, { headers, mode, organization }),
         ),
         Effect.provideService(SqlClient.SqlClient, sql),
@@ -120,6 +120,7 @@ export const selfHostAuth = Effect.gen(function* () {
                   headers,
                   mode: grant.value.mode,
                   organization: grant.value.organization,
+                  connection: grant.value.connection,
                 }),
           ),
           Effect.provideService(SqlClient.SqlClient, sql),
