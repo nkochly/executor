@@ -1,4 +1,5 @@
 import { Skeleton } from "../components/skeleton.tsx";
+import { Button } from "../components/button.tsx";
 import type { ComponentProps, ComponentType, ReactNode } from "react";
 import { useMemo, useState } from "react";
 import type {
@@ -151,11 +152,14 @@ export function SourceBrowser<E>({
   file: readFile,
   Failure,
   className,
+  onEdit,
 }: {
   readonly files: typeof SourceDisplayEntries.Type;
   readonly file: SourceFileQuery<E>;
   readonly Failure: ComponentType<FailureProps<E>>;
   readonly className?: string;
+  /** Offered on each text file when the viewer may change the source. */
+  readonly onEdit?: (path: string, content: string) => void;
 }) {
   const [selected, setSelected] = useState("index.ts");
   const file = files.find((file) => file.path === selected) ?? files[0];
@@ -198,9 +202,10 @@ export function SourceBrowser<E>({
           query={readFile(file.path)}
           Failure={Failure}
           picker={picker}
+          onEdit={onEdit}
         />
       ) : (
-        <SourceFilePane path={file.path} content={file.content} picker={picker}>
+        <SourceFilePane path={file.path} content={file.content} picker={picker} onEdit={onEdit}>
           <Code code={file.content} path={file.path} copyable copyLabel="Copy source" />
         </SourceFilePane>
       )}
@@ -214,11 +219,13 @@ function RemoteSourceFile<E>({
   query,
   Failure,
   picker,
+  onEdit,
 }: {
   readonly path: string;
   readonly query: Query<SourceDisplayFile, E>;
   readonly Failure: ComponentType<FailureProps<NoInfer<E>>>;
   readonly picker: ReactNode;
+  readonly onEdit?: ((path: string, content: string) => void) | undefined;
 }) {
   const { result, refresh } = useQuery(query);
   return (
@@ -226,6 +233,7 @@ function RemoteSourceFile<E>({
       path={path}
       content={Option.getOrUndefined(AsyncResult.value(result))?.content}
       picker={picker}
+      onEdit={onEdit}
     >
       <QueryResult
         result={result}
@@ -256,12 +264,14 @@ function SourceFilePane({
   content,
   picker,
   children,
+  onEdit,
 }: {
   readonly path: string;
   /** Absent while the selected file is loading. */
   readonly content: string | undefined;
   readonly picker: ReactNode;
   readonly children: ReactNode;
+  readonly onEdit?: ((path: string, content: string) => void) | undefined;
 }) {
   return (
     <div className="source-file flex min-h-0 min-w-0 flex-col">
@@ -276,6 +286,11 @@ function SourceFilePane({
           <span className="text-xs tabular-nums text-muted-foreground max-md:hidden">
             {content.split("\n").length} lines
           </span>
+        )}
+        {onEdit !== undefined && content !== undefined && (
+          <Button size="sm" variant="outline" onClick={() => onEdit(path, content)}>
+            Edit
+          </Button>
         )}
       </div>
       <div className="min-h-0 flex-1 overflow-auto [&_.code-view]:min-h-full [&_.code-view]:bg-transparent [&_.code-view]:py-4 [&_.code-view]:text-xs [&_.code-view]:leading-6">
