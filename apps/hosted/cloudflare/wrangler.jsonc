@@ -7,6 +7,9 @@
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "no_brotli_content_encoding"],
   "workers_dev": false,
+  // Startup must stay under Cloudflare's 1 s CPU limit; parsing the unminified bundle alone
+  // takes about a third of it.
+  "minify": true,
   "build": {
     "command": "bun scripts/generate.ts",
     "watch_dir": ["src", "scripts"],
