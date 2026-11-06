@@ -59,6 +59,13 @@ const MemberConnections = Schema.Array(
   }),
 );
 const Tagged = Schema.Struct({ _tag: Schema.String });
+const AppAccess = Schema.Struct({
+  audience: Schema.Struct({
+    kind: Schema.String,
+    groups: Schema.optionalKey(Schema.Array(Schema.String)),
+  }),
+  canUse: Schema.Boolean,
+});
 
 layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
   it.effect(scenarios.connectionBundles.title, (context) =>
@@ -106,6 +113,13 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             memberIds: [membership.id],
           }),
         );
+        const appAccess = (actor: typeof actors.owner) =>
+          Effect.gen(function* () {
+            const response = yield* api.request(actor, "GET", `${prefix}/apps/${app.id}/access`);
+            return response.status === 200
+              ? yield* body(AppAccess, response)
+              : { audience: { kind: "none" }, canUse: false };
+          });
         const memberConnections = Effect.gen(function* () {
           const response = yield* api.request(actors.member, "GET", `${prefix}/mcp-connections`);
           expect(response.status, JSON.stringify(response.body)).toBe(200);
@@ -113,7 +127,7 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
         });
 
         const bundle = yield* evidence.step(
-          "An admin's bundle becomes a locked connection for each member of its groups",
+          "An admin's bundle shares its apps with its groups and becomes a locked connection for each member",
           Effect.gen(function* () {
             const refused = yield* api.request(
               actors.member,
@@ -164,6 +178,12 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             );
             expect(foreign.status).toBe(400);
 
+            // Giving the bundle to the group shares its apps with the group.
+            expect((yield* appAccess(actors.owner)).audience).toEqual({
+              kind: "groups",
+              groups: [group.id],
+            });
+            expect((yield* appAccess(actors.member)).canUse).toBe(true);
             const copies = (yield* memberConnections).filter(
               (item) => item.bundle?.id === bundle.id,
             );
@@ -281,7 +301,7 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
         );
 
         yield* evidence.step(
-          "Deleting a bundle revokes every copy of it",
+          "Deleting a bundle revokes every copy of it and the app shares it made",
           Effect.gen(function* () {
             const stale = yield* api.request(
               actors.owner,
@@ -300,6 +320,8 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             expect(
               (yield* memberConnections).filter((item) => item.bundle !== undefined),
             ).toHaveLength(0);
+            // The share the bundle made goes with it.
+            expect((yield* appAccess(actors.member)).canUse).toBe(false);
           }),
         );
       }),
