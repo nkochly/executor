@@ -1,0 +1,19 @@
+{
+  "name": "@executor-js/hosted-cloudflare",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./blobs": "./src/blobs.ts",
+    "./app-source": "./src/app-source.ts"
+  },
+  "dependencies": {
+    "@executor-js/app-source": "workspace:*",
+    "@executor-js/sdk": "workspace:*",
+    "effect": "4.0.1"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "miniflare": "4.20260730.0"
+  }
+}
