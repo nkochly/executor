@@ -510,6 +510,7 @@ export const startManagedServer = (
             env.EXECUTOR_DATA_DIR,
             target.metadata.target,
             body.database,
+            env.EXECUTOR_DATABASE === "sqlite" ? "sqlite" : "pglite",
           );
           if (database === undefined) return HttpServerResponse.empty({ status: 403 });
           // Hold the lifecycle gate so no product generation can open the database meanwhile.

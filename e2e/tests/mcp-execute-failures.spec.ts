@@ -3196,11 +3196,15 @@ return { failed: failed.isError, text: failed.content[0].text, read: read.isErro
           {
             sql: `CREATE FUNCTION e2e_approval_fault() RETURNS trigger LANGUAGE plpgsql AS $$
               BEGIN RAISE EXCEPTION 'Synthetic storage failure for an e2e approval'; END $$`,
+            sqlite: null,
           },
           {
             sql: `CREATE TRIGGER e2e_approval_fault BEFORE INSERT ON executor_tool_approvals
               FOR EACH ROW WHEN (NEW.owner = 'organization:${actors.organization.id}')
               EXECUTE FUNCTION e2e_approval_fault()`,
+            sqlite: `CREATE TRIGGER e2e_approval_fault BEFORE INSERT ON executor_tool_approvals
+              FOR EACH ROW WHEN NEW.owner = 'organization:${actors.organization.id}'
+              BEGIN SELECT RAISE(ABORT, 'Synthetic storage failure for an e2e approval'); END`,
           },
         ]);
         yield* serverControl("start");
@@ -3262,12 +3266,25 @@ return { failed: failed.isError, text: failed.content[0].text, read: read.isErro
           {
             sql: `CREATE FUNCTION e2e_search_rows_fault() RETURNS trigger LANGUAGE plpgsql AS $$
               BEGIN RAISE EXCEPTION 'Synthetic storage failure for e2e search rows'; END $$`,
+            sqlite: null,
           },
           {
             sql: `CREATE TRIGGER e2e_search_rows_fault
               BEFORE INSERT OR UPDATE ON executor_tool_search_listings
               FOR EACH ROW WHEN (NEW.owner = 'organization:${actors.organization.id}')
               EXECUTE FUNCTION e2e_search_rows_fault()`,
+            // SQLite triggers take one event each.
+            sqlite: `CREATE TRIGGER e2e_search_rows_fault
+              BEFORE INSERT ON executor_tool_search_listings
+              FOR EACH ROW WHEN NEW.owner = 'organization:${actors.organization.id}'
+              BEGIN SELECT RAISE(ABORT, 'Synthetic storage failure for e2e search rows'); END`,
+          },
+          {
+            sql: "SELECT 1",
+            sqlite: `CREATE TRIGGER e2e_search_rows_fault_update
+              BEFORE UPDATE ON executor_tool_search_listings
+              FOR EACH ROW WHEN NEW.owner = 'organization:${actors.organization.id}'
+              BEGIN SELECT RAISE(ABORT, 'Synthetic storage failure for e2e search rows'); END`,
           },
         ]);
         yield* serverControl("start");

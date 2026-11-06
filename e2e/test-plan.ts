@@ -33,6 +33,11 @@ export const TestPlan = Schema.Struct({
   appOrigin: Schema.optional(Schema.Literal(true)),
   /** Opt in to writing legacy/upgrade-era rows into the stopped product's own database. */
   legacyStorage: Schema.optional(Schema.Literal(true)),
+  /**
+   * Every legacy statement also carries its SQLite form. A legacy scenario without it writes
+   * Postgres-era rows that a product on SQLite never had, so it does not run there.
+   */
+  legacyStorageSqlite: Schema.optional(Schema.Literal(true)),
   managementApps: Schema.optional(Schema.Array(Schema.Literals(["owner", "admin", "member"]))),
   /** Labels of extra Testing SDK scenarios created during setup; each has its own closeable scope. */
   sdkScenarios: Schema.optional(Schema.Array(Schema.NonEmptyString)),
@@ -7257,6 +7262,7 @@ export const scenarios = plan({
   mcpExecuteApprovalSaveFailed: {
     fixtures: "actors",
     legacyStorage: true,
+    legacyStorageSqlite: true,
     file: "mcp-execute-failures.spec.ts",
     title:
       "A write whose approval request Executor cannot save reports a storage failure that records the write and is not offered as a retry, over REST and MCP",
@@ -7269,6 +7275,7 @@ export const scenarios = plan({
   mcpSearchRowsUnsaved: {
     fixtures: "actors",
     legacyStorage: true,
+    legacyStorageSqlite: true,
     file: "mcp-execute-failures.spec.ts",
     title:
       "A search whose app's search rows cannot be saved reports the app unavailable with why, instead of a page without its tools, even after the program called or described one of them, and its tools stay callable",
@@ -10034,6 +10041,23 @@ export const scenariosForSuite = (
         suite === "all" ||
         (scenario.targets["self-host"].status === "scheduled" &&
           scenario.targets.cloud.status === "scheduled"),
+    )
+    .map((scenario): typeof TestPlan.Type =>
+      // `EXECUTOR_E2E_DATABASE=sqlite` runs the self-host product on SQLite.
+      process.env.EXECUTOR_E2E_DATABASE === "sqlite" &&
+      scenario.legacyStorage === true &&
+      scenario.legacyStorageSqlite !== true &&
+      scenario.targets["self-host"].status === "scheduled"
+        ? {
+            ...scenario,
+            targets: {
+              ...scenario.targets,
+              "self-host": na(
+                "Writes Postgres-era rows that a self-host product on SQLite never had.",
+              ),
+            },
+          }
+        : scenario,
     )
     .map((scenario): typeof TestPlan.Type => {
       const cloud = scenario.targets.cloud;

@@ -87,8 +87,13 @@ const check = Effect.gen(function* () {
           )
             return;
           if (label.startsWith(`viewer${path.sep}`) && specifier === "media-chrome/react") return;
-          // The only database driver: runner-applied legacy rows for declared scenarios.
-          if (label === legacyStorage && specifier === "@electric-sql/pglite") return;
+          // The only database drivers: runner-applied legacy rows for declared scenarios, on the
+          // product's PGlite or SQLite database.
+          if (
+            label === legacyStorage &&
+            (specifier === "@electric-sql/pglite" || specifier === "node:sqlite")
+          )
+            return;
           if (
             specifier.startsWith(".") &&
             path.resolve(path.dirname(file), specifier) === path.join(root, legacyStorage) &&

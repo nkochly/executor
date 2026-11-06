@@ -5,8 +5,9 @@
  * Scenarios must declare `legacyStorage: true` in the test plan. Normal setup uses public APIs.
  */
 import { PGlite } from "@electric-sql/pglite";
-import { Effect, Exit, Schema } from "effect";
-import { driver, Target } from "./platform.ts";
+import { DatabaseSync } from "node:sqlite";
+import { Effect, Exit, Redacted, Schema } from "effect";
+import { DriverFailed, driver, Target } from "./platform.ts";
 import { Evidence } from "./evidence.ts";
 import { controlRequest } from "./server-control.ts";
 
@@ -34,6 +35,12 @@ export const LegacyFingerprint = Schema.Struct({
 /** One parameterized statement against the product's actual tables. */
 export const LegacyStatement = Schema.Struct({
   sql: Schema.NonEmptyString,
+  /**
+   * The same statement for a product on SQLite, whose parameters are the same; `null` when
+   * SQLite needs no counterpart. Scenarios that give every statement one declare
+   * `legacyStorageSqlite` in the test plan.
+   */
+  sqlite: Schema.optional(Schema.NullOr(Schema.NonEmptyString)),
   params: Schema.optional(
     Schema.Array(
       Schema.Union([
@@ -59,9 +66,27 @@ export class LegacyStatementFailed extends Schema.TaggedError<LegacyStatementFai
   { index: Schema.Number, message: Schema.String },
 ) {}
 
+/** The engine a product database runs on. */
+export type LegacyEngine = "pglite" | "sqlite";
+
+/** A database the runner writes: its engine and where it is. */
+export interface LegacyTarget {
+  readonly engine: LegacyEngine;
+  readonly path: string;
+}
+
 /** The product database inside a runner-owned data directory. */
-export const productDatabase = (dataDirectory: string, target: "self-host" | "local") =>
-  `${dataDirectory}/${target === "self-host" ? "hosted.pglite" : "executor.pglite"}`;
+export const productDatabase = (
+  dataDirectory: string,
+  target: "self-host" | "local",
+  engine: LegacyEngine = "pglite",
+): LegacyTarget =>
+  engine === "sqlite" && target === "self-host"
+    ? { engine, path: `${dataDirectory}/hosted.sqlite/executor.db` }
+    : {
+        engine: "pglite",
+        path: `${dataDirectory}/${target === "self-host" ? "hosted.pglite" : "executor.pglite"}`,
+      };
 
 /**
  * Which database a write targets. Local keeps MCP connections and grants in a separate MCP auth
@@ -75,11 +100,12 @@ export const legacyDatabase = (
   dataDirectory: string,
   target: "self-host" | "local",
   database: LegacyDatabase,
-) =>
+  engine: LegacyEngine = "pglite",
+): LegacyTarget | undefined =>
   database === "product"
-    ? productDatabase(dataDirectory, target)
+    ? productDatabase(dataDirectory, target, engine)
     : target === "local"
-      ? `${dataDirectory}/mcp-auth.pglite`
+      ? { engine: "pglite", path: `${dataDirectory}/mcp-auth.pglite` }
       : undefined;
 
 /** Runner side: the envelope the product decrypts with `key`, the hex key it was given. */
@@ -162,6 +188,34 @@ const fingerprint = (
  * parameters.
  */
 export const applyLegacyStatements = (
+  database: LegacyTarget,
+  statements: typeof LegacyStatements.Type,
+  key: string,
+) =>
+  database.engine === "sqlite"
+    ? applySqliteStatements(database.path, statements, key)
+    : applyPgliteStatements(database.path, statements, key);
+
+/** A statement's parameters, with sealed and fingerprinted values made under `key`. */
+const statementParams = (statement: typeof LegacyStatement.Type, key: string, index: number) =>
+  Effect.forEach(
+    statement.params ?? [],
+    (param): Effect.Effect<Uint8Array | string | number | boolean | null, LegacyStatementFailed> =>
+      typeof param !== "object" || param === null
+        ? Effect.succeed(param)
+        : "fingerprint" in param
+          ? fingerprint(key, param.fingerprint, index)
+          : seal(key, param.sealed, index),
+  );
+
+// Statements and their database errors are synthetic fixture text, safe to report.
+const statementFailed = (index: number) => (cause: unknown) =>
+  new LegacyStatementFailed({
+    index,
+    message: cause instanceof Error ? cause.message : "Unknown database error",
+  });
+
+const applyPgliteStatements = (
   database: string,
   statements: typeof LegacyStatements.Type,
   key: string,
@@ -176,30 +230,11 @@ export const applyLegacyStatements = (
         driver("begin legacy write", () => db.exec("BEGIN")),
         () =>
           Effect.forEach(statements, (statement, index) =>
-            Effect.forEach(
-              statement.params ?? [],
-              (
-                param,
-              ): Effect.Effect<
-                Uint8Array | string | number | boolean | null,
-                LegacyStatementFailed
-              > =>
-                typeof param !== "object" || param === null
-                  ? Effect.succeed(param)
-                  : "fingerprint" in param
-                    ? fingerprint(key, param.fingerprint, index)
-                    : seal(key, param.sealed, index),
-            ).pipe(
+            statementParams(statement, key, index).pipe(
               Effect.flatMap((params) =>
                 Effect.tryPromise({
                   try: () => db.query<Record<string, unknown>>(statement.sql, params),
-                  // Statements and their database errors are synthetic fixture text, safe to
-                  // report.
-                  catch: (cause) =>
-                    new LegacyStatementFailed({
-                      index,
-                      message: cause instanceof Error ? cause.message : "Unknown database error",
-                    }),
+                  catch: statementFailed(index),
                 }),
               ),
               Effect.map((result) => result.rows),
@@ -211,6 +246,56 @@ export const applyLegacyStatements = (
           ).pipe(Effect.orDie),
       ),
     (db) => driver("close product database", () => db.close()).pipe(Effect.orDie),
+  );
+
+/** A synchronous driver call, failing as `driver` does. */
+const syncDriver = <A>(operation: string, run: () => A) =>
+  Effect.try({
+    try: run,
+    catch: (cause) => new DriverFailed({ operation, cause: Redacted.make(cause) }),
+  });
+
+/** SQLite takes each statement's `sqlite` form; booleans are stored as 0 and 1. */
+const applySqliteStatements = (
+  database: string,
+  statements: typeof LegacyStatements.Type,
+  key: string,
+) =>
+  Effect.acquireUseRelease(
+    syncDriver("open product database", () => new DatabaseSync(database)),
+    (db) =>
+      Effect.acquireUseRelease(
+        syncDriver("begin legacy write", () => db.exec("BEGIN IMMEDIATE")),
+        () =>
+          Effect.forEach(statements, (statement, index) => {
+            const text = statement.sqlite;
+            if (text === null) return Effect.succeed([]);
+            if (text === undefined)
+              return Effect.fail(
+                new LegacyStatementFailed({ index, message: "The statement has no SQLite form" }),
+              );
+            return statementParams(statement, key, index).pipe(
+              Effect.flatMap((params) =>
+                Effect.try({
+                  try: () =>
+                    db
+                      .prepare(text)
+                      .all(
+                        ...params.map((param) =>
+                          typeof param === "boolean" ? (param ? 1 : 0) : param,
+                        ),
+                      ) as Array<Record<string, unknown>>,
+                  catch: statementFailed(index),
+                }),
+              ),
+            );
+          }),
+        (_, exit) =>
+          syncDriver("finish legacy write", () =>
+            db.exec(Exit.isSuccess(exit) ? "COMMIT" : "ROLLBACK"),
+          ).pipe(Effect.orDie),
+      ),
+    (db) => syncDriver("close product database", () => db.close()).pipe(Effect.orDie),
   );
 
 /**
