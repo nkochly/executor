@@ -498,32 +498,21 @@ const loadPatSqlite = (
       Effect.gen(function* () {
         const now = new Date(at).toISOString();
         const stale = new Date(at - lastRequestPrecision).toISOString();
+        // One read, as Postgres's single statement: the key's state and everything it grants.
         const keys = yield* sql<{
-          id: string;
-          usable: number;
-          expired: number | null;
-          recorded: number | null;
-        }>`select id,
-            coalesce(enabled, 1) <> 0 and remaining is null as usable,
-            coalesce(enabled, 1) <> 0 and "expiresAt" < ${now} as expired,
-            "lastRequest" > ${stale} as recorded
-          from apikey where key = ${hash}`;
-        const key = keys[0];
-        if (key === undefined) return [];
-        let used = false;
-        if (key.usable === 1 && key.expired !== 1 && key.recorded !== 1)
-          used =
-            (yield* sql`update apikey set "lastRequest" = ${now}, "updatedAt" = ${now}
-              where id = ${key.id} and coalesce(enabled, 1) <> 0 and remaining is null
-                and ("expiresAt" is null or "expiresAt" >= ${now})
-                and ("lastRequest" is null or "lastRequest" <= ${stale})
-              returning id`).length > 0;
-        const rows = yield* sql`select
+          readonly id: string;
+          readonly keyUsable: number;
+          readonly keyExpired: number | null;
+          readonly keyRecorded: number | null;
+          readonly [column: string]: unknown;
+        }>`select
             k.id,
             k."referenceId" as "userId",
             k.metadata,
             ${authMillis(sql, 'k."expiresAt"')} as "expiresAt",
-            ${key.usable === 1 && key.expired !== 1 && (key.recorded === 1 || used)} as usable,
+            coalesce(k.enabled, 1) <> 0 and k.remaining is null as "keyUsable",
+            coalesce(k.enabled, 1) <> 0 and k."expiresAt" < ${now} as "keyExpired",
+            k."lastRequest" > ${stale} as "keyRecorded",
             ${false} as contended,
             exists (select 1 from "user" u where u.id = k."referenceId") as "userExists",
             (select coalesce(json_group_array(json_object(
@@ -532,8 +521,25 @@ const loadPatSqlite = (
               where m."userId" = k."referenceId") as memberships,
             ${matches(sql, url)} as "urlOrganizations",
             ${matches(sql, header)} as "headerOrganizations"
-          from apikey k where k.id = ${key.id}`;
-        if (key.expired === 1) yield* sql`delete from apikey where id = ${key.id}`;
+          from apikey k where k.key = ${hash}`;
+        const key = keys[0];
+        if (key === undefined) return [];
+        const { keyUsable, keyExpired, keyRecorded, ...row } = key;
+        let used = false;
+        if (keyUsable === 1 && keyExpired !== 1 && keyRecorded !== 1)
+          used =
+            (yield* sql`update apikey set "lastRequest" = ${now}, "updatedAt" = ${now}
+              where id = ${key.id} and coalesce(enabled, 1) <> 0 and remaining is null
+                and ("expiresAt" is null or "expiresAt" >= ${now})
+                and ("lastRequest" is null or "lastRequest" <= ${stale})
+              returning id`).length > 0;
+        const rows = [
+          {
+            ...row,
+            usable: keyUsable === 1 && keyExpired !== 1 && (keyRecorded === 1 || used) ? 1 : 0,
+          },
+        ];
+        if (keyExpired === 1) yield* sql`delete from apikey where id = ${key.id}`;
         return rows;
       }),
     )
