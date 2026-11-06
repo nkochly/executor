@@ -5,8 +5,8 @@ import { AppSectionHeader, AppSectionTitle } from "./app-section-header.tsx";
 /** Inspect agent-authored source and manage app versions. */
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { AsyncResult } from "effect/reactivity";
-import { Option } from "effect";
-import type { ReactNode } from "react";
+import { Cause, Exit, Option } from "effect";
+import { useState, type ReactNode } from "react";
 import type { App } from "@executor-js/sdk";
 import type { AppSourceDisplay } from "@executor-js/app-management/contracts";
 import type { VersionDisplay } from "@executor-js/app-management/contracts/source-display";
@@ -15,6 +15,14 @@ import type { Query } from "../../contracts/dashboard.ts";
 import { QueryView, useDashboard } from "./context.tsx";
 import { Button } from "../components/button.tsx";
 import { Input } from "../components/input.tsx";
+import { Textarea } from "../components/textarea.tsx";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogTitle,
+} from "../components/dialog.tsx";
 import { SourceBrowser } from "./source-browser.tsx";
 import { CopyButton } from "./code.tsx";
 import { Popover, PopoverContent, PopoverTrigger } from "../components/popover.tsx";
@@ -27,7 +35,10 @@ import {
   Clock01Icon,
 } from "@hugeicons/core-free-icons";
 
-/** Products supply metadata reconciliation and navigation; people edit skill files in the Skills view; agents author other source. */
+/**
+ * Products supply metadata reconciliation and navigation. People edit skill files in the Skills
+ * view and any other text file here; saving commits the file and deploys that commit.
+ */
 export function AppWorkspace<E>({
   app,
   atoms,
@@ -81,6 +92,7 @@ function WorkspaceSource<E>({
   const deployed = useAtomValue(atoms.deploy(app.id));
   const deploy = useAtomSet(atoms.deploy(app.id), { mode: "promise" });
   const pending = deployed.waiting;
+  const [editing, setEditing] = useState<string>();
   return (
     <div className="source-section flex min-h-0 flex-1 flex-col [--source-sidebar-width:16rem]">
       <div className="grid min-h-12 shrink-0 grid-cols-[var(--source-sidebar-width)_minmax(0,1fr)] border-b max-md:grid-cols-1">
@@ -134,10 +146,135 @@ function WorkspaceSource<E>({
             file={(path) => atoms.sourceFile({ app: app.id, commit: source.revision.commit, path })}
             Failure={Failure}
             className="h-auto min-h-80 min-w-0 flex-1 rounded-none border-0"
+            {...(source.canEdit ? { onEdit: (path: string) => setEditing(path) } : {})}
           />
         </div>
       )}
+      {editing !== undefined && (
+        <EditWorkingFile
+          key={editing}
+          app={app}
+          atoms={atoms}
+          Failure={Failure}
+          path={editing}
+          onApp={onApp}
+          onClose={() => setEditing(undefined)}
+        />
+      )}
     </div>
+  );
+}
+/** The editor starts from the working source's exact bytes, which the commit compares against. */
+function EditWorkingFile<E>({
+  app,
+  atoms,
+  Failure,
+  path,
+  onApp,
+  onClose,
+}: AppManagementProps<E> & {
+  readonly app: App;
+  readonly path: string;
+  readonly onApp: AppAcknowledgement;
+  readonly onClose: () => void;
+}) {
+  return (
+    <QueryView query={atoms.workspace(app.id)} Failure={Failure} pending={null}>
+      {(source) => {
+        const file = source.files.find((item) => item.path === path);
+        const content =
+          file !== undefined && "content" in file && typeof file.content === "string"
+            ? file.content
+            : undefined;
+        return content === undefined ? null : (
+          <EditSourceFile
+            app={app}
+            atoms={atoms}
+            Failure={Failure}
+            path={path}
+            base={content}
+            onApp={onApp}
+            onClose={onClose}
+          />
+        );
+      }}
+    </QueryView>
+  );
+}
+/** Change one file of the working source, then deploy the commit so new calls use it. */
+function EditSourceFile<E>({
+  app,
+  atoms,
+  Failure,
+  path,
+  base,
+  onApp,
+  onClose,
+}: AppManagementProps<E> & {
+  readonly app: App;
+  readonly path: string;
+  readonly base: string;
+  readonly onApp: AppAcknowledgement;
+  readonly onClose: () => void;
+}) {
+  const [draft, setDraft] = useState(base);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<Cause.Cause<E>>();
+  const [changed, setChanged] = useState(false);
+  const commit = useAtomSet(atoms.commitFile(app.id), { mode: "promiseExit" });
+  const deploy = useAtomSet(atoms.deploy(app.id), { mode: "promiseExit" });
+  const save = async () => {
+    setSaving(true);
+    setError(undefined);
+    setChanged(false);
+    const committed = await commit({ path, base, content: draft, message: `Edit ${path}` });
+    if (Exit.isFailure(committed)) {
+      setSaving(false);
+      setError(committed.cause);
+      return;
+    }
+    if (committed.value._tag === "FileChanged") {
+      setSaving(false);
+      setChanged(true);
+      return;
+    }
+    const deployed = await deploy({ commit: committed.value.commit, onApp });
+    setSaving(false);
+    if (Exit.isFailure(deployed)) setError(deployed.cause);
+    else onClose();
+  };
+  return (
+    <Dialog open onOpenChange={(open) => !open && !saving && onClose()}>
+      <DialogContent className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-3xl">
+        <DialogTitle className="font-mono text-base">{path}</DialogTitle>
+        <DialogDescription>
+          Saving commits this file and deploys it. Earlier versions stay in Versions, where you can
+          switch back.
+        </DialogDescription>
+        <Textarea
+          aria-label={`Contents of ${path}`}
+          value={draft}
+          spellCheck={false}
+          disabled={saving}
+          onChange={(event) => setDraft(event.target.value)}
+          className="min-h-[50vh] font-mono text-xs leading-5"
+        />
+        {changed && (
+          <p role="alert" className="text-sm text-destructive">
+            This file changed since you opened it. Close, reopen it, and make your change again.
+          </p>
+        )}
+        {error !== undefined && <Failure cause={error} />}
+        <DialogFooter>
+          <Button variant="outline" disabled={saving} onClick={onClose}>
+            Cancel
+          </Button>
+          <Button disabled={saving || draft === base} onClick={() => void save()}>
+            {saving ? "Saving…" : "Save and deploy"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
 /** Undefined until the live version is known; null when it was not deployed from a commit. */

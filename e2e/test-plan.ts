@@ -2180,6 +2180,17 @@ export const scenarios = plan({
       local: na("Hosted role and group flows; shared presentation is covered on self-host."),
     },
   },
+  sourceEditing: {
+    fixtures: "actors",
+    file: "source-editing.spec.ts",
+    title:
+      "Admins edit an app's source file in the dashboard, and saving deploys it as a new version",
+    targets: {
+      "self-host": scheduled,
+      cloud: sourceStorageCloud,
+      local: na("The shared source browser is exercised through hosted organization routes."),
+    },
+  },
   sourceHighlighting: {
     fixtures: "actors",
     file: "source-highlighting.spec.ts",
