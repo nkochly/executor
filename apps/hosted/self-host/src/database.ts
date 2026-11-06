@@ -7,6 +7,7 @@ import { lock } from "proper-lockfile";
 import { dataDirectory } from "./contracts/config.ts";
 import { DatabaseUnavailable } from "./contracts/database.ts";
 import { selfHostDatabaseSchema } from "./implementation/database-schema-pglite.ts";
+import { pgliteStatementBatch } from "./implementation/pglite-statement-batch.ts";
 
 const databaseDirectory = (name: string) =>
   Effect.gen(function* () {
@@ -64,7 +65,9 @@ export const selfHostDatabase = selfHostDatabaseSchema.pipe(
         engine === "sqlite"
           ? sqliteDatabase
           : Layer.unwrap(
-              Effect.map(databaseDirectory("hosted.pglite"), (dataDir) => pgliteLayer({ dataDir })),
+              Effect.map(databaseDirectory("hosted.pglite"), (dataDir) =>
+                Layer.merge(pgliteLayer({ dataDir }), pgliteStatementBatch),
+              ),
             ),
       ),
     ),

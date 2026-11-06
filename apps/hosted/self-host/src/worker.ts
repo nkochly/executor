@@ -55,6 +55,7 @@ import dashboard from "executor:dashboard";
 import pgliteWasmModule from "executor:pglite.wasm";
 import initdbWasmModule from "executor:initdb.wasm";
 import pgliteData from "executor:pglite.data";
+import { pgliteStatementBatch } from "./implementation/pglite-statement-batch.ts";
 
 interface ProductStub {
   fetch(request: Request): Promise<Response>;
@@ -118,7 +119,7 @@ const productDatabase = (state: DurableObjectState, env: Environment) =>
       };
     const pg = yield* pgliteDatabase(state, env);
     return {
-      layer: PgliteClient.layer({ liveClient: pg }),
+      layer: Layer.merge(PgliteClient.layer({ liveClient: pg }), pgliteStatementBatch),
       exportDatabase: async () =>
         new Response(await pg.dumpDataDir("none"), {
           headers: { "content-type": "application/x-tar" },

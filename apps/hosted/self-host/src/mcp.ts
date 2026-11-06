@@ -12,9 +12,9 @@ import {
   mcpSessionKey,
 } from "@executor-js/hosted-server";
 import { McpLimits, defaultMcpLimits } from "@executor-js/mcp";
-import { PgliteClient } from "@effect/sql-pglite";
 import { Config, Effect, RcMap, Schema } from "effect";
 import { HttpServerResponse } from "effect/http";
+import { SelfHostStatementBatch } from "./contracts/statement-batch.ts";
 
 /** Own protocol sessions in the server scope; the returned handler receives SDK/auth per request. */
 export const selfHostMcp = Effect.gen(function* () {
@@ -35,18 +35,14 @@ export const selfHostMcp = Effect.gen(function* () {
     idleTimeToLive: "30 minutes",
     capacity: 256,
   });
+  const batch = yield* SelfHostStatementBatch;
   const http = authenticatedMcp((access, address) =>
     Effect.gen(function* () {
       const handler = yield* RcMap.get(sessions, mcpSessionKey(access));
-      // PGlite runs in-process, so reads issued together cost no extra connection. A tool call's
-      // statements run together under the client's lock, its reads in one snapshot, as in Cloud.
-      // Not read-only: a statement another caller handed to PGlite just before the lock can still
-      // run inside the transaction, as with any PGlite transaction, and must not fail there.
+      // A tool call's statements go out as one batch where the database can send one.
       return yield* dispatchHostedMcp(access, address, handler.http).pipe(
         Effect.provideService(ConcurrentStatements, { group: (effect) => effect }),
-        Effect.provideService(StatementBatch, (leaves, { outside }) =>
-          PgliteClient.pipelined(leaves, { outside, begin: "ISOLATION LEVEL REPEATABLE READ" }),
-        ),
+        Effect.provideService(StatementBatch, batch),
         Effect.provideService(CallStateCache, handler.calls),
       );
     }).pipe(
