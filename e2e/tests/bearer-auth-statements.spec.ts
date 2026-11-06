@@ -18,6 +18,9 @@ import { McpClient } from "../support/mcp-client.ts";
 import { McpOAuth } from "../support/mcp-oauth.ts";
 import { scenarios } from "../test-plan.ts";
 
+/** `EXECUTOR_E2E_DATABASE=sqlite` runs the self-host product on SQLite. */
+const sqlite = process.env.EXECUTOR_E2E_DATABASE === "sqlite";
+
 const Token = Schema.Struct({ key: Schema.RedactedFromValue(Schema.String), id: Schema.String });
 
 layer(HostedLive, { excludeTestServices: true })("Bearer authentication", (it) => {
@@ -86,10 +89,13 @@ layer(HostedLive, { excludeTestServices: true })("Bearer authentication", (it) =
           Effect.gen(function* () {
             const roots = yield* statements(traceId);
             yield* evidence.json(`${label}-auth-statements.json`, { traceId, roots });
+            // SQLite has no writable CTE: a key's first use in a while records it with a second,
+            // in-process statement after the read. Postgres does both in one round trip.
+            const most = sqlite ? 2 : 1;
             expect(
-              roots.map((root) => root.statements),
+              roots.map((root) => root.statements >= 1 && root.statements <= most),
               `${label} authenticates with one SQL statement`,
-            ).toEqual(roots.map(() => 1));
+            ).toEqual(roots.map(() => true));
             expect(
               roots.map((root) => root.organization),
               `${label} records the organization it authenticated for`,
