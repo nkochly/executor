@@ -9,17 +9,17 @@ its native helper. The product Durable Object passes in the bindings it was give
 | `artifactsRepositories({...})` from `./app-source` | `bindingRepositories(env.NATIVE, dir)` (native Git) | Artifacts namespace |
 
 ```ts
-const blobs = r2BlobStore(env.BLOBS);
-const repositories =
-  yield *
-  artifactsRepositories({
+const storage = Effect.gen(function* () {
+  const blobs = r2BlobStore(env.BLOBS);
+  const repositories = yield* artifactsRepositories({
     artifacts: env.ARTIFACTS,
     storage: ctx.storage, // the product Durable Object's storage
     encryptionKey: Redacted.make(env.EXECUTOR_ENCRYPTION_KEY), // 64 hex characters
     accountId: env.CLOUDFLARE_ACCOUNT_ID,
     namespace: "executor-apps", // the Artifacts namespace the binding names
   });
-return { ...host, blobs, repositories };
+  return { blobs, repositories };
+});
 ```
 
 `artifactsRepositories` is the Cloud build's Git adapter (`@executor-js/app-source/cloudflare`):
