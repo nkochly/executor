@@ -1098,6 +1098,32 @@ describe("direct integrations", () => {
     ]);
   });
 
+  it("runs a name it was given when its tool is back by the time it is called", async () => {
+    const recording = makeRecordingEngine();
+    const tool = projection({ integration: "wiki", name: "search_wiki", connection: "acme" });
+    let reads = 0;
+    const flaky: McpToolsPort = {
+      ...toolPort([tool]),
+      list: (filter) => {
+        reads += 1;
+        return reads === 1 ? Effect.succeed([]) : toolPort([tool]).list(filter);
+      },
+    };
+    await withClient(
+      {
+        engine: recording.engine,
+        tools: flaky,
+        directIntegrations: ["wiki"],
+        servedToolNames: { wiki_search_wiki: "tools.wiki.org.acme.search_wiki" },
+      },
+      async (client) => {
+        const result = await client.callTool({ name: "wiki_search_wiki", arguments: {} });
+        expect(result.isError ?? false).toBe(false);
+        expect(recording.executed.at(-1)).toContain("wiki.org.acme.search_wiki");
+      },
+    );
+  });
+
   it("tells the agent when a name it was given lost its connection", async () => {
     const recording = makeRecordingEngine();
     await withClient(

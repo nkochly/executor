@@ -1766,7 +1766,7 @@ const registerDirectTools = <E extends Cause.YieldableError>(
       const tool = byAddress.get(address);
       if (tool) named.push([name, tool]);
     }
-    const gone = kept.filter(([, address]) => !byAddress.has(address)).map(([name]) => name);
+    const gone = kept.filter(([, address]) => !byAddress.has(address));
     yield* mark("directList");
     // One policy snapshot for every tool, reads side by side, input side only:
     // a direct tool is registered with its JSON input schema alone, so no
@@ -1825,7 +1825,35 @@ const registerDirectTools = <E extends Cause.YieldableError>(
         ),
       );
     }
-    for (const name of gone) yield* registerRemovedTool(server, name);
+    // A name whose tool is missing from this listing is checked again when it
+    // is called: a listing read during a cold rebuild or a catalog re-sync can
+    // miss a tool that is still there, and the session keeps its names.
+    for (const [name, address] of gone) {
+      const recheck = (args: unknown, extra: McpRequestJoinKeys) =>
+        tools
+          .list({ integration: IntegrationSlug.make(parseToolAddress(address)?.integration ?? "") })
+          .pipe(
+            Effect.map((found) => found.some((tool) => String(tool.address) === address)),
+            Effect.timeoutOrElse({
+              duration: Duration.millis(DIRECT_LIST_TIMEOUT_MS),
+              orElse: () => Effect.succeed(false),
+            }),
+            Effect.catchCause(() => Effect.succeed(false)),
+            Effect.flatMap((present) =>
+              present
+                ? run(ToolAddress.make(address), args, extra)
+                : Effect.succeed(removedToolResult(name)),
+            ),
+            Effect.provideService(
+              CurrentOrgWriteAccess,
+              makeOrgWriteAccessState(requestOrgWriteAccess(extra)),
+            ),
+            Effect.catchCause((cause) => Effect.succeed(toMcpFailureResult(cause))),
+          );
+      yield* registerRemovedTool(server, name, (args, extra) =>
+        Effect.runPromiseWith(context)(recheck(args, extra)),
+      );
+    }
     if (options.onServed) {
       const served: Record<string, string> = { ...options.served };
       let added = false;
@@ -1845,17 +1873,25 @@ export const removedToolMessage = (name: string): string =>
     "Nothing was done. Tell the person, and start a new session to see the tools this workspace has now.",
   ].join(" ");
 
-const registerRemovedTool = (server: McpServer, name: string) =>
+const removedToolResult = (name: string): McpToolResult => ({
+  content: [{ type: "text" as const, text: removedToolMessage(name) }],
+  isError: true,
+});
+
+const registerRemovedTool = (
+  server: McpServer,
+  name: string,
+  call: (args: unknown, extra: McpRequestJoinKeys) => Promise<McpToolResult>,
+) =>
   Effect.sync(() => {
-    const message = removedToolMessage(name);
     server.registerTool(
       name,
       {
-        description: message,
+        description: `${name}: a tool this session was given whose tool list did not load when the session was rebuilt. It is checked again when called.`,
         inputSchema: z.looseObject({}),
-        annotations: { readOnlyHint: true, openWorldHint: false },
+        annotations: { openWorldHint: true },
       },
-      () => Promise.resolve({ content: [{ type: "text" as const, text: message }], isError: true }),
+      (args, extra) => call(args, extra),
     );
   });
 
