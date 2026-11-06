@@ -1384,6 +1384,16 @@ export const scenarios = plan({
       local: na("Cloud customer SSO"),
     },
   },
+  selfHostSsoEmulatedProviderAdmins: {
+    file: "self-host-sso-emulated.spec.ts",
+    title:
+      "Self-host SSO signs in through an emulated OpenID provider and maps listed admin emails to admins",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Cloud customer SSO has its own OIDC scenario."),
+      local: na("Local has no sign-in or SSO."),
+    },
+  },
   selfHostSsoDiscoveryRedirect: {
     file: "self-host-sso.spec.ts",
     title: "Self-host SSO stays unavailable when its HTTPS discovery redirects to cleartext",

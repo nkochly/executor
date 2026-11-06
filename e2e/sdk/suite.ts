@@ -358,6 +358,10 @@ export const runSuite = ({
                           ...(process.env.TMPDIR === undefined
                             ? {}
                             : { TMPDIR: process.env.TMPDIR }),
+                          // A runner behind a TLS-terminating egress proxy trusts its CA.
+                          ...(process.env.NODE_EXTRA_CA_CERTS === undefined
+                            ? {}
+                            : { NODE_EXTRA_CA_CERTS: process.env.NODE_EXTRA_CA_CERTS }),
                           ...(Option.isSome(packagedEntry)
                             ? { EXECUTOR_E2E_LOCAL_ENTRY: packagedEntry.value }
                             : {}),
