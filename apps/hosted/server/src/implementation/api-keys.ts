@@ -1,6 +1,7 @@
 import { apiKey, defaultKeyHasher } from "@better-auth/api-key";
 import { generateRandomString } from "better-auth/crypto";
 import { SqlClient } from "effect/sql";
+import { authNow } from "fumadb-effect/dialect";
 import { StorageError } from "@executor-js/sdk/core";
 import type { GenericEndpointContext } from "@better-auth/core";
 import { fullAuthority } from "@executor-js/authorization";
@@ -165,6 +166,6 @@ export const managedAccountKey = (organization: OrganizationId, user: string) =>
     yield* sql`insert into apikey (id, "configId", name, prefix, start, key, "referenceId", enabled,
       "rateLimitEnabled", "rateLimitTimeWindow", "rateLimitMax", "requestCount", "createdAt", "updatedAt", metadata)
       values (${crypto.randomUUID()}, 'default', ${managedKeyName}, 'exp_', ${Redacted.value(token).slice(0, 6)}, ${hash}, ${user}, true,
-        false, 86400000, 10, 0, now(), now(), ${JSON.stringify(pinnedKeyMetadata(organization))})`;
+        false, 86400000, 10, 0, ${authNow(sql)}, ${authNow(sql)}, ${JSON.stringify(pinnedKeyMetadata(organization))})`;
     return token;
   }).pipe(Effect.mapError(() => new StorageError()));

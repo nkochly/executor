@@ -220,6 +220,7 @@
         "apps": "workspace:*",
         "better-auth": "1.7.16",
         "effect": "4.0.1",
+        "fumadb-effect": "workspace:*",
       },
     },
     "apps/hosted/testing": {
@@ -585,10 +586,12 @@
       "name": "fumadb-effect",
       "version": "0.1.0",
       "dependencies": {
+        "@effect/sql-sqlite-do": "4.0.1",
         "@paralleldrive/cuid2": "3.3.0",
         "effect": "4.0.1",
       },
       "devDependencies": {
+        "@cloudflare/workers-types": "5.20260729.1",
         "@effect/platform-node": "4.0.1",
         "@effect/sql-mssql": "4.0.1",
         "@effect/sql-mysql2": "4.0.1",

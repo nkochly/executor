@@ -14,6 +14,7 @@ import {
 } from "@executor-js/sdk/core";
 import { Clock, Effect, Option, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
+import { authMillis, SqlBoolean } from "fumadb-effect/dialect";
 import { GroupDatabase } from "../contracts/groups.ts";
 import { OrganizationId, organizationOwner } from "../contracts/organization.ts";
 import { patGrantOf } from "./mcp-oauth.ts";
@@ -23,16 +24,16 @@ const GrantRow = Schema.Struct({
   userId: Schema.String,
   resource: Schema.String,
   policy: Schema.String,
-  revoked: Schema.Boolean,
+  revoked: SqlBoolean,
   connection: Schema.NullOr(Schema.String),
   connectionPolicy: Schema.NullOr(Schema.String),
-  connectionRevoked: Schema.NullOr(Schema.Boolean),
+  connectionRevoked: Schema.NullOr(SqlBoolean),
   connectionUser: Schema.NullOr(Schema.String),
   connectionResource: Schema.NullOr(Schema.String),
 });
 const KeyRow = Schema.Struct({
   userId: Schema.String,
-  usable: Schema.Boolean,
+  usable: SqlBoolean,
   expiresAt: Schema.NullOr(Schema.Number),
 });
 
@@ -43,7 +44,7 @@ const grantStanding = (sql: SqlClient.SqlClient, id: string) =>
     if (Option.isSome(pat)) {
       const rows = yield* sql`select "referenceId" as "userId",
           enabled is not false and remaining is null as usable,
-          floor(extract(epoch from "expiresAt") * 1000)::float8 as "expiresAt"
+          ${authMillis(sql, '"expiresAt"')} as "expiresAt"
         from apikey where id = ${pat.value.token}`;
       const key = Schema.decodeUnknownOption(KeyRow)(rows[0]);
       if (Option.isNone(key) || !key.value.usable) return Option.none();

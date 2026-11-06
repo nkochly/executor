@@ -10,7 +10,8 @@
     "./agents": "./src/contracts/agents.ts",
     "./device": "./src/contracts/device.ts",
     "./oauth": "./src/implementation/oauth.ts",
-    "./node-database": "./src/implementation/node-database.ts"
+    "./node-database": "./src/implementation/node-database.ts",
+    "./sqlite-database": "./src/implementation/sqlite-database.ts"
   },
   "dependencies": {
     "@better-auth/core": "1.7.16",

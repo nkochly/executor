@@ -5,6 +5,9 @@ import { sourceFilesEqual } from "@executor-js/sdk/core";
 import { AccountId, AppId, StorageError, StorageHost, type Executor } from "@executor-js/sdk/core";
 import { Effect, Redacted, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import type * as Statement from "effect/sql/Statement";
+import { advisoryLock, isSqlite, json, SqlBoolean, SqlJson } from "fumadb-effect/dialect";
+
 import {
   OrganizationDefaults,
   OrganizationDefaultsPending,
@@ -14,15 +17,25 @@ import { ScheduleWakeup } from "../contracts/schedules.ts";
 import { addLink } from "./app-accounts.ts";
 import { executorCopyOrigin } from "./executor-catalog-entry.ts";
 
+/** An empty JSON object in the dialect's JSON type. */
+const emptyObject = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? "'{}'" : "'{}'::jsonb");
+
 /** Only a new or changed installation generates the Executor app, so its OpenAPI compiler loads then. */
 const executorApp = Effect.promise(() => import("./executor-app.ts"));
 
 const State = Schema.Struct({
-  initialized: Schema.Boolean,
+  initialized: SqlBoolean,
   app: Schema.NullOr(AppId),
-  accounts: Schema.Record(Schema.String, AccountId),
+  accounts: SqlJson(Schema.Record(Schema.String, AccountId)),
 });
-const Accounts = Schema.Struct({ accounts: Schema.Record(Schema.String, AccountId) });
+const Accounts = Schema.Struct({ accounts: SqlJson(Schema.Record(Schema.String, AccountId)) });
+
+/** Organization metadata is JSON text; PostgreSQL edits it as jsonb. */
+const setMetadata = (sql: SqlClient.SqlClient, key: string, value: Statement.Fragment) =>
+  isSqlite(sql)
+    ? sql`json_set(coalesce(metadata, '{}'), ${`$.${key}`}, ${value})`
+    : sql`jsonb_set(coalesce(metadata::jsonb, '{}'::jsonb), ${`{${key}}`}, ${value})::text`;
 
 /**
  * Install once, then give each new member a managed key linked to the installed app. The app is
@@ -43,9 +56,9 @@ export const organizationDefaults = (
       let intent = false;
       return Effect.gen(function* () {
         const rows = yield* sql`select
-          coalesce((metadata::jsonb -> 'executorDefaults' ->> 'installed')::boolean, false) as initialized,
-          metadata::jsonb -> 'executorDefaults' ->> 'app' as app,
-          coalesce(metadata::jsonb -> 'executorKeyAccounts', '{}'::jsonb) as accounts
+          coalesce(cast(${json(sql, "metadata")} -> 'executorDefaults' ->> 'installed' as boolean), false) as initialized,
+          ${json(sql, "metadata")} -> 'executorDefaults' ->> 'app' as app,
+          coalesce(${json(sql, "metadata")} -> 'executorKeyAccounts', ${emptyObject(sql)}) as accounts
           from "organization" where id = ${organization}`.pipe(
           Effect.mapError(() => new StorageError()),
         );
@@ -92,11 +105,12 @@ export const organizationDefaults = (
             : null;
           // Concurrent installers all reach this write; the unique app name gave them one app.
           // The first record wins, so a later one cannot replace what member setup recorded since.
-          yield* sql`update "organization" set metadata = jsonb_set(
-            coalesce(metadata::jsonb, '{}'::jsonb), '{executorDefaults}',
-            jsonb_build_object('installed', true, 'app', ${installed.id}::text, 'deployment', ${approved}::text)
-          )::text where id = ${organization}
-            and not coalesce((metadata::jsonb -> 'executorDefaults' ->> 'installed')::boolean, false)`.pipe(
+          const defaults = isSqlite(sql)
+            ? sql`json_object('installed', json('true'), 'app', ${installed.id}, 'deployment', ${approved})`
+            : sql`jsonb_build_object('installed', true, 'app', ${installed.id}::text, 'deployment', ${approved}::text)`;
+          yield* sql`update "organization" set metadata = ${setMetadata(sql, "executorDefaults", defaults)}
+          where id = ${organization}
+            and not coalesce(cast(${json(sql, "metadata")} -> 'executorDefaults' ->> 'installed' as boolean), false)`.pipe(
             Effect.mapError(() => new StorageError()),
           );
         }
@@ -119,7 +133,7 @@ export const organizationDefaults = (
               // setup, but not a role change whose trigger checks the organization key; with
               // `for update` that check and this setup's member lock deadlocked.
               const rows =
-                yield* sql`select coalesce(metadata::jsonb -> 'executorKeyAccounts', '{}'::jsonb) as accounts
+                yield* sql`select coalesce(${json(sql, "metadata")} -> 'executorKeyAccounts', ${emptyObject(sql)}) as accounts
             from "organization" where id = ${organization} for no key update`.pipe(
                   Effect.mapError(() => new StorageError()),
                 );
@@ -130,7 +144,7 @@ export const organizationDefaults = (
               if (Object.hasOwn(state.accounts, user.userId)) return;
               // Serialize member setup per app without touching the SDK's rows; the SDK read
               // below runs inside this transaction and observes a committed version.
-              yield* sql`select pg_advisory_xact_lock(hashtextextended(${`executor-defaults:${app.id}`}, 0))`.pipe(
+              yield* advisoryLock(sql, `executor-defaults:${app.id}`).pipe(
                 Effect.mapError(() => new StorageError()),
               );
               // The key fits whatever version is active now; an app without the slot gets none.
@@ -174,9 +188,9 @@ export const organizationDefaults = (
               )
                 intent = true;
               const accounts = JSON.stringify({ ...state.accounts, [user.userId]: account.id });
-              yield* sql`update "organization" set metadata = jsonb_set(
-            coalesce(metadata::jsonb, '{}'::jsonb), '{executorKeyAccounts}', ${accounts}::jsonb
-          )::text where id = ${organization}`.pipe(Effect.mapError(() => new StorageError()));
+              const stored = isSqlite(sql) ? sql`json(${accounts})` : sql`${accounts}::jsonb`;
+              yield* sql`update "organization" set metadata = ${setMetadata(sql, "executorKeyAccounts", stored)}
+          where id = ${organization}`.pipe(Effect.mapError(() => new StorageError()));
             }),
           )
           .pipe(Effect.uninterruptible);

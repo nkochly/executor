@@ -343,6 +343,17 @@ export const runSuite = ({
                         extendEnv: false,
                         env: {
                           PATH: process.env.PATH ?? "",
+                          // Sandboxed runners: a virtual display and a preinstalled browser; the self-host database.
+                          ...Object.fromEntries(
+                            [
+                              "DISPLAY",
+                              "PLAYWRIGHT_BROWSERS_PATH",
+                              "EXECUTOR_E2E_DATABASE",
+                              "EXECUTOR_SQLITE_TRACE",
+                            ].flatMap((key) =>
+                              process.env[key] === undefined ? [] : [[key, process.env[key]]],
+                            ),
+                          ),
                           ...(process.env.HOME === undefined ? {} : { HOME: process.env.HOME }),
                           ...(process.env.TMPDIR === undefined
                             ? {}

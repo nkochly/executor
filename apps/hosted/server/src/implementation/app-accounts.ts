@@ -25,6 +25,8 @@ import {
 import { permitsAccounts, permittedTargets } from "@executor-js/authorization";
 import { Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
+import { isSqlite, sqliteNow } from "fumadb-effect/dialect";
+
 import { CurrentUserId } from "../contracts/auth.ts";
 import { CurrentAuthorization } from "../contracts/authorization.ts";
 import { RequirementMismatch } from "../contracts/app-accounts.ts";
@@ -42,6 +44,10 @@ import {
   type ResourceAuthority,
 } from "./resource-policy.ts";
 import { userAccountIds } from "./authorization.ts";
+
+/** The instant a statement runs, even late in a long transaction. */
+const clockTimestamp = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? sqliteNow : "clock_timestamp()");
 
 const sqlFailures = {
   SqlError: () => new StorageError(),
@@ -420,7 +426,7 @@ export const addLink = (
     const inserted = yield* sql`insert into hosted_app_account_links
         (app, requirement, subject, account, linked_by, created_at)
       values (${input.app}, ${input.requirement}, ${input.subject}, ${input.account},
-        ${input.linkedBy}, clock_timestamp())
+        ${input.linkedBy}, ${clockTimestamp(sql)})
       on conflict do nothing returning account`;
     if (inserted.length === 0) return replaced.length > 0;
     yield* syncSource(sql, webhooks, {

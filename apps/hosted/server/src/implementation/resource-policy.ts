@@ -11,6 +11,8 @@ import {
 import type { OAuthClientAccess } from "../contracts/oauth-clients.ts";
 import { Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
+import { isSqlite, SqlBoolean, SqlJson } from "fumadb-effect/dialect";
+
 import { GroupDatabase, GroupId, GroupMemberId } from "../contracts/groups.ts";
 import { CurrentUserId, Principal } from "../contracts/auth.ts";
 import {
@@ -27,6 +29,18 @@ import {
   type AppAudience,
   type SharedAudience,
 } from "../contracts/resource-access.ts";
+
+/** The group IDs of a policy table's rows matching `where`, in order, as an array (JSON on SQLite). */
+const groupIds = (sql: SqlClient.SqlClient, table: string, where: string) =>
+  sql.literal(
+    isSqlite(sql)
+      ? `(select json_group_array(g.group_id order by g.group_id) from ${table} g where ${where})`
+      : `array(select g.group_id from ${table} g where ${where} order by g.group_id)`,
+  );
+
+/** Keeps the planner from merging a subquery into the joins after it; SQLite needs a limit. */
+const planFence = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? "limit -1 offset 0" : "offset 0");
 
 /** A concrete client remains owned by this invocation (Cloud) or host process (self-host). */
 export const policyDatabase = Effect.flatten(GroupDatabase).pipe(
@@ -74,8 +88,8 @@ const AppPolicy = Schema.Struct({
   creator: Schema.NullOr(Principal.fields.userId),
   audience: Schema.Literals(["private", "groups", "everyone"]),
   revision: AccessRevision,
-  groups: Schema.Array(GroupId),
-  granted: Schema.Boolean,
+  groups: SqlJson(Schema.Array(GroupId)),
+  granted: SqlBoolean,
 });
 const appAccessOf = (found: typeof AppPolicy.Type, actor: ResourceAuthority) => {
   const audience: typeof AppAudience.Type =
@@ -100,7 +114,7 @@ export const applicationAccesses = (apps: readonly AppId[], actor: ResourceAutho
     if (apps.length === 0) return [];
     const sql = yield* policyDatabase;
     const rows = yield* sql`select p.id as app, p.creator_id as creator, p.audience, p.revision,
-    array(select g.group_id from hosted_app_groups g where g.app_id = p.id order by g.group_id) as groups,
+    ${groupIds(sql, "hosted_app_groups", "g.app_id = p.id")} as groups,
     exists(select 1 from hosted_app_groups g join hosted_group_members m on m.group_id = g.group_id
       where g.app_id = p.id and m.member_id = ${actor.member}) as granted
     from hosted_app_access p
@@ -128,8 +142,8 @@ const MemberAppPolicy = Schema.Struct({
   creator: Schema.NullOr(Principal.fields.userId),
   audience: Schema.NullOr(AppPolicy.fields.audience),
   revision: Schema.NullOr(AccessRevision),
-  groups: Schema.NullOr(Schema.Array(GroupId)),
-  granted: Schema.Boolean,
+  groups: Schema.NullOr(SqlJson(Schema.Array(GroupId))),
+  granted: SqlBoolean,
 });
 /**
  * {@link resourceAuthority} followed by {@link applicationAccesses}, read in one statement so
@@ -147,7 +161,7 @@ export const resourceAuthorityForApps = (
     const rows = yield* sql`select m.id, m.role, p.id as app, p.creator_id as creator, p.audience,
     p.revision,
     case when p.id is null then null else
-      array(select g.group_id from hosted_app_groups g where g.app_id = p.id order by g.group_id)
+      ${groupIds(sql, "hosted_app_groups", "g.app_id = p.id")}
     end as groups,
     exists(select 1 from hosted_app_groups g join hosted_group_members gm on gm.group_id = g.group_id
       where g.app_id = p.id and gm.member_id = m.id) as granted
@@ -216,7 +230,7 @@ export const usableLinks = (
         from hosted_app_account_links l
         join executor_apps app on app.id = l.app
         where l.subject = ${input.subject} and ${sql.in("l.app", input.apps)}
-        offset 0) l
+        ${planFence(sql)}) l
       join executor_accounts a on a.id = l.account and a.owner = l.owner
       join hosted_account_access p on p.account_id = a.id
         and a.owner = 'organization:' || p.organization_id
@@ -239,7 +253,7 @@ export const usableAppLinks = (sql: SqlClient.SqlClient, apps: readonly AppId[])
         from hosted_app_account_links l
         join executor_apps app on app.id = l.app
         where l.subject is null and ${sql.in("l.app", apps)}
-        offset 0) l
+        ${planFence(sql)}) l
       join executor_accounts a on a.id = l.account and a.owner = l.owner
       join hosted_account_access p on p.account_id = a.id
         and a.owner = 'organization:' || p.organization_id
@@ -288,7 +302,7 @@ export const resourceAuthorityForLinks = (
     const rows = yield* sql`select m.id, m.role, p.id as app, p.creator_id as creator, p.audience,
     p.revision,
     case when p.id is null then null else
-      array(select g.group_id from hosted_app_groups g where g.app_id = p.id order by g.group_id)
+      ${groupIds(sql, "hosted_app_groups", "g.app_id = p.id")}
     end as groups,
     exists(select 1 from hosted_app_groups g join hosted_group_members gm on gm.group_id = g.group_id
       where g.app_id = p.id and gm.member_id = m.id) as granted,
@@ -338,8 +352,8 @@ const AccountPolicy = Schema.Struct({
   personalUser: Schema.NullOr(Principal.fields.userId),
   audience: Schema.NullOr(Schema.Literals(["groups", "everyone"])),
   revision: AccessRevision,
-  groups: Schema.Array(GroupId),
-  granted: Schema.Boolean,
+  groups: SqlJson(Schema.Array(GroupId)),
+  granted: SqlBoolean,
 });
 const accountAccessOf = (found: typeof AccountPolicy.Type, actor: ResourceAuthority) =>
   Effect.gen(function* () {
@@ -374,7 +388,7 @@ export const accountAccesses = (accounts: readonly AccountId[], actor: ResourceA
     const sql = yield* policyDatabase;
     const rows = yield* sql`select p.account_id as account, p.creator_id as creator, p.kind,
     p.personal_user_id as "personalUser", p.audience, p.revision,
-    array(select g.group_id from hosted_account_groups g where g.account_id = p.account_id order by g.group_id) as groups,
+    ${groupIds(sql, "hosted_account_groups", "g.account_id = p.account_id")} as groups,
     exists(select 1 from hosted_account_groups g join hosted_group_members m on m.group_id = g.group_id
       where g.account_id = p.account_id and m.member_id = ${actor.member}) as granted
     from hosted_account_access p
@@ -390,8 +404,8 @@ const OAuthClientPolicy = Schema.Struct({
   creator: Schema.NullOr(Principal.fields.userId),
   audience: Schema.Literals(["private", "groups", "everyone"]),
   revision: AccessRevision,
-  groups: Schema.Array(GroupId),
-  granted: Schema.Boolean,
+  groups: SqlJson(Schema.Array(GroupId)),
+  granted: SqlBoolean,
 });
 /** Resolve OAuth client policies in one read; only administrators manage clients. */
 export const oauthClientAccesses = (clients: readonly OAuthClientId[], actor: ResourceAuthority) =>
@@ -400,7 +414,7 @@ export const oauthClientAccesses = (clients: readonly OAuthClientId[], actor: Re
     const sql = yield* policyDatabase;
     const rows =
       yield* sql`select p.client_id as client, p.creator_id as creator, p.audience, p.revision,
-    array(select g.group_id from hosted_oauth_client_groups g where g.client_id = p.client_id order by g.group_id) as groups,
+    ${groupIds(sql, "hosted_oauth_client_groups", "g.client_id = p.client_id")} as groups,
     exists(select 1 from hosted_oauth_client_groups g join hosted_group_members m on m.group_id = g.group_id
       where g.client_id = p.client_id and m.member_id = ${actor.member}) as granted
     from hosted_oauth_client_access p

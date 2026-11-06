@@ -7,6 +7,7 @@
  */
 import { Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { SqlBoolean } from "fumadb-effect/dialect";
 import type { DataStep, DataStepJournal, DataStepMode } from "../contracts/data-steps.ts";
 
 /**
@@ -81,7 +82,7 @@ export const idleAgentGrantsStep = (host: AgentGrantHost, name: string): DataSte
 /** The name of the data step above in every host's list. */
 export const idleAgentGrantsStepName = "4_expire_idle_agent_grants";
 
-const Applied = Schema.Array(Schema.Struct({ completed: Schema.Boolean }));
+const Applied = Schema.Array(Schema.Struct({ completed: SqlBoolean }));
 
 /**
  * Revoke every grant idle for 30 days, once the data step has applied on this host. Until then,

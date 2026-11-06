@@ -14,6 +14,15 @@ import { migrateOrganizationRemovals } from "./organization-removal-schema.ts";
 import { migrateApiKeyMemberships } from "./api-key-membership-schema.ts";
 import { queueExecutorAppUpgrades } from "./executor-app-upgrades.ts";
 import { migrateAppAccountLinks } from "./app-account-schema.ts";
+import { migrateSqliteBaseline } from "./sqlite-schema.ts";
+import { isSqlite } from "fumadb-effect/dialect";
+
+/** The SQL dialects the hosted product stores its data in. */
+export type HostedDatabaseProvider = "postgresql" | "sqlite";
+
+/** The dialect of the host's SQL client. */
+export const hostedDatabaseProvider = (sql: SqlClient.SqlClient): HostedDatabaseProvider =>
+  isSqlite(sql) ? "sqlite" : "postgresql";
 
 /**
  * Migration failures stop startup; callers must not log the driver's secret-bearing cause. The
@@ -78,11 +87,13 @@ export const migrateProductSteps = (
     const sql = yield* SqlClient.SqlClient;
     // Effect's Postgres migrator probes with ::regclass. Bootstrap explicitly
     // so a missing journal cannot abort the caller's enclosing transaction.
-    yield* sql`create table if not exists ${sql(table)} (
-      migration_id integer primary key,
-      created_at timestamp with time zone not null default now(),
-      name text not null
-    )`;
+    // Its SQLite migrator creates the journal itself.
+    if (!isSqlite(sql))
+      yield* sql`create table if not exists ${sql(table)} (
+        migration_id integer primary key,
+        created_at timestamp with time zone not null default now(),
+        name text not null
+      )`;
     yield* Migrator.make({})({ table, loader: Migrator.fromRecord(steps) });
   }).pipe(
     Effect.catchDefect((error) =>
@@ -93,7 +104,7 @@ export const migrateProductSteps = (
     Effect.mapError(migrationFailed("product")),
   );
 
-const hostedProductMigrations = migrateProductSteps("private_hosted_migrations", {
+const hostedPostgresMigrations = migrateProductSteps("private_hosted_migrations", {
   "1_baseline": Effect.gen(function* () {
     yield* migrateGroups;
     yield* migrateResourceAccess;
@@ -119,6 +130,22 @@ const hostedProductMigrations = migrateProductSteps("private_hosted_migrations",
   // App and user account links; profiles become user links. Runs after SDK 4.0.13, which keeps
   // the profiles.
   "9_app_account_links": migrateAppAccountLinks,
+});
+
+/**
+ * SQLite databases start from the current layout. Steps keep PostgreSQL's numbering so a step
+ * appended later has one number in both dialects; 2 to 9 are already in the baseline.
+ */
+const hostedSqliteMigrations = migrateProductSteps("private_hosted_migrations", {
+  "1_baseline": migrateSqliteBaseline,
+  "2_api_key_memberships": Effect.void,
+  "3_upgrade_executor_apps": Effect.void,
+  "4_data_steps": createDataStepJournal("private_hosted"),
+  "5_upgrade_executor_apps": Effect.void,
+  "6_upgrade_pinned_executor_apps": Effect.void,
+  "7_require_connection_targets": Effect.void,
+  "8_oauth_client_access": Effect.void,
+  "9_app_account_links": Effect.void,
 });
 
 /**
@@ -152,7 +179,8 @@ export const migrateHostedSchemas = (
   additional: Effect.Effect<void, HostedMigrationFailed, SqlClient.SqlClient> = Effect.void,
 ) =>
   Effect.gen(function* () {
-    const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+    const provider = hostedDatabaseProvider(yield* SqlClient.SqlClient);
+    const storage = yield* makeExecutorStorage({ provider });
     // Check compatibility before Better Auth's independent pool can commit DDL.
     yield* storage.checkMigration.pipe(Effect.mapError(migrationFailed("product")));
     const migrations = yield* Effect.tryPromise({
@@ -168,7 +196,7 @@ export const migrateHostedSchemas = (
       catch: migrationFailed("auth"),
     });
     yield* storage.migrateTables.pipe(Effect.mapError(migrationFailed("product")));
-    yield* hostedProductMigrations;
+    yield* provider === "sqlite" ? hostedSqliteMigrations : hostedPostgresMigrations;
     yield* additional;
     // Index builds block writes to their tables until the enclosing transaction commits, and
     // runtime writers set no lock timeout. Build them last so they hold that lock only for

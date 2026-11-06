@@ -96,6 +96,10 @@ export const startManagedServer = (
     const npmRegistry = yield* Config.NonEmptyString("E2E_NPM_REGISTRY").pipe(Config.option);
     // The run's loopback official app feed and app registry; see public-catalogs.ts.
     const catalogs = yield* Config.NonEmptyString("E2E_PUBLIC_CATALOGS").pipe(Config.option);
+    const database = yield* Config.Literals(["pglite", "sqlite"], "EXECUTOR_E2E_DATABASE").pipe(
+      Config.option,
+    );
+    const sqliteTrace = yield* Config.NonEmptyString("EXECUTOR_SQLITE_TRACE").pipe(Config.option);
     const entry =
       target.metadata.target === "local" && Option.isSome(packagedEntry)
         ? // Run the installed CLI from its package, as the desktop runs its backend from its
@@ -172,6 +176,9 @@ export const startManagedServer = (
       EXECUTOR_TEST_CLOCK_OFFSET_MS: "0",
       EXECUTOR_TEST_CLOCK_CONTROL: "stdin",
       EXECUTOR_ANALYTICS_TEST_PORT: String(analyticsPort),
+      // `EXECUTOR_E2E_DATABASE=sqlite` runs the self-host product on SQLite, as Cloudflare does.
+      ...(Option.isSome(database) ? { EXECUTOR_DATABASE: database.value } : {}),
+      ...(Option.isSome(sqliteTrace) ? { EXECUTOR_SQLITE_TRACE: sqliteTrace.value } : {}),
       ...environment,
     };
     // Ask the product alone to stop, as the self-host image's supervisor does, so its own shutdown

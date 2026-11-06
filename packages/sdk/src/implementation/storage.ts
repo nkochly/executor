@@ -7,7 +7,7 @@ import { makeReactiveStore } from "@executor-js/reactivity";
 import { StorageError } from "../contracts/shared.ts";
 import { bindOrm } from "./reactive-orm.ts";
 import {
-  currentIndexes,
+  currentIndexesFor,
   executorDatabase,
   storageSchemas,
   trailingStorageIndexVersions,
@@ -46,9 +46,13 @@ export const makeExecutorStorage = (options: { readonly provider: SqlProvider })
           // Its tables are empty, so no index build waits on or blocks a writer.
           yield* Effect.gen(function* () {
             yield* (yield* migrator.migrateToLatest()).execute;
-            yield* Effect.forEach(currentIndexes, (statement) => sql.unsafe(statement).unprepared, {
-              discard: true,
-            });
+            yield* Effect.forEach(
+              currentIndexesFor(options.provider),
+              (statement) => sql.unsafe(statement).unprepared,
+              {
+                discard: true,
+              },
+            );
           }).pipe(Effect.mapError((cause) => storageMigrationFailed(cause, latestVersion)));
           return;
         }

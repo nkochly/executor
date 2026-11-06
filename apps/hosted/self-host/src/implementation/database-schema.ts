@@ -1,6 +1,11 @@
 /** Shared auth and product schema initialization over an acquired SQL client. */
 import { selfHostAuthOptions, selfHostAuthSettings } from "./auth-options.ts";
-import { migrateHostedSchemas } from "@executor-js/hosted-server/migrations";
+import {
+  hostedDatabaseProvider,
+  migrateHostedSchemas,
+} from "@executor-js/hosted-server/migrations";
+import { makeSqliteAuthDatabase } from "@executor-js/mcp-auth/sqlite-database";
+import { SqlClient } from "effect/sql";
 import { Effect, Layer, Redacted } from "effect";
 import { AuthDatabase } from "../contracts/database.ts";
 import { makeAuthDatabase } from "./auth-database.ts";
@@ -8,8 +13,12 @@ import { makeAuthDatabase } from "./auth-database.ts";
 export const selfHostDatabaseSchema = Layer.effect(
   AuthDatabase,
   Effect.gen(function* () {
-    const db = yield* makeAuthDatabase;
-    const database = AuthDatabase.of({ db, type: "postgres", transaction: true });
+    const sqlite = hostedDatabaseProvider(yield* SqlClient.SqlClient) === "sqlite";
+    const database = AuthDatabase.of(
+      sqlite
+        ? { db: yield* makeSqliteAuthDatabase, type: "sqlite", transaction: true }
+        : { db: yield* makeAuthDatabase, type: "postgres", transaction: true },
+    );
     const settings = yield* selfHostAuthSettings;
     yield* migrateHostedSchemas({
       // Migrations read plugin schemas only. SSO adds none, so this reads no provider metadata.

@@ -10,6 +10,7 @@
  */
 import { Clock, Effect, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { isoText, now, nowPlusSeconds, SqlBoolean } from "fumadb-effect/dialect";
 import {
   DataStepUnavailable,
   dataStepLogPrefix,
@@ -33,7 +34,7 @@ export const createDataStepJournal = (journal: DataStepJournal) =>
       cursor text,
       lease_until timestamp with time zone,
       retry_at timestamp with time zone,
-      started_at timestamp with time zone not null default now(),
+      started_at timestamp with time zone not null default ${now(sql)},
       completed_at timestamp with time zone,
       primary key (name, run)
     )`;
@@ -76,9 +77,9 @@ const retryDelaySeconds = (pass: number) =>
 const Claim = Schema.Array(
   Schema.Struct({ pass: Schema.Int, cursor: Schema.NullOr(Schema.String) }),
 );
-const Completed = Schema.Array(Schema.Struct({ completed: Schema.Boolean }));
+const Completed = Schema.Array(Schema.Struct({ completed: SqlBoolean }));
 const Unclaimed = Schema.Array(
-  Schema.Struct({ completed: Schema.Boolean, retryAt: Schema.NullOr(Schema.String) }),
+  Schema.Struct({ completed: SqlBoolean, retryAt: Schema.NullOr(Schema.String) }),
 );
 const Retry = Schema.Array(Schema.Struct({ retryAt: Schema.String }));
 const Items = Schema.Array(Schema.Struct({ item: Schema.String }));
@@ -118,15 +119,16 @@ export const runDataSteps = <R>(
         yield* sql`insert into ${journal} (name, run, mode)
           values (${step.name}, ${run}, ${options.mode}) on conflict do nothing`;
         // A background run waits for the lease and, before a retry pass, for its backoff.
-        const claimed = yield* sql`update ${journal} set lease_until = now() + interval '15 minutes'
+        const claimed =
+          yield* sql`update ${journal} set lease_until = ${nowPlusSeconds(sql, 15 * 60)}
           where name = ${step.name} and run = ${run} and completed_at is null
-          and (${options.exclusive} or ((lease_until is null or lease_until < now())
-            and (retry_at is null or retry_at <= now())))
+          and (${options.exclusive} or ((lease_until is null or lease_until < ${now(sql)})
+            and (retry_at is null or retry_at <= ${now(sql)})))
           returning pass, cursor`.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Claim)));
         const claim = claimed[0];
         if (claim === undefined) {
           const [state] = yield* sql`select completed_at is not null as completed,
-            case when retry_at > now() then to_json(retry_at) #>> '{}' end as "retryAt"
+            case when retry_at > ${now(sql)} then ${isoText(sql, "retry_at")} end as "retryAt"
             from ${journal} where name = ${step.name} and run = ${run}`.pipe(
             Effect.flatMap(Schema.decodeUnknownEffect(Unclaimed)),
           );
@@ -191,21 +193,22 @@ export const runDataSteps = <R>(
               "item",
               removed.map((row) => row.item),
             )}`;
-        const counts = yield* sql`select owner, outcome, count(*)::integer as count from ${outcomes}
+        const counts =
+          yield* sql`select owner, outcome, cast(count(*) as integer) as count from ${outcomes}
           where name = ${step.name} and run = ${run} group by owner, outcome order by owner, outcome`.pipe(
-          Effect.flatMap(Schema.decodeUnknownEffect(Counts)),
-        );
+            Effect.flatMap(Schema.decodeUnknownEffect(Counts)),
+          );
         const retrying = counts.some((row) => step.retry.includes(row.outcome));
         const retryAt = retrying
           ? (yield* sql`update ${journal} set pass = ${pass + 1}, cursor = null, lease_until = null,
-              retry_at = now() + make_interval(secs => ${retryDelaySeconds(pass)})
+              retry_at = ${nowPlusSeconds(sql, retryDelaySeconds(pass))}
               where name = ${step.name} and run = ${run}
-              returning to_json(retry_at) #>> '{}' as "retryAt"`.pipe(
+              returning ${isoText(sql, "retry_at")} as "retryAt"`.pipe(
               Effect.flatMap(Schema.decodeUnknownEffect(Retry)),
             ))[0]?.retryAt
           : undefined;
         if (!retrying)
-          yield* sql`update ${journal} set completed_at = now(), lease_until = null, retry_at = null
+          yield* sql`update ${journal} set completed_at = ${now(sql)}, lease_until = null, retry_at = null
             where name = ${step.name} and run = ${run}`;
         const totals: Record<string, number> = {};
         const owners: Record<string, Record<string, number>> = {};

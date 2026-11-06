@@ -14,6 +14,8 @@ import {
 } from "@executor-js/sdk/core";
 import { Context, Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { isSqlite, jsonColumns, SqlBoolean } from "fumadb-effect/dialect";
+
 import { CurrentUserId } from "../contracts/auth.ts";
 import { OrganizationId } from "../contracts/organization.ts";
 import { ConnectionDestination, type AppAudience } from "../contracts/resource-access.ts";
@@ -28,6 +30,10 @@ import {
   sourceActorLost,
 } from "./app-accounts.ts";
 import { usableAppLinks } from "./resource-policy.ts";
+
+/** One `allowed` row (id, owner) as JSON; SQLite has no whole-row JSON. */
+const allowedRow = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? "json_object('id', allowed.id, 'owner', allowed.owner)" : "allowed");
 
 type AppCreation =
   | { readonly kind: "member" }
@@ -259,7 +265,7 @@ export const hostedResourceLifecycle = Effect.gen(function* () {
           const users =
             user === undefined || owned.length === 0
               ? sql.literal(noRows)
-              : sql`(select coalesce(json_agg(allowed), '[]'::json)::text
+              : sql`(select coalesce(json_agg(${allowedRow(sql)}), '[]'::json)::text
                   from (${accountAccess(sql, owned, user)}) allowed)`;
           const linkRows =
             uses.length === 0
@@ -308,7 +314,7 @@ export const hostedResourceLifecycle = Effect.gen(function* () {
           const users =
             user === undefined || owned.length === 0
               ? sql.literal(noRows)
-              : sql`(select coalesce(json_agg(allowed), '[]'::json)::text
+              : sql`(select coalesce(json_agg(${allowedRow(sql)}), '[]'::json)::text
                   from (${accountAccess(sql, owned, user)}) allowed)`;
           const ours =
             uses.length === 0
@@ -397,7 +403,7 @@ export const hostedResourceLifecycle = Effect.gen(function* () {
             Schema.Array(
               Schema.Struct({ organization: OrganizationId, destination: ConnectionDestination }),
             ),
-          )(rows))[0];
+          )(jsonColumns(sql, rows, "destination")))[0];
           if (intent === undefined) return yield* refused;
           if (intent.destination.kind === "shared" && intent.destination.audience.kind === "groups")
             yield* requireGroupSharing(
@@ -611,7 +617,7 @@ export const hostedResourceLifecycle = Effect.gen(function* () {
             and (c.target ->> 'requirement') = ${input.requirement}
             for share of c, m`;
           const started = (yield* Schema.decodeUnknownEffect(
-            Schema.Array(Schema.Struct({ scope: AccountScope, authorized: Schema.Boolean })),
+            Schema.Array(Schema.Struct({ scope: AccountScope, authorized: SqlBoolean })),
           )(rows))[0];
           if (started === undefined) return yield* new AccountConnectionRefused(target);
           if (started.scope !== input.scope)

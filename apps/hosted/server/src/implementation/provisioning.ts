@@ -2,6 +2,7 @@
 import { StorageError } from "@executor-js/sdk/core";
 import { Effect, Exit, Schedule, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { isSqlite, json, now, nowPlusSeconds, SqlBoolean } from "fumadb-effect/dialect";
 import { traceFailure } from "@executor-js/telemetry/failed-span";
 import { OrganizationId } from "../contracts/organization.ts";
 import {
@@ -47,6 +48,14 @@ export const selfHostProvisioningServices: ProvisioningServices = {
 /** Another attempt claimed the job and may still be running it. */
 class ClaimInFlight extends Schema.TaggedError<ClaimInFlight>()("ClaimInFlight", {}) {}
 const Claimed = Schema.Struct({ attempts: Schema.Number });
+
+/** A failed job's next attempt: after 2^attempts seconds, at most five minutes. */
+const retryAt = (sql: SqlClient.SqlClient) =>
+  sql.literal(
+    isSqlite(sql)
+      ? "(cast(unixepoch('subsec') * 1000 as integer) + min(300, 1 << attempts) * 1000)"
+      : "(now() + least(300, power(2, attempts)) * interval '1 second')",
+  );
 /**
  * Wait while another attempt's claim is fresh. A failed or cut-short attempt releases its claim
  * at once; a killed one cannot, so a claim expires after 20 seconds, longer than the request
@@ -57,7 +66,7 @@ const awaitClaims = (id: string) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const claimed = yield* sql`select 1 from hosted_provisioning where id = ${id}
-      and status = 'running' and attempts > 0 and updated_at > now() - interval '20 seconds'`;
+      and status = 'running' and attempts > 0 and updated_at > ${nowPlusSeconds(sql, -20)}`;
     if (claimed.length > 0) return yield* new ClaimInFlight();
   }).pipe(
     Effect.retry({
@@ -90,9 +99,9 @@ const attempt = <E, R>(
     });
     if (runner === "background") yield* awaitClaims(id);
     const rows = yield* sql`update hosted_provisioning
-      set status = 'running', attempts = attempts + 1, updated_at = now()
+      set status = 'running', attempts = attempts + 1, updated_at = ${now(sql)}
       where id = ${id} and status <> 'succeeded'
-        and (${kind ?? null}::text is null or kind = ${kind ?? null}::text)
+        and (cast(${kind ?? null} as text) is null or kind = cast(${kind ?? null} as text))
       returning *`;
     // Another runner finished this job, or it is not of the requested kind.
     if (rows.length === 0)
@@ -109,13 +118,13 @@ const attempt = <E, R>(
       Effect.onExit((exit) =>
         Exit.isSuccess(exit)
           ? Effect.void
-          : sql`update hosted_provisioning set status = 'queued', updated_at = now()
+          : sql`update hosted_provisioning set status = 'queued', updated_at = ${now(sql)}
               where id = ${id} and status = 'running' and attempts = ${attempts}`.pipe(
               Effect.ignore,
             ),
       ),
     );
-    yield* sql`update hosted_provisioning set status = 'succeeded', updated_at = now() where id = ${id}`;
+    yield* sql`update hosted_provisioning set status = 'succeeded', updated_at = ${now(sql)} where id = ${id}`;
   }).pipe(
     Effect.tapError((error) =>
       Schema.is(OrganizationDefaultsPending)(error)
@@ -135,7 +144,7 @@ const managers = (organization: OrganizationId, requireVerifiedEmail: boolean, u
     const sql = yield* SqlClient.SqlClient;
     return yield* sql`select "user".id as "userId", "user".name from member join "user" on "user".id = member."userId"
       where member."organizationId" = ${organization}
-      and (${user ?? null}::text is null or member."userId" = ${user ?? null}::text)
+      and (cast(${user ?? null} as text) is null or member."userId" = cast(${user ?? null} as text))
       and member.role in ('owner', 'admin') and (${requireVerifiedEmail} = false or "user"."emailVerified" = true)`.pipe(
       Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Manager))),
     );
@@ -206,7 +215,7 @@ export const drainProvisioning = (services: ProvisioningServices) =>
   Effect.gen(function* () {
     const sql = yield* SqlClient.SqlClient;
     const jobs = yield* sql`select id from hosted_provisioning where
-    (status = 'queued' and available_at <= now()) or (status = 'running' and updated_at < now() - interval '10 minutes')
+    (status = 'queued' and available_at <= ${now(sql)}) or (status = 'running' and updated_at < ${nowPlusSeconds(sql, -10 * 60)})
     order by available_at, case when kind = 'team' then 0 else 1 end limit 20`.pipe(
       Effect.flatMap(
         Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: Schema.String }))),
@@ -222,7 +231,7 @@ export const drainProvisioning = (services: ProvisioningServices) =>
         Effect.catch(() =>
           Effect.gen(function* () {
             yield* sql`update hosted_provisioning set status = case when attempts >= 8 then 'failed' else 'queued' end,
-        available_at = now() + least(300, power(2, attempts)) * interval '1 second', updated_at = now() where id = ${job.id}`;
+        available_at = ${retryAt(sql)}, updated_at = ${now(sql)} where id = ${job.id}`;
             yield* Effect.logWarning("Provisioning attempt failed", { job: job.id });
           }),
         ),
@@ -241,10 +250,10 @@ export const teamAppPending = (organization: OrganizationId, appInstalled: boole
       select 1 from hosted_provisioning job join organization team on team.id = job.organization_id
       where job.kind = 'team' and job.organization_id = ${organization}
         and job.status in ('queued', 'running')
-        and not coalesce((team.metadata::jsonb -> 'executorDefaults' ->> 'installed')::boolean, false)
+        and not coalesce(cast(${json(sql, "team.metadata")} -> 'executorDefaults' ->> 'installed' as boolean), false)
     ) as pending`.pipe(
       Effect.flatMap(
-        Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ pending: Schema.Boolean })])),
+        Schema.decodeUnknownEffect(Schema.Tuple([Schema.Struct({ pending: SqlBoolean })])),
       ),
     );
     return state.pending;

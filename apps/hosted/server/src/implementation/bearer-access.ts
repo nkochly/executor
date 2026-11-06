@@ -27,6 +27,7 @@ import {
 import { ConnectionPolicy, connectionGrantPolicy } from "@executor-js/mcp-auth/connections";
 import { Clock, Context, Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
+import { authMillis, isSqlite, SqlBoolean } from "fumadb-effect/dialect";
 import { ApiKeyId, ApiKeyMetadata } from "../contracts/api-keys.ts";
 import {
   OrganizationId,
@@ -179,11 +180,11 @@ const ResourceRows = Schema.fromJsonString(
  */
 const OAuthRow = Schema.Struct({
   expiresAt: Schema.NullOr(Schema.Number),
-  revoked: Schema.Boolean,
-  clientActive: Schema.Boolean,
+  revoked: SqlBoolean,
+  clientActive: SqlBoolean,
   session: Schema.NullOr(Schema.String),
   sessionExpiresAt: Schema.NullOr(Schema.Number),
-  bound: Schema.Boolean,
+  bound: SqlBoolean,
   subject: Schema.NullOr(Schema.String),
   tokenClient: Schema.NullOr(Schema.String),
   grantReference: Schema.NullOr(Schema.String),
@@ -195,7 +196,7 @@ const OAuthRow = Schema.Struct({
   grantClient: Schema.NullOr(Schema.String),
   grantResource: Schema.NullOr(Schema.String),
   grantPolicy: Schema.NullOr(Schema.String),
-  grantRevoked: Schema.NullOr(Schema.Boolean),
+  grantRevoked: Schema.NullOr(SqlBoolean),
   grantConnection: Schema.NullOr(Schema.String),
   consentResources: Schema.NullOr(Schema.String),
   role: Schema.NullOr(Schema.String),
@@ -204,10 +205,43 @@ const OAuthRow = Schema.Struct({
   connectionUser: Schema.NullOr(Schema.String),
   connectionResource: Schema.NullOr(Schema.String),
   connectionPolicy: Schema.NullOr(Schema.String),
-  connectionRevoked: Schema.NullOr(Schema.Boolean),
+  connectionRevoked: Schema.NullOr(SqlBoolean),
   urlOrganizations: Schema.String,
   headerOrganizations: Schema.String,
 });
+
+/**
+ * The stored resources a token's audience (`t.resources`) can name: each identifier of an array
+ * audience, or each identifier quoted inside a JSON-string audience.
+ */
+const tokenResources = (sql: SqlClient.SqlClient) =>
+  sql.literal(
+    isSqlite(sql)
+      ? `select identifier, "customClaims" from "oauthResource"
+        where json_valid(t.resources) and identifier in (select value from json_each(
+          case when json_type(t.resources) = 'array' then t.resources else '[]' end))
+        union all
+        select identifier, "customClaims" from "oauthResource"
+        where json_valid(t.resources) and json_type(t.resources) = 'text'
+          and instr(t.resources ->> '$', json_quote(identifier)) > 0`
+      : `select identifier, "customClaims" from "oauthResource"
+        where identifier in (select jsonb_array_elements_text(
+          case when jsonb_typeof(t.resources::jsonb) = 'array' then t.resources::jsonb
+          else '[]'::jsonb end))
+        union all
+        select identifier, "customClaims" from "oauthResource"
+        where jsonb_typeof(t.resources::jsonb) = 'string'
+          and strpos(t.resources::jsonb #>> '{}', to_json(identifier)::text) > 0`,
+  );
+
+/** The grant's consent: a lateral join on PostgreSQL, a correlated read on SQLite. */
+const consentQuery = `select resources from "oauthConsent"
+    where "userId" = g."userId" and "clientId" = g."clientId" and "referenceId" = g.id
+    limit 1`;
+const consentJoin = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? "" : `left join lateral (${consentQuery}) consent on true`);
+const consentResources = (sql: SqlClient.SqlClient) =>
+  sql.literal(isSqlite(sql) ? `(${consentQuery})` : "consent.resources::text");
 
 /**
  * An OAuth access token, its grant, consent and connection, and the grant's membership.
@@ -223,12 +257,12 @@ const loadOAuth = (
 ) =>
   sql`
   select
-    floor(extract(epoch from t."expiresAt") * 1000)::float8 as "expiresAt",
+    ${authMillis(sql, 't."expiresAt"')} as "expiresAt",
     t.revoked is not null as revoked,
     t."clientId" is not null and c."clientId" is not null
       and c."clientDiscoveryId" is null and c.disabled is not true as "clientActive",
     t."sessionId" as session,
-    floor(extract(epoch from s."expiresAt") * 1000)::float8 as "sessionExpiresAt",
+    ${authMillis(sql, 's."expiresAt"')} as "sessionExpiresAt",
     t.confirmation is not null as bound,
     u.id as subject,
     t."clientId" as "tokenClient",
@@ -237,16 +271,7 @@ const loadOAuth = (
     t.resources::text as resources,
     (select coalesce(json_agg(json_build_object(
         'identifier', r.identifier, 'claims', r."customClaims")), '[]'::json)::text
-      from (
-        select identifier, "customClaims" from "oauthResource"
-        where identifier in (select jsonb_array_elements_text(
-          case when jsonb_typeof(t.resources::jsonb) = 'array' then t.resources::jsonb
-          else '[]'::jsonb end))
-        union all
-        select identifier, "customClaims" from "oauthResource"
-        where jsonb_typeof(t.resources::jsonb) = 'string'
-          and strpos(t.resources::jsonb #>> '{}', to_json(identifier)::text) > 0
-      ) r) as "resourceRows",
+      from (${tokenResources(sql)}) r) as "resourceRows",
     g.id as "grantId",
     g."userId" as "grantUser",
     g."clientId" as "grantClient",
@@ -254,7 +279,7 @@ const loadOAuth = (
     g.policy as "grantPolicy",
     g.revoked as "grantRevoked",
     g.connection as "grantConnection",
-    consent.resources::text as "consentResources",
+    ${consentResources(sql)} as "consentResources",
     m.role as role,
     o.slug as "organizationSlug",
     mc.id as "connectionId",
@@ -269,10 +294,7 @@ const loadOAuth = (
   left join session s on s.id = t."sessionId"
   left join "user" u on u.id = t."userId"
   left join "mcpGrant" g on g.id = t."referenceId"
-  left join lateral (
-    select resources from "oauthConsent"
-    where "userId" = g."userId" and "clientId" = g."clientId" and "referenceId" = g.id
-    limit 1) consent on true
+  ${consentJoin(sql)}
   left join member m on m."userId" = g."userId" and m."organizationId" = g.resource
   left join organization o on o.id = g.resource
   left join "mcpConnection" mc on mc.id = g.connection
@@ -411,9 +433,9 @@ const PatRow = Schema.Struct({
   userId: Schema.String,
   metadata: Schema.NullOr(Schema.String),
   expiresAt: Schema.NullOr(Schema.Number),
-  usable: Schema.Boolean,
-  contended: Schema.Boolean,
-  userExists: Schema.Boolean,
+  usable: SqlBoolean,
+  contended: SqlBoolean,
+  userExists: SqlBoolean,
   memberships: Schema.String,
   urlOrganizations: Schema.String,
   headerOrganizations: Schema.String,
@@ -449,6 +471,75 @@ const lastRequestPrecision = 60_000;
  * and `contended` asks the caller to read the key again from a fresh snapshot.
  */
 const loadPat = (
+  sql: SqlClient.SqlClient,
+  hash: string,
+  at: number,
+  url: string | null,
+  header: string | null,
+) =>
+  isSqlite(sql)
+    ? loadPatSqlite(sql, hash, at, url, header)
+    : loadPatPostgres(sql, hash, at, url, header);
+
+/**
+ * {@link loadPat} on SQLite, which has no writes inside `with`: the same reads and writes as
+ * separate statements in one transaction. The transaction holds the database for writing, so no
+ * other request changes the key between them and `contended` is always false.
+ */
+const loadPatSqlite = (
+  sql: SqlClient.SqlClient,
+  hash: string,
+  at: number,
+  url: string | null,
+  header: string | null,
+) =>
+  sql
+    .withTransaction(
+      Effect.gen(function* () {
+        const now = new Date(at).toISOString();
+        const stale = new Date(at - lastRequestPrecision).toISOString();
+        const keys = yield* sql<{
+          id: string;
+          usable: number;
+          expired: number | null;
+          recorded: number | null;
+        }>`select id,
+            coalesce(enabled, 1) <> 0 and remaining is null as usable,
+            coalesce(enabled, 1) <> 0 and "expiresAt" < ${now} as expired,
+            "lastRequest" > ${stale} as recorded
+          from apikey where key = ${hash}`;
+        const key = keys[0];
+        if (key === undefined) return [];
+        let used = false;
+        if (key.usable === 1 && key.expired !== 1 && key.recorded !== 1)
+          used =
+            (yield* sql`update apikey set "lastRequest" = ${now}, "updatedAt" = ${now}
+              where id = ${key.id} and coalesce(enabled, 1) <> 0 and remaining is null
+                and ("expiresAt" is null or "expiresAt" >= ${now})
+                and ("lastRequest" is null or "lastRequest" <= ${stale})
+              returning id`).length > 0;
+        const rows = yield* sql`select
+            k.id,
+            k."referenceId" as "userId",
+            k.metadata,
+            ${authMillis(sql, 'k."expiresAt"')} as "expiresAt",
+            ${key.usable === 1 && key.expired !== 1 && (key.recorded === 1 || used)} as usable,
+            ${false} as contended,
+            exists (select 1 from "user" u where u.id = k."referenceId") as "userExists",
+            (select coalesce(json_group_array(json_object(
+                'organization', m."organizationId", 'role', m.role, 'slug', o.slug)), '[]')
+              from member m left join organization o on o.id = m."organizationId"
+              where m."userId" = k."referenceId") as memberships,
+            ${matches(sql, url)} as "urlOrganizations",
+            ${matches(sql, header)} as "headerOrganizations"
+          from apikey k where k.id = ${key.id}`;
+        if (key.expired === 1) yield* sql`delete from apikey where id = ${key.id}`;
+        return rows;
+      }),
+    )
+    .pipe(Effect.mapError(() => unavailable));
+
+const loadPatPostgres = (
   sql: SqlClient.SqlClient,
   hash: string,
   at: number,

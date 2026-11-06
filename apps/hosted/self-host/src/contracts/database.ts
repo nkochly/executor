@@ -6,7 +6,7 @@ export class AuthDatabase extends Context.Service<
   AuthDatabase,
   {
     readonly db: Kysely<unknown>;
-    readonly type: "postgres";
+    readonly type: "postgres" | "sqlite";
     readonly transaction: true;
   }
 >()("self-host/AuthDatabase") {}

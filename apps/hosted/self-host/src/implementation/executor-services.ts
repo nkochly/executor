@@ -1,3 +1,4 @@
+import { hostedDatabaseProvider } from "@executor-js/hosted-server/migrations";
 import { hostedAppCapabilities } from "@executor-js/hosted-server/app-management";
 import { executorSelfHostApiDocument } from "../contracts/api.ts";
 import { AppGitOrigins, AppManagementHost } from "@executor-js/app-management";
@@ -89,7 +90,9 @@ export const selfHostExecutorServices = <E, R>(
         testDefinitions:
           (yield* Config.String("EXECUTOR_ENVIRONMENT").pipe(Config.withDefault(""))) === "e2e",
       });
-      const storage = yield* makeExecutorStorage({ provider: "postgresql" });
+      const storage = yield* makeExecutorStorage({
+        provider: hostedDatabaseProvider(yield* SqlClient.SqlClient),
+      });
       const evaluation = yield* declarationConfig;
       const server = yield* Scope.Scope;
       const ready = yield* Deferred.make<Executor>();

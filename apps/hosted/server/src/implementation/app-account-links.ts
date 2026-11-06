@@ -3,6 +3,7 @@
  * access to the app and, to link, use of the account; reading them needs use of the app. User links
  * are the caller's own: linking another person's account is never possible.
  */
+import { SqlDate } from "fumadb-effect/dialect";
 import {
   AccountNotFound,
   StorageError,
@@ -49,7 +50,7 @@ const caller = Effect.gen(function* () {
 const LinkRecord = Schema.Struct({
   requirement: Schema.NonEmptyString,
   account: Schema.String,
-  createdAt: Schema.Date,
+  createdAt: SqlDate,
 });
 type LinkRecord = typeof LinkRecord.Type;
 

@@ -59,6 +59,18 @@ const [, , , schedulesDue, scheduledRunsPending, scheduledRunsOwner] = storageIn
 /** 4.0.9 tool search indexes that 4.0.13 kept; the per-profile listing index serves only older servers. */
 const [toolSearchListing, toolSearchTerms, , toolSearchDefinitionsListing] = toolSearchIndexes;
 
+/**
+ * Indexes that only PostgreSQL can build. SQLite has no GIN index; its tool search reads the
+ * listing index and filters terms in the query instead.
+ */
+const postgresOnlyIndexes: ReadonlySet<string> = new Set([toolSearchTerms]);
+
+/** The current layout's indexes that the given provider can build. */
+export const currentIndexesFor = (provider: string): ReadonlyArray<string> =>
+  provider === "postgresql"
+    ? currentIndexes
+    : currentIndexes.filter((sql) => !postgresOnlyIndexes.has(sql));
+
 /** Every index of the current layout, for a new database. Upgrades add each in its own step. */
 export const currentIndexes = [
   scopedRunKeyIndex,

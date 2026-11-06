@@ -4,6 +4,7 @@
  */
 import { Clock, Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
+import { isSqlite, SqlJson } from "fumadb-effect/dialect";
 import type { SqlError } from "effect/sql/SqlError";
 import {
   Json,
@@ -56,7 +57,7 @@ export interface RankedTarget {
 const Kept = Schema.Struct({
   at: Schema.Number,
   digest: Schema.String,
-  routers: Schema.Array(ToolRouter),
+  routers: SqlJson(Schema.Array(ToolRouter)),
   superseded: Schema.NullOr(Schema.Number),
 });
 const Listed = Schema.Struct({ listing: Schema.String });
@@ -96,6 +97,10 @@ const batchChars = 1_000_000;
 export const supersededRetentionMillis = 60 * 60_000;
 
 const BM25 = { k1: 1.2, b: 0.75 } as const;
+
+/** A number column read as a float; SQLite returns its stored number as is. */
+const float8 = (sql: SqlClient.SqlClient, column: string) =>
+  sql.literal(isSqlite(sql) ? column : `${column}::float8`);
 
 export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
   const failed = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
@@ -197,8 +202,8 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
         Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Listed))),
       );
       if (inserted.length > 0) return undefined;
-      const [kept] = yield* sql`select at::float8 as at, digest, routers,
-          superseded::float8 as superseded
+      const [kept] = yield* sql`select ${float8(sql, "at")} as at, digest, routers,
+          ${float8(sql, "superseded")} as superseded
         from executor_tool_search_listings where listing = ${listing.listing} for update`.pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Kept))),
       );
@@ -207,7 +212,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
   return {
     /** The kept rows of a listing of this target, if any. */
     listing: (listing: ToolSearchListing, target: string) =>
-      sql`select at::float8 as at, digest, routers, superseded::float8 as superseded
+      sql`select ${float8(sql, "at")} as at, digest, routers, ${float8(sql, "superseded")} as superseded
         from executor_tool_search_listings where listing = ${listing} and target = ${target}`.pipe(
         Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Kept))),
         Effect.map((rows) => rows[0]),
@@ -254,8 +259,10 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
           routers,
           superseded: null,
         };
-        yield* sql`select pg_advisory_xact_lock(
-          hashtext(${row.app}::text), hashtext(${row.target}::text))`;
+        // A SQLite transaction already excludes every other writer.
+        if (!isSqlite(sql))
+          yield* sql`select pg_advisory_xact_lock(
+            hashtext(${row.app}::text), hashtext(${row.target}::text))`;
         const kept = yield* claim(listing);
         if (kept !== undefined) {
           if (kept.at >= row.at) {
@@ -336,6 +343,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
       Effect.gen(function* () {
         if (input.targets.length === 0)
           return { total: 0, missing: [], items: [], definitions: [] } satisfies RankedPage;
+        if (isSqlite(sql)) return yield* sql.withTransaction(sqlitePage(sql, input));
         const { values, permitted } = targets(input.targets);
         const terms = input.terms.join(" ");
         const scored =
@@ -425,6 +433,213 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
   };
 };
 export type ToolSearchStore = ReturnType<typeof makeToolSearchStore>;
+
+const SqliteScopeRow = Schema.Struct({
+  id: Schema.String,
+  listing: Schema.String,
+  name: Schema.String,
+  signature: Schema.String,
+  terms: Schema.String,
+  length: Schema.Number,
+  read_only: Schema.Number,
+});
+const SqliteShownRow = Schema.Struct({
+  id: Schema.String,
+  listing: Schema.String,
+  tool: Schema.String,
+  definitions: Schema.String,
+  routers: Schema.String,
+});
+const SqliteDefinitionRow = Schema.Struct({
+  listing: Schema.String,
+  position: Schema.Int,
+  definition: Schema.String,
+});
+
+/** Bytewise order, as PostgreSQL's `collate "C"` compares names. */
+const utf8 = new TextEncoder();
+const bytewise = (left: string, right: string) => {
+  const a = utf8.encode(left);
+  const b = utf8.encode(right);
+  for (let index = 0; index < Math.min(a.length, b.length); index++)
+    if (a[index] !== b[index]) return a[index]! - b[index]!;
+  return a.length - b.length;
+};
+
+/**
+ * The ranked page on SQLite. SQLite has no arrays, `unnest` or guaranteed `ln`, so the statement
+ * the PostgreSQL store runs becomes reads of the targets' rows and the same ranking in code. The
+ * caller runs it in one transaction, which on SQLite holds the database: every read sees one
+ * state, as the single PostgreSQL statement does.
+ */
+const sqlitePage = (
+  sql: SqlClient.SqlClient,
+  input: {
+    readonly targets: ReadonlyArray<RankedTarget>;
+    readonly terms: ReadonlyArray<string>;
+    readonly offset: number;
+    readonly limit: number;
+  },
+) =>
+  Effect.gen(function* () {
+    // Targets whose listing is a row for their app and account set.
+    const present = new Set<number>();
+    for (const [ordinal, target] of input.targets.entries()) {
+      const rows = yield* sql`select 1 as present from executor_tool_search_listings
+        where listing = ${target.listing} and app = ${target.app} and target = ${target.target}`;
+      if (rows.length > 0) present.add(ordinal);
+    }
+    const listings = [...new Set([...present].map((ordinal) => input.targets[ordinal]!.listing))];
+    const rows =
+      listings.length === 0
+        ? []
+        : yield* sql`select id, listing, name, signature, terms, length, read_only
+            from executor_tool_search where listing in ${sql.in(listings)}`.pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteScopeRow))),
+          );
+    const byListing = new Map<string, Array<typeof SqliteScopeRow.Type>>();
+    for (const row of rows)
+      byListing.set(row.listing, [...(byListing.get(row.listing) ?? []), row]);
+    // The rows each target's scopes permit, with the target's labels as words of each tool.
+    const scope = [...present]
+      .toSorted((left, right) => left - right)
+      .flatMap((ordinal) => {
+        const target = input.targets[ordinal]!;
+        return (byListing.get(target.listing) ?? [])
+          .filter(
+            (row) =>
+              target.scopes.every(
+                (permitted) =>
+                  (permitted.readOnly && row.read_only !== 0) ||
+                  (permitted.names as ReadonlyArray<string>).includes(row.name),
+              ) &&
+              (target.below === undefined ||
+                row.name === target.below ||
+                row.name.startsWith(`${target.below}.`)),
+          )
+          .map((row) => ({
+            ordinal,
+            app: target.app,
+            id: row.id,
+            name: row.name,
+            signature: row.signature,
+            words: [...(row.terms === "" ? [] : row.terms.split(" ")), ...target.labels],
+            length: row.length + target.labels.length,
+          }));
+      });
+    // BM25 over the scope, as the PostgreSQL statement computes it.
+    const query = new Set(input.terms);
+    const scored = new Map<string, number>();
+    if (query.size === 0) for (const row of scope) scored.set(`${row.ordinal}:${row.id}`, 0);
+    else {
+      const n = scope.length;
+      const average = scope.reduce((sum, row) => sum + row.length, 0) / Math.max(n, 1);
+      const avgdl = average === 0 ? 1 : average;
+      const hits = scope.flatMap((row) => {
+        const frequencies = new Map<string, number>();
+        for (const word of row.words)
+          if (query.has(word)) frequencies.set(word, (frequencies.get(word) ?? 0) + 1);
+        return frequencies.size === 0 ? [] : [{ row, frequencies }];
+      });
+      const df = new Map<string, number>();
+      for (const hit of hits)
+        for (const term of hit.frequencies.keys()) df.set(term, (df.get(term) ?? 0) + 1);
+      for (const { row, frequencies } of hits) {
+        let score = 0;
+        for (const [term, tf] of frequencies) {
+          const documents = df.get(term)!;
+          score +=
+            (Math.log(1 + (n - documents + 0.5) / (documents + 0.5)) * tf * (BM25.k1 + 1)) /
+            (tf + BM25.k1 * (1 - BM25.b + (BM25.b * row.length) / avgdl));
+        }
+        scored.set(`${row.ordinal}:${row.id}`, score);
+      }
+    }
+    // One item per app, name and signature that any scored row has, at its first target.
+    const best = new Map<string, number>();
+    for (const row of scope) {
+      const score = scored.get(`${row.ordinal}:${row.id}`);
+      if (score === undefined) continue;
+      const key = JSON.stringify([row.app, row.name, row.signature]);
+      best.set(key, Math.max(best.get(key) ?? Number.NEGATIVE_INFINITY, score));
+    }
+    const merged = [...best].map(([key, score]) => {
+      const [app, name, signature] = JSON.parse(key) as [string, string, string];
+      const members = scope
+        .filter((row) => row.app === app && row.name === name && row.signature === signature)
+        .toSorted((left, right) =>
+          left.ordinal !== right.ordinal
+            ? left.ordinal - right.ordinal
+            : left.id < right.id
+              ? -1
+              : left.id > right.id
+                ? 1
+                : 0,
+        );
+      return {
+        id: members[0]!.id,
+        target: members[0]!.ordinal,
+        ordinals: members.map((row) => row.ordinal),
+        name,
+        score,
+      };
+    });
+    const page = merged
+      .toSorted(
+        (left, right) =>
+          right.score - left.score || left.target - right.target || bytewise(left.name, right.name),
+      )
+      .slice(input.offset, input.offset + input.limit);
+    const shownRows =
+      page.length === 0
+        ? []
+        : yield* sql`select s.id, s.listing, s.tool, s.definitions, l.routers
+            from executor_tool_search s
+            join executor_tool_search_listings l on l.listing = s.listing
+            where ${sql.in(
+              "s.id",
+              page.map((item) => item.id),
+            )}`.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteShownRow))));
+    const shownById = new Map(shownRows.map((row) => [row.id, row]));
+    const items = page.flatMap((item) => {
+      const shown = shownById.get(item.id);
+      if (shown === undefined) return [];
+      const tool = JSON.parse(shown.tool) as { readonly router?: unknown };
+      const routers = JSON.parse(shown.routers) as ReadonlyArray<{ readonly path?: unknown }>;
+      return [
+        {
+          target: item.target,
+          ordinals: item.ordinals,
+          listing: shown.listing,
+          tool,
+          router: routers.find((router) => router.path === tool.router) ?? null,
+          definitions: JSON.parse(shown.definitions) as ReadonlyArray<number>,
+        },
+      ];
+    });
+    const definitionIds = items.flatMap((item) =>
+      item.definitions.map((position) => `${item.listing}:${position}`),
+    );
+    const definitions =
+      definitionIds.length === 0
+        ? []
+        : (yield* sql`select listing, position, definition from executor_tool_search_definitions
+            where ${sql.in("id", definitionIds)}`.pipe(
+            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteDefinitionRow))),
+          )).map((row) => [row.listing, row.position, JSON.parse(row.definition)] as const);
+    return yield* Schema.decodeUnknownEffect(Ranked)({
+      total: merged.length,
+      missing: input.targets.flatMap((_, ordinal) => (present.has(ordinal) ? [] : [ordinal])),
+      items: items.map((item) => ({
+        target: item.target,
+        ordinals: item.ordinals,
+        listing: item.listing,
+        tool: item.tool,
+        router: item.router,
+      })),
+      definitions,
+    });
+  });
 
 /** Delete the apps' search rows with the apps, finding their tools through their listings. */
 export const removeToolSearch = (tx: Query, apps: ReadonlyArray<AppId>) =>

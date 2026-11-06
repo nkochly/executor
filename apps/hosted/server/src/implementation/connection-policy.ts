@@ -1,4 +1,5 @@
 /** Pending connection ownership is persisted; knowing a connection ID grants no authority. */
+import { jsonColumns } from "fumadb-effect/dialect";
 import {
   StorageError,
   type AccountConnection,
@@ -68,7 +69,9 @@ export const connectionAccess = (connection: AccountConnectionId) =>
       yield* sql`select connection_id as connection, creator_id as creator, destination, target
     from hosted_connection_access where connection_id = ${connection} and organization_id = ${actor.organization}
     and creator_id = ${actor.user}`;
-    const access = (yield* Schema.decodeUnknownEffect(Schema.Array(ConnectionAccess))(rows))[0];
+    const access = (yield* Schema.decodeUnknownEffect(Schema.Array(ConnectionAccess))(
+      jsonColumns(sql, rows, "destination", "target"),
+    ))[0];
     if (access === undefined) return yield* new OrganizationForbidden();
     yield* requireAppAccess(access.target.app, access.target.scope === "app" ? "manage" : "use");
     yield* checkDestination(access.destination);
