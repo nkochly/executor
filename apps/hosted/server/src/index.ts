@@ -134,3 +134,8 @@ export {
   type McpBackendCall,
   type WireExit,
 } from "./implementation/mcp-remote.ts";
+export {
+  isolatedProgram,
+  type ProgramHost,
+  type StartIsolatedProgram,
+} from "./implementation/mcp-isolated.ts";

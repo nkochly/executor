@@ -9,6 +9,13 @@ export { mcp, makeMcp } from "./implementation/server.ts";
 export { skills } from "./implementation/skills.ts";
 export { activePrograms, makeExecutions, runningPrograms } from "./implementation/executions.ts";
 export { refusedMcpRequest } from "./implementation/diagnostics.ts";
+export {
+  executeProgram,
+  executionProgress,
+  programFailure,
+  type ExecutionProgress,
+  type Program,
+} from "./implementation/execute.ts";
 
 export * from "./contracts/browser.ts";
 export * from "./contracts/browser-tools.ts";

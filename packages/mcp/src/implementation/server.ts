@@ -156,6 +156,7 @@ export const makeMcp = (options: McpOptions) =>
       options.beforeExecute,
       options.interactions,
     );
+    const program = options.program ?? executeProgram;
     const handler = (mode: ElicitationMode) =>
       Effect.gen(function* () {
         const delivery = options.browser;
@@ -208,7 +209,7 @@ export const makeMcp = (options: McpOptions) =>
                     execute: ({ code }) =>
                       caller.pipe(
                         Effect.flatMap(({ id }) =>
-                          executeNative(executions, id, options.backend, executeProgram(code)),
+                          executeNative(executions, id, options.backend, program(code)),
                         ),
                         observeExecution("mcp.execute"),
                       ),
@@ -239,7 +240,7 @@ export const makeMcp = (options: McpOptions) =>
                         caller.pipe(
                           Effect.flatMap(({ id, sessionId }) =>
                             executions
-                              .execute(id, options.backend, executeProgram(code), "result")
+                              .execute(id, options.backend, program(code), "result")
                               .pipe(
                                 Effect.flatMap((result) => withLink(result, sessionId, delivery)),
                               ),
@@ -294,7 +295,7 @@ export const makeMcp = (options: McpOptions) =>
                       execute: ({ code }) =>
                         caller.pipe(
                           Effect.flatMap(({ id }) =>
-                            executions.execute(id, options.backend, executeProgram(code), "result"),
+                            executions.execute(id, options.backend, program(code), "result"),
                           ),
                           observeExecution("mcp.execute"),
                         ),

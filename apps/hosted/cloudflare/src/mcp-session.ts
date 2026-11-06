@@ -5,24 +5,32 @@
  * and sends each operation back to the product (`remoteMcpBackend`). A program's work therefore
  * uses this object's thread and memory, not the product's or another caller's.
  *
+ * Each `execute` program runs in a Dynamic Worker of its own when `LOADER` is bound (see
+ * `program-sandbox.ts`): its CPU and memory are that isolate's, so a heavy program cannot slow
+ * another caller's, and it has no network. Without `LOADER` programs run in this object.
+ *
  * Protocol state and programs live in memory. An idle object is evicted 70 to 140 seconds after
  * its last event, and a program waiting for a person holds no request, so while the object holds
  * a program it wakes itself every `holdMillis`. A deploy or crash loses its sessions; clients
  * initialize again, and a resume of a lost program reads as lost.
  */
-import { DurableObject } from "cloudflare:workers";
-import type { DurableObjectState } from "@cloudflare/workers-types";
+import { DurableObject, RpcTarget } from "cloudflare:workers";
+import type { DurableObjectState, WorkerLoader } from "@cloudflare/workers-types";
 import {
   McpAccess,
   fromWire,
+  isolatedProgram,
   makeHostedMcp,
   provideHostedMcpRequest,
   remoteMcpBackend,
   toWire,
   type HostedMcpRequestError,
   type McpBackendCall,
+  type ProgramHost,
+  type StartIsolatedProgram,
   type WireExit,
 } from "@executor-js/hosted-server";
+import programSandbox from "executor:program-sandbox";
 import { selfHostMcpLimits } from "@executor-js/hosted-self-host/product";
 import type { BrowserApprovalAddress } from "@executor-js/mcp/browser";
 import type { McpBackend } from "@executor-js/mcp";
@@ -43,7 +51,50 @@ export interface McpSessionProduct {
 }
 export interface McpSessionEnvironment {
   readonly PRODUCT: { getByName(name: string): McpSessionProduct };
+  /** Dynamic Workers; each program runs in one of its own when this is bound. */
+  readonly LOADER?: WorkerLoader;
 }
+
+/** The most CPU time one program may use; Cloudflare allows a Worker invocation five minutes. */
+const maxProgramCpuMs = 300_000;
+
+/** The host a program's isolate calls back, as an RPC target so its methods cross as calls. */
+class ProgramHostTarget extends RpcTarget implements ProgramHost {
+  readonly #host: ProgramHost;
+  constructor(host: ProgramHost) {
+    super();
+    this.#host = host;
+  }
+  backend(call: Parameters<ProgramHost["backend"]>[0]) {
+    return this.#host.backend(call);
+  }
+  progress(report: Parameters<ProgramHost["progress"]>[0]) {
+    this.#host.progress(report);
+  }
+  deadline() {
+    return this.#host.deadline();
+  }
+}
+
+interface ProgramEntrypoint {
+  run(code: string, limits: unknown, host: ProgramHostTarget): Promise<unknown>;
+}
+
+/** Load a fresh isolate for one program, with no network and the program's CPU budget. */
+const startInIsolate =
+  (loader: WorkerLoader): StartIsolatedProgram =>
+  (code, limits, host) => {
+    const worker = loader.load({
+      compatibilityDate: "2026-09-01",
+      compatibilityFlags: ["nodejs_compat"],
+      mainModule: "program.js",
+      modules: { "program.js": programSandbox },
+      globalOutbound: null,
+      limits: { cpuMs: Math.min(limits.timeoutMs, maxProgramCpuMs) },
+    });
+    const program = worker.getEntrypoint("Program") as unknown as ProgramEntrypoint;
+    return program.run(code, limits, new ProgramHostTarget(host));
+  };
 
 const decodeAccess = Schema.decodeUnknownEffect(Schema.fromJsonString(McpAccess));
 const decodeResponse = Schema.decodeUnknownEffect(ElicitationResponse);
@@ -52,7 +103,13 @@ const open = (env: McpSessionEnvironment) =>
   Effect.gen(function* () {
     const { limits, beforeExecute } = yield* selfHostMcpLimits;
     const origin = yield* Config.String("BETTER_AUTH_URL");
-    const hosted = yield* makeHostedMcp(beforeExecute, limits);
+    const hosted = yield* makeHostedMcp(
+      beforeExecute,
+      limits,
+      undefined,
+      undefined,
+      env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
+    );
     const product = env.PRODUCT.getByName("product");
     const serve = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;

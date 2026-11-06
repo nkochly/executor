@@ -5,6 +5,7 @@ import type { BrowserDelivery } from "./browser.ts";
 import { BrowserCallTool, BrowserExecuteTool, BrowserResumeTool } from "./browser-tools.ts";
 import type { McpBackend } from "./backend.ts";
 import type { ElicitationMode } from "./elicitation.ts";
+import type { Program } from "../implementation/execute.ts";
 import {
   CallTool,
   DescribeTool,
@@ -79,4 +80,9 @@ export interface McpOptions {
    * restart forgets them and a late resume reads as `not-found`.
    */
   readonly interactions?: InteractionRecords;
+  /**
+   * Turns an `execute` call's code into the work its execution runs. Without one, the program runs
+   * in this process; a host can run it elsewhere, such as in an isolate of its own.
+   */
+  readonly program?: (code: string) => Program;
 }

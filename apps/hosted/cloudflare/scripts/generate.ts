@@ -1,11 +1,13 @@
 /**
- * Writes the build-time modules the Worker imports as `executor:skills` and `executor:dashboard`:
- * the Executor skill files, and the dashboard's browser files with their content types. Wrangler
- * runs this before every build (`build.command`); the dashboard must be built first.
+ * Writes the build-time modules the Worker imports as `executor:skills`, `executor:dashboard` and
+ * `executor:program-sandbox`: the Executor skill files, the dashboard's browser files with their
+ * content types, and the bundled isolate each `execute` program runs in. Wrangler runs this before
+ * every build (`build.command`); the dashboard must be built first.
  */
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
+import { build } from "esbuild";
 import { Effect, FileSystem, Path } from "effect";
 
 const types: Readonly<Record<string, string>> = {
@@ -51,8 +53,30 @@ const generate = Effect.gen(function* () {
     path.join(output, "skills.js"),
     `export default ${JSON.stringify(skills)};\n`,
   );
+  // One self-contained module: a Dynamic Worker receives only the modules it is given.
+  const sandbox = yield* Effect.promise(() =>
+    build({
+      entryPoints: [path.join(root, "src/program-sandbox.ts")],
+      bundle: true,
+      write: false,
+      platform: "browser",
+      format: "esm",
+      target: "es2024",
+      minify: true,
+      conditions: ["workerd", "worker", "browser"],
+      external: ["cloudflare:*", "node:*"],
+      logLevel: "silent",
+    }),
+  );
+  const [bundle] = sandbox.outputFiles;
+  if (bundle === undefined) return yield* Effect.die(new Error("Program sandbox did not build"));
+  const code = bundle.text;
+  yield* fs.writeFileString(
+    path.join(output, "program-sandbox.js"),
+    `export default ${JSON.stringify(code)};\n`,
+  );
   yield* Effect.logInfo(
-    `Generated ${Object.keys(dashboard).length} dashboard files and ${Object.keys(skills).length} skill files`,
+    `Generated ${Object.keys(dashboard).length} dashboard files, ${Object.keys(skills).length} skill files and a ${Math.round(code.length / 1024)} KiB program sandbox`,
   );
 });
 

@@ -935,6 +935,7 @@ function catalog(
         revealed.set(app.id, shown);
         shown.push(entry);
         progress.unavailableApps = unavailableApps();
+        touched(progress);
       });
     /** Each loaded app's tools, for describe and for the program's catalog. */
     const listed = new Map<string, ReadonlyArray<Entry>>();
@@ -1180,6 +1181,7 @@ function catalog(
 
     const reported = Effect.sync(() => {
       progress.unavailableApps = unavailableApps();
+      touched(progress);
     });
     // Each app is discovered at most once, by whichever of the program or a describe needs it
     // first, and made searchable at most once, by the first search that reaches it.
@@ -1315,6 +1317,7 @@ function catalog(
           });
         }
         progress.unavailableApps = unavailableApps();
+        touched(progress);
       });
     /**
      * The searchable targets of every app the canonical names lie in, in path order. Searching
@@ -1448,6 +1451,11 @@ export type ExecutionProgress = {
    */
   readonly failures: Array<Error>;
   /**
+   * Told after each change above, so a host that runs the program elsewhere can mirror it where
+   * the driver reads it.
+   */
+  changed?: () => void;
+  /**
    * The trace of the request driving the program, the reference of each failure the program
    * meets. Its driver sets it before the program runs again, so a failure after a resume names
    * the resume that reports it, not the request that started the program.
@@ -1462,9 +1470,12 @@ export const executionProgress = (reference: string | undefined): ExecutionProgr
   failures: [],
   reference,
 });
+/** Tell the progress's observer, if any, that it changed. */
+const touched = (progress: ExecutionProgress) => progress.changed?.();
 const recordFailure = (progress: ExecutionProgress, error: Error) =>
   Effect.sync(() => {
     progress.failures.push(error);
+    touched(progress);
   });
 /** Mark the call this fiber makes as one whose result says its tool failed. */
 const toolReportedError = (progress: ExecutionProgress) =>
@@ -1472,6 +1483,7 @@ const toolReportedError = (progress: ExecutionProgress) =>
     const index = progress.callFibers.get(fiber);
     const call = index === undefined ? undefined : progress.calls[index];
     if (call !== undefined) call.toolError = true;
+    touched(progress);
   });
 
 /** The canonical path CodeMode's UnknownTool diagnostic names. */
@@ -1597,6 +1609,20 @@ export type Program = (
   progress: ExecutionProgress,
 ) => Effect.Effect<typeof ExecuteResult.Type>;
 
+/** An execution that ended before its program could give a result, with the calls it made. */
+export const programFailure = (
+  progress: ExecutionProgress,
+  kind: CodeMode.DiagnosticKind,
+  message: string,
+): typeof ExecuteResult.Type => ({
+  execution: executionDiagnostic({
+    ok: false as const,
+    error: { kind, message },
+    toolCalls: reportedCalls(progress),
+  }),
+  unavailableApps: progress.unavailableApps,
+});
+
 /** Run one CodeMode program as an execution. */
 export const executeProgram =
   (code: string): Program =>
@@ -1663,6 +1689,7 @@ function runProgram(
       }
       const prepared = loaded.value;
       progress.phase = "program";
+      touched(progress);
       // Discovery while the program runs is on the real clock, like tool calls.
       const real = <A, E>(effect: Effect.Effect<A, E>) =>
         effect.pipe(Effect.provideService(Clock.Clock, clock));
@@ -1712,6 +1739,7 @@ function runProgram(
           Effect.map(Effect.fiberId, (fiber) => {
             progress.calls[index] = { name, outcome: "running" };
             progress.callFibers.set(fiber, index);
+            touched(progress);
           }),
         onToolCallEnd: ({ index, outcome, durationMs }) =>
           Effect.map(Effect.fiberId, (fiber) => {
@@ -1722,6 +1750,7 @@ function runProgram(
             if (!(outcome === "interrupted" && call.outcome === "awaiting-approval"))
               call.outcome = outcome;
             call.durationMs = durationMs;
+            touched(progress);
           }),
       });
       const result = yield* runtime
@@ -1847,6 +1876,7 @@ export function callTools(input: typeof CallInput.Type): Program {
         const { discovered, entries } = loaded.value;
         const byPath = new Map(entries.map((entry) => [entry.path, entry]));
         progress.phase = "program";
+        touched(progress);
         const run = (request: typeof CallRequest.Type, index: number) =>
           Effect.gen(function* () {
             const path = named[index] ?? "";
@@ -1874,12 +1904,14 @@ export function callTools(input: typeof CallInput.Type): Program {
             const started = yield* Clock.currentTimeMillis;
             progress.calls[index] = { name, outcome: "running" };
             progress.callFibers.set(fiber, index);
+            touched(progress);
             const finish = (outcome: "success" | "failure") =>
               Effect.gen(function* () {
                 const recorded = progress.calls[index];
                 if (recorded === undefined) return;
                 recorded.outcome = outcome;
                 recorded.durationMs = (yield* Clock.currentTimeMillis) - started;
+                touched(progress);
               });
             return yield* discovered
               .call(entry)(request.input)

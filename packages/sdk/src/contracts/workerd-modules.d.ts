@@ -16,6 +16,8 @@ declare module "cloudflare:workers" {
     constructor(ctx: import("@cloudflare/workers-types").ExecutionContext, env: Env);
     abstract run(event: Readonly<{ payload: Payload }>, step: unknown): Promise<unknown>;
   }
+  /** A class whose instances cross Workers RPC by reference, as stubs. */
+  export abstract class RpcTarget {}
   /** Keep the current Worker or Durable Object invocation alive until the promise settles. */
   export function waitUntil(promise: Promise<unknown>): void;
 }

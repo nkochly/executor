@@ -14,6 +14,7 @@
   "alias": {
     "executor:skills": "./generated/skills.js",
     "executor:dashboard": "./generated/dashboard.js",
+    "executor:program-sandbox": "./generated/program-sandbox.js",
   },
   // Every request runs the Worker first; the product serves only files in its asset manifest.
   "assets": {
@@ -32,6 +33,8 @@
     { "tag": "v1", "new_sqlite_classes": ["ExecutorProduct"] },
     { "tag": "v2", "new_sqlite_classes": ["ExecutorMcpSession"] },
   ],
+  // Each `execute` program runs in a Dynamic Worker of its own when this binding is present.
+  "worker_loaders": [{ "binding": "LOADER" }],
   // Blobs. Without this binding blobs cannot be written; see README.md for app repositories.
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "executor-blobs" }],
   "services": [
