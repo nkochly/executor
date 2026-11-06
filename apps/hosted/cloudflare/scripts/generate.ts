@@ -32,11 +32,11 @@ const generate = Effect.gen(function* () {
   const dashboard = Object.fromEntries(
     (yield* fs.readDirectory(web, { recursive: true }))
       .filter((name) => path.extname(name) !== "")
+      .sort()
       .map((name) => [
         name.split(path.sep).join("/"),
         types[path.extname(name)] ?? "application/octet-stream",
-      ])
-      .sort(([a], [b]) => (a < b ? -1 : 1)),
+      ]),
   );
   const skills = Object.fromEntries(
     (yield* readExecutorSkills).map((file) => [file.path, file.content]),

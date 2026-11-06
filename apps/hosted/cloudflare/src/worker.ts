@@ -18,7 +18,18 @@ import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
 import { telemetryConfig, telemetryLayer } from "@executor-js/telemetry";
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
-import { Cause, Config, ConfigProvider, Context, Effect, Exit, Layer, Option, Schema, Scope } from "effect";
+import {
+  Cause,
+  Config,
+  ConfigProvider,
+  Context,
+  Effect,
+  Exit,
+  Layer,
+  Option,
+  Schema,
+  Scope,
+} from "effect";
 import {
   FetchHttpClient,
   HttpEffect,
@@ -78,7 +89,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
         }),
       };
       const services = yield* Layer.build(
-        selfHostExecutorServices(egress, cloudflarePlatform(env)),
+        selfHostExecutorServices(egress, cloudflarePlatform(env, state.storage)),
       );
       const routes = yield* selfHostRouteMap({
         skills: executorSkillFiles(skills),
@@ -166,7 +177,8 @@ export class ExecutorProduct extends DurableObject<Environment> implements Produ
       )
         settings = squashed.message;
       failure = opened.cause;
-      console.error('DEBUG', Cause.pretty(opened.cause));
+      // The Worker's logs are the operator's only view of why the product did not open.
+      console.error(Cause.pretty(opened.cause));
     } catch (error) {
       failure = error;
     }

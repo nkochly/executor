@@ -1,5 +1,5 @@
 {
-  "name": "@executor-js/hosted-cloudflare",
+  "name": "@executor-js/hosted-cloudflare-worker",
   "private": true,
   "type": "module",
   "exports": {},
@@ -11,6 +11,7 @@
   "dependencies": {
     "@effect/platform-browser": "4.0.1",
     "@executor-js/app-templates": "workspace:*",
+    "@executor-js/hosted-cloudflare": "workspace:*",
     "@executor-js/hosted-self-host": "workspace:*",
     "@executor-js/hosted-server": "workspace:*",
     "@executor-js/sdk": "workspace:*",

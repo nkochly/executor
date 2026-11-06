@@ -6,7 +6,7 @@
 import { Effect, Schema } from "effect";
 
 const prefixes = ["EXECUTOR_", "OTEL_", "BETTER_AUTH_", "SSO_", "FIRST_PARTY_"];
-const names = new Set(["NODE_ENV", "DO_NOT_TRACK"]);
+const names = new Set(["NODE_ENV", "DO_NOT_TRACK", "CLOUDFLARE_ACCOUNT_ID"]);
 
 /** A setting that is missing or malformed; names the setting, never its value. */
 export class WorkerConfigurationInvalid extends Schema.TaggedError<WorkerConfigurationInvalid>()(
@@ -40,6 +40,8 @@ export const workerConfiguration = (env: object) =>
     if ((values["BETTER_AUTH_SECRET"] ?? "").length < 32)
       return yield* invalid("BETTER_AUTH_SECRET must be a secret of at least 32 characters");
     if (!/^[0-9a-fA-F]{64}$/.test(values["EXECUTOR_ENCRYPTION_KEY"] ?? ""))
-      return yield* invalid("EXECUTOR_ENCRYPTION_KEY must be a secret of 64 hexadecimal characters");
+      return yield* invalid(
+        "EXECUTOR_ENCRYPTION_KEY must be a secret of 64 hexadecimal characters",
+      );
     return values;
   });
