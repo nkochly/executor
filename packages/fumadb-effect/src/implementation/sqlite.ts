@@ -26,19 +26,125 @@ export const sqliteParameter = (value: unknown): unknown => {
 };
 
 /**
- * Storage whose statements are read as SQLite (see `translateForSqlite`) and receive only values
- * SQLite can bind.
+ * The SQLite result code of a failure, as Effect's `classifySqliteError` reads it. A Durable
+ * Object reports only the message, and node:sqlite its own code; both name constraint failures
+ * in the message. A primary key conflict is a unique violation, as it is in Postgres.
  */
-export const normalizedStorage = (storage: SqliteStorage): SqliteStorage => ({
-  sql: {
-    exec: ((query: string, ...bindings: Array<unknown>) =>
-      storage.sql.exec(
-        translateForSqlite(query),
-        ...bindings.map(sqliteParameter),
-      )) as SqlStorage["exec"],
-  },
-  transaction: (closure) => storage.transaction(closure),
-});
+const sqliteCode = (message: string) =>
+  /\b(UNIQUE|PRIMARY KEY) constraint failed\b/.test(message)
+    ? "SQLITE_CONSTRAINT_UNIQUE"
+    : /\bconstraint failed\b/.test(message)
+      ? "SQLITE_CONSTRAINT"
+      : undefined;
+
+/**
+ * The failure with the code Effect classifies it by, when its message names one, and the
+ * constraint it broke when known.
+ */
+export const sqliteFailure = (cause: unknown, constraint?: string): unknown => {
+  if (!(cause instanceof Error)) return cause;
+  const code = sqliteCode(cause.message);
+  if (code === undefined) return cause;
+  return Object.assign(new Error(cause.message, { cause }), {
+    code,
+    ...(constraint === undefined ? {} : { constraint }),
+  });
+};
+
+/**
+ * A unique violation names its columns (`t.a, t.b`), not the index that holds them, where
+ * Postgres names the constraint callers match. That name is the table's unique index over
+ * exactly those columns, in order.
+ */
+const uniqueIndexOf = (storage: SqliteStorage, message: string): string | undefined => {
+  const listed = /UNIQUE constraint failed: (.+)$/u.exec(message)?.[1];
+  if (listed === undefined || listed.startsWith("index ")) return undefined;
+  const columns = listed.split(",").map((part) => part.trim());
+  const table = columns[0]?.split(".")[0];
+  if (table === undefined || !columns.every((column) => column.startsWith(`${table}.`)))
+    return undefined;
+  const names = columns.map((column) => column.slice(table.length + 1));
+  try {
+    const indexes = storage.sql
+      .exec(`select name from pragma_index_list(?) where "unique" = 1`, table)
+      .toArray() as Array<{ name: string }>;
+    return indexes.find(({ name }) => {
+      const indexed = storage.sql
+        .exec(`select name from pragma_index_info(?) order by seqno`, name)
+        .toArray() as Array<{ name: string }>;
+      return (
+        indexed.length === names.length &&
+        indexed.every((column, index) => column.name === names[index])
+      );
+    })?.name;
+  } catch {
+    return undefined;
+  }
+};
+
+type Classify = <A>(run: () => A) => A;
+
+const classifiedBy =
+  (storage: SqliteStorage): Classify =>
+  (run) => {
+    try {
+      return run();
+    } catch (cause) {
+      throw sqliteFailure(
+        cause,
+        cause instanceof Error ? uniqueIndexOf(storage, cause.message) : undefined,
+      );
+    }
+  };
+
+/** A cursor whose methods and iterators fail with classified errors (a cursor may step lazily). */
+const classifiedCursor = <C extends object>(cursor: C, classified: Classify): C =>
+  new Proxy(cursor, {
+    get(target, key) {
+      const value = Reflect.get(target, key, target) as unknown;
+      if (typeof value !== "function") return value;
+      return (...args: Array<unknown>) => {
+        const result = classified(() => Reflect.apply(value, target, args) as unknown);
+        return typeof result === "object" &&
+          result !== null &&
+          typeof (result as Iterator<unknown>).next === "function"
+          ? classifiedIterator(result as Iterator<unknown>, classified)
+          : result;
+      };
+    },
+  });
+
+function* classifiedIterator<T>(iterator: Iterator<T>, classified: Classify): Generator<T> {
+  while (true) {
+    const step = classified(() => iterator.next());
+    if (step.done) return;
+    yield step.value;
+  }
+}
+
+/**
+ * Storage whose statements are read as SQLite (see `translateForSqlite`), receive only values
+ * SQLite can bind, and fail with errors Effect classifies (unique and other constraint
+ * violations).
+ */
+export const normalizedStorage = (storage: SqliteStorage): SqliteStorage => {
+  const classified = classifiedBy(storage);
+  return {
+    sql: {
+      exec: ((query: string, ...bindings: Array<unknown>) =>
+        classifiedCursor(
+          classified(() =>
+            storage.sql.exec(translateForSqlite(query), ...bindings.map(sqliteParameter)),
+          ),
+          classified,
+        )) as SqlStorage["exec"],
+    },
+    transaction: (closure) =>
+      storage.transaction(closure).catch((cause: unknown) => {
+        throw sqliteFailure(cause);
+      }),
+  };
+};
 
 /**
  * The storage under the host's SQLite client, for code outside Effect SQL that must open its own
