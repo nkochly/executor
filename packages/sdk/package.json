@@ -12,6 +12,7 @@
     "./ui-build": "./src/ui-build.ts",
     "./skill-source": "./src/skill-source.ts",
     "./workerd": "./src/workerd.ts",
+    "./workerd/host": "./src/implementation/workerd-entry.ts",
     "./workerd/build": "./src/workerd-build.ts",
     "./workerd/migration": "./src/workerd-migration.ts",
     "./scheduling": "./src/scheduling.ts",

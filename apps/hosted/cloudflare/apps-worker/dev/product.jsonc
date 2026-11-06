@@ -1,0 +1,28 @@
+{
+  // Development only: self-host's product Worker on wrangler, its native bindings stubbed by
+  // executor-dev-host, its app host this package's Worker.
+  "name": "executor",
+  "main": "../../../self-host/src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  "compatibility_flags": ["nodejs_compat", "no_brotli_content_encoding"],
+  "alias": {
+    "executor:skills": "./.generated/skills.js",
+    "executor:dashboard": "./.generated/dashboard.js",
+    "executor:pglite.wasm": "./.generated/unused.js",
+    "executor:initdb.wasm": "./.generated/unused.js",
+    "executor:pglite.data": "./.generated/unused.js",
+  },
+  "durable_objects": { "bindings": [{ "name": "PRODUCT", "class_name": "ExecutorProduct" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ExecutorProduct"] }],
+  "services": [
+    { "binding": "NATIVE", "service": "executor-dev-host", "entrypoint": "Native" },
+    { "binding": "LEGACY_DATABASE", "service": "executor-dev-host", "entrypoint": "Blobs" },
+    { "binding": "BLOBS", "service": "executor-dev-host", "entrypoint": "Blobs" },
+    { "binding": "DASHBOARD", "service": "executor-dev-host", "entrypoint": "Dashboard" },
+    { "binding": "MOTEL", "service": "executor-dev-host", "entrypoint": "Motel" },
+    { "binding": "PUBLIC_FETCH", "service": "executor-dev-host", "entrypoint": "Network" },
+    { "binding": "PRIVATE_FETCH", "service": "executor-dev-host", "entrypoint": "Network" },
+    { "binding": "SELF", "service": "executor", "entrypoint": "SelfOrigin" },
+    { "binding": "APPS", "service": "executor-apps" },
+  ],
+}
