@@ -49,7 +49,7 @@ import {
 import { OrganizationForbidden } from "../contracts/organization.ts";
 import { isApiKey } from "./api-keys.ts";
 import { patGrantId, type HostedOAuthOrigins } from "./mcp-oauth.ts";
-import { grantPermitted } from "./connection-bundles.ts";
+import { bundleCopyBySlug, grantPermitted } from "./connection-bundles.ts";
 
 /** A member's grant must still be one the organization's connection setting allows. */
 const requirePermitted = (
@@ -799,7 +799,10 @@ const ConnectionRow = Schema.Struct({
   revoked: SqlBoolean,
 });
 
-/** The current policy of a user's own live scoped connection in one organization, or none. */
+/**
+ * A user's own live scoped connection in one organization, with its current policy, or none. The
+ * URL names it by its id, or by the slug of a bundle whose copy the user holds there.
+ */
 export const proxyConnectionPolicy = (
   sql: SqlClient.SqlClient,
   user: string,
@@ -807,15 +810,23 @@ export const proxyConnectionPolicy = (
   connection: ConnectionId,
 ) =>
   Effect.gen(function* () {
-    const rows = yield* sql`select "userId", resource, policy, revoked from "mcpConnection"
-      where id = ${connection}`;
-    if (rows.length !== 1) return Option.none();
-    const row = yield* Schema.decodeUnknownEffect(ConnectionRow)(rows[0]);
-    if (row.revoked || row.userId !== user || row.resource !== organization) return Option.none();
-    const policy = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConnectionPolicy))(
-      row.policy,
-    );
-    return Option.some(connectionGrantPolicy(policy));
+    const own = (id: string) =>
+      Effect.gen(function* () {
+        const rows = yield* sql`select "userId", resource, policy, revoked from "mcpConnection"
+          where id = ${id}`;
+        if (rows.length !== 1) return Option.none();
+        const row = yield* Schema.decodeUnknownEffect(ConnectionRow)(rows[0]);
+        if (row.revoked || row.userId !== user || row.resource !== organization)
+          return Option.none();
+        const policy = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConnectionPolicy))(
+          row.policy,
+        );
+        return Option.some({ id, policy: connectionGrantPolicy(policy) });
+      });
+    const byId = yield* own(connection);
+    if (Option.isSome(byId)) return byId;
+    const copy = yield* bundleCopyBySlug(sql, organization, user, connection);
+    return copy === undefined ? Option.none() : yield* own(copy);
   }).pipe(Effect.mapError(() => unavailable));
 
 /** The user with this verified email and their memberships, or none when no account has it. */
@@ -868,9 +879,9 @@ export const proxyMcpAccess = (
     yield* recordCaller(organization, userId);
     const mode = request.mode ?? "model";
     const connection = request.connection;
-    const policy =
+    const resolved =
       connection === undefined
-        ? GrantPolicy.make({ kind: "all" })
+        ? undefined
         : yield* proxyConnectionPolicy(sql, userId, organization, connection).pipe(
             Effect.flatMap(
               Option.match({
@@ -879,7 +890,8 @@ export const proxyMcpAccess = (
               }),
             ),
           );
-    yield* requirePermitted(sql, organization, role, connection);
+    const policy = resolved?.policy ?? GrantPolicy.make({ kind: "all" });
+    yield* requirePermitted(sql, organization, role, resolved?.id);
     return McpAccess.make({
       userId,
       clientId: "proxy:cloudflare-access",

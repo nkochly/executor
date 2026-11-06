@@ -22,6 +22,7 @@ import {
   BundleNotFound,
   BundleRevision,
   BundlesUnavailable,
+  bundleSlug,
   type BundleInput,
   type HostedConnectionView,
 } from "../contracts/connection-bundles.ts";
@@ -215,16 +216,43 @@ export const copiesOf = (organization: OrganizationId, user: string) =>
     return new Map(rows.map((row) => [row.connection, { id: row.id, name: row.name }]));
   });
 
-/** Name a member's connections by the bundle each came from. */
-export const withBundles = <C extends { readonly id: string }>(
+/**
+ * Name a member's connections by the bundle each came from. A copy's URL names its bundle, so
+ * every member of the bundle's groups shares one URL and each reaches their own copy.
+ */
+export const withBundles = <C extends { readonly id: string; readonly url: string }>(
   connections: readonly C[],
   copies: ReadonlyMap<string, { readonly id: BundleId; readonly name: string }>,
 ) =>
   connections.map((connection) => {
     const bundle = copies.get(connection.id);
-    return (bundle === undefined ? connection : { ...connection, bundle }) as C &
-      Pick<HostedConnectionView, "bundle">;
+    if (bundle === undefined) return connection as C & Pick<HostedConnectionView, "bundle">;
+    const url = mcpResource(new URL(connection.url).origin, {
+      mode: "model",
+      connection: ConnectionId.make(bundleSlug(bundle.name)),
+    });
+    return { ...connection, url, bundle } as C & Pick<HostedConnectionView, "bundle">;
   });
+
+/**
+ * The live connection a member reaches at an MCP URL naming one of their bundles by its slug, or
+ * undefined when no bundle of theirs in the organization has it.
+ */
+export const bundleCopyBySlug = (
+  sql: SqlClient.SqlClient,
+  organization: string,
+  user: string,
+  slug: string,
+) =>
+  sql`select c.connection_id as connection, b.name as name
+    from hosted_connection_bundle_copies c
+    join hosted_connection_bundles b on b.id = c.bundle_id
+    where c.organization_id = ${organization} and c.user_id = ${user}`.pipe(
+    Effect.map((rows) => {
+      const row = rows.find((item) => bundleSlug(String(item["name"])) === slug);
+      return row === undefined ? undefined : String(row["connection"]);
+    }),
+  );
 
 /** The current organization, when the caller is one of its owners or admins. */
 const requireAdmin = Effect.gen(function* () {
@@ -239,9 +267,23 @@ const storageFailure = (error: SqlError.SqlError) =>
     ? new BundleConflict({ reason: "name_taken" })
     : unavailable();
 
-/** Check that every app and group the bundle names belongs to the organization. */
-const validate = (sql: SqlClient.SqlClient, organization: OrganizationId, input: BundleInput) =>
+/**
+ * Check that the bundle's name makes an MCP URL no other bundle of the organization has, and that
+ * every app and group it names belongs to the organization.
+ */
+const validate = (
+  sql: SqlClient.SqlClient,
+  organization: OrganizationId,
+  input: BundleInput,
+  current: BundleId | undefined,
+) =>
   Effect.gen(function* () {
+    const slug = bundleSlug(input.name);
+    if (slug === "") return yield* new BundleInvalid({ reason: "name", id: input.name });
+    const others = yield* sql`select id, name from hosted_connection_bundles
+      where organization_id = ${organization}`;
+    if (others.some((row) => row["id"] !== current && bundleSlug(String(row["name"])) === slug))
+      return yield* new BundleConflict({ reason: "name_taken" });
     const appIds = input.apps.map((app) => app.app);
     if (appIds.length > 0) {
       const found = yield* sql`select id from executor_apps
@@ -269,7 +311,7 @@ const saveBundle = (
     const saved = yield* sql
       .withTransaction(
         Effect.gen(function* () {
-          yield* validate(sql, organization, input);
+          yield* validate(sql, organization, input, current?.id);
           const revision = BundleRevision.make(crypto.randomUUID());
           const apps = JSON.stringify(input.apps);
           let id: BundleId;
