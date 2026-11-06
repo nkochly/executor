@@ -36,8 +36,17 @@ import {
   HttpRouter,
   HttpServer,
   HttpServerRequest,
+  HttpServerResponse,
 } from "effect/http";
-import { FirstPartyOAuthClientsInvalid } from "@executor-js/hosted-server";
+import {
+  FirstPartyOAuthClientsInvalid,
+  McpAccess,
+  fromWire,
+  toWire,
+  type McpBackendCall,
+  type WireExit,
+} from "@executor-js/hosted-server";
+import type { BrowserApprovalView, BrowserApprovals } from "@executor-js/mcp/browser";
 import {
   bindingDashboard,
   bindingHttpClient,
@@ -46,23 +55,84 @@ import {
   sqliteDatabaseSchema,
   SelfHostWorkflowRequests,
   type HttpBinding,
+  type McpSessionHost,
 } from "@executor-js/hosted-self-host/product";
 import skills from "executor:skills";
 import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
 import { cloudflarePlatform, type PlatformBindings } from "./platform.ts";
+import { mcpSessionAccessHeader } from "./mcp-session.ts";
+
+export { ExecutorMcpSession } from "./mcp-session.ts";
 
 interface ProductStub {
   fetch(request: Request): Promise<Response>;
   workflow(request: Request): Promise<Response>;
+  mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
+}
+/** A caller's session object, as the product reaches it. */
+interface McpSessionStub {
+  fetch(request: Request): Promise<Response>;
+  approvalView(caller: string, address: unknown): Promise<unknown>;
+  approvalAnswer(caller: string, address: unknown, response: unknown): Promise<WireExit>;
 }
 interface Environment extends PlatformBindings {
   readonly PRODUCT: { getByName(name: string): ProductStub };
+  /** Callers' MCP session objects; used when `EXECUTOR_MCP_SESSIONS` is true. */
+  readonly MCP_SESSIONS?: { getByName(name: string): McpSessionStub };
   /** The dashboard's browser files; the Worker runs first, so only the asset manifest is served. */
   readonly ASSETS: Fetcher;
   /** This Worker's own `SelfOrigin` entrypoint, for requests to the dashboard origin. */
   readonly SELF: Fetcher;
 }
+
+const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));
+
+/**
+ * MCP sessions in their own objects: the product authenticates and forwards each `/mcp` request
+ * to the caller's object, and runs the backend operations the object sends back. Until `serve`
+ * is called no operation can run, and the product answers each with a defect.
+ */
+const sessionHost = (sessions: NonNullable<Environment["MCP_SESSIONS"]>) => {
+  let served: ((request: Request, call: McpBackendCall) => Promise<WireExit>) | undefined;
+  const host: McpSessionHost = {
+    forward: (key, access) =>
+      Effect.gen(function* () {
+        const request = yield* HttpServerRequest.HttpServerRequest;
+        const web = yield* HttpServerRequest.toWeb(request).pipe(Effect.orDie);
+        const forwarded = new Request(web);
+        forwarded.headers.set(mcpSessionAccessHeader, encodeAccess(access));
+        const response = yield* Effect.promise(() => sessions.getByName(key).fetch(forwarded));
+        return HttpServerResponse.fromWeb(response);
+      }),
+    approvals: (key): BrowserApprovals => ({
+      get: (product, address) =>
+        Effect.promise(() => sessions.getByName(key).approvalView(product, address)).pipe(
+          Effect.map((view) => fromWire(view) as BrowserApprovalView),
+        ),
+      answer: (product, address, response) =>
+        Effect.promise(() =>
+          sessions.getByName(key).approvalAnswer(product, address, toWire(response)),
+        ).pipe(
+          Effect.flatMap((exit) =>
+            exit.ok
+              ? Effect.succeed(fromWire(exit.value) as never)
+              : "error" in exit
+                ? Effect.fail(fromWire(exit.error) as never)
+                : Effect.die(exit.defect),
+          ),
+        ),
+    }),
+    serve: (run) => {
+      served = run;
+    },
+  };
+  const backend = (request: Request, call: McpBackendCall): Promise<WireExit> =>
+    served === undefined
+      ? Promise.resolve({ ok: false, defect: "MCP sessions are not served by this product" })
+      : served(request, call);
+  return { host, backend };
+};
 
 /** Outbound requests leave through the Worker's network; the URL policy is checked before. */
 const network: HttpBinding = { fetch: (request) => fetch(request) };
@@ -91,7 +161,13 @@ const prepare = (state: DurableObjectState, env: Environment) =>
       const services = yield* Layer.build(
         selfHostExecutorServices(egress, cloudflarePlatform(env, state.storage)),
       );
+      const sessions =
+        env.MCP_SESSIONS !== undefined &&
+        (yield* Config.Boolean("EXECUTOR_MCP_SESSIONS").pipe(Config.withDefault(false)))
+          ? sessionHost(env.MCP_SESSIONS)
+          : undefined;
       const routes = yield* selfHostRouteMap({
+        ...(sessions === undefined ? {} : { mcpSessions: sessions.host }),
         skills: executorSkillFiles(skills),
         egress,
         executorServices: Layer.succeedContext(services),
@@ -120,6 +196,10 @@ const prepare = (state: DurableObjectState, env: Environment) =>
         workflow: HttpEffect.toWebHandlerWith<never, Effect.Services<typeof workflow>>(context)(
           workflow,
         ),
+        mcpBackend: (request: Request, call: McpBackendCall): Promise<WireExit> =>
+          sessions === undefined
+            ? Promise.resolve({ ok: false, defect: "MCP sessions are off" })
+            : sessions.backend(request, call),
       };
     }).pipe(Effect.provideContext(common));
   });
@@ -192,6 +272,10 @@ export class ExecutorProduct extends DurableObject<Environment> implements Produ
   /** Private workflow callbacks are reached only through the named service entrypoint. */
   async workflow(request: Request): Promise<Response> {
     return (await this.#product()).workflow(request);
+  }
+  /** One backend operation a caller's session object sends for the request it serves. */
+  async mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit> {
+    return (await this.#product()).mcpBackend(request, call);
   }
   /** Restore the background owner after an eviction or restart even when no request arrives. */
   async alarm(): Promise<void> {

@@ -101,6 +101,9 @@ export {
   makeHostedMcp,
   mcpSessionKey,
   dispatchHostedMcp,
+  hostedMcpRequestBackend,
+  provideHostedMcpRequest,
+  type HostedMcpRequestError,
   authenticatedMcp,
   mcpChallenge,
   mcpProtectedResource,
@@ -120,3 +123,14 @@ export { resolveOrganizationReference } from "./implementation/organization-refe
 
 export * from "./contracts/schedules.ts";
 export { makeScheduledAuthority } from "./implementation/schedules.ts";
+
+export {
+  remoteMcpBackend,
+  serveMcpBackendCall,
+  toWire,
+  fromWire,
+  RemoteBackendUnavailable,
+  RemoteFailure,
+  type McpBackendCall,
+  type WireExit,
+} from "./implementation/mcp-remote.ts";

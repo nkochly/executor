@@ -31,6 +31,15 @@ Vars: `BETTER_AUTH_URL` (the public origin, no trailing slash) and any other sel
 (`DO_NOT_TRACK=1`). For app repositories, declare an Artifacts binding named `ARTIFACTS` and set
 `CLOUDFLARE_ACCOUNT_ID` and, if not `executor-apps`, `EXECUTOR_ARTIFACTS_NAMESPACE`.
 
+## MCP sessions in their own objects
+
+With `EXECUTOR_MCP_SESSIONS=true` and the `MCP_SESSIONS` Durable Object binding
+(`ExecutorMcpSession`), each caller's MCP sessions and programs run in an object of their own,
+named by the caller's user, client, organization and grant. The product still authenticates every
+request and runs every backend operation the object sends back, so one caller's busy program
+neither blocks nor shares memory with another's. Sessions live in memory: after a deploy, clients
+initialize again. Unset, the product runs MCP sessions itself.
+
 ## Run locally
 
 ```sh

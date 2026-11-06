@@ -10,6 +10,7 @@ export {
   type SelfHostPlatform,
 } from "./implementation/executor-services.ts";
 export { selfHostRouteMap } from "./implementation/routes.ts";
+export { selfHostMcpLimits, type McpSessionHost } from "./mcp.ts";
 export {
   bindingDashboard,
   bindingHttpClient,

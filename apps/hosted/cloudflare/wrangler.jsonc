@@ -22,9 +22,16 @@
     "run_worker_first": true,
   },
   "durable_objects": {
-    "bindings": [{ "name": "PRODUCT", "class_name": "ExecutorProduct" }],
+    "bindings": [
+      { "name": "PRODUCT", "class_name": "ExecutorProduct" },
+      // Callers' MCP sessions and programs, used when EXECUTOR_MCP_SESSIONS is "true".
+      { "name": "MCP_SESSIONS", "class_name": "ExecutorMcpSession" },
+    ],
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ExecutorProduct"] }],
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ExecutorProduct"] },
+    { "tag": "v2", "new_sqlite_classes": ["ExecutorMcpSession"] },
+  ],
   // Blobs. Without this binding blobs cannot be written; see README.md for app repositories.
   "r2_buckets": [{ "binding": "BLOBS", "bucket_name": "executor-blobs" }],
   "services": [

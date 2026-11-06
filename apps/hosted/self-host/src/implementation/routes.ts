@@ -46,7 +46,7 @@ import { Config, Effect, Layer, Option } from "effect";
 import { HttpRouter, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { withHostPipeline } from "@executor-js/dashboard-start/in-process";
 import { selfHostApi } from "./api.ts";
-import { selfHostMcp } from "../mcp.ts";
+import { selfHostMcp, type McpSessionHost } from "../mcp.ts";
 import { SelfHostAuth } from "../auth.ts";
 import { selfHostAnalytics } from "./product-analytics.ts";
 
@@ -60,6 +60,8 @@ export const selfHostRouteMap = <DashboardE, DashboardR>(options: {
     Layer.Success<ReturnType<typeof selfHostExecutorServices>>
   >;
   readonly dashboard: Effect.Effect<HttpServerResponse.HttpServerResponse, DashboardE, DashboardR>;
+  /** Session objects that hold MCP protocol state and run programs outside this process. */
+  readonly mcpSessions?: McpSessionHost;
 }) =>
   Effect.gen(function* () {
     const { skills, egress, executorServices, dashboard } = options;
@@ -105,7 +107,26 @@ export const selfHostRouteMap = <DashboardE, DashboardR>(options: {
     });
     const addresses = appAddresses(auth.origin, yield* appUiBaseUrl(auth.origin));
     const appUi = hostedAppUi(addresses);
-    const mcp = yield* selfHostMcp.pipe(Effect.provide(HttpServer.layerServices));
+    const mcp = yield* selfHostMcp(options.mcpSessions).pipe(
+      Effect.provide(HttpServer.layerServices),
+    );
+    if (options.mcpSessions !== undefined && mcp.backendCall !== undefined) {
+      const backendCall = mcp.backendCall;
+      const context = yield* Effect.context<never>();
+      options.mcpSessions.serve((request, call) =>
+        Effect.runPromiseWith(context)(
+          backendCall(call).pipe(
+            Effect.provideService(
+              HttpServerRequest.HttpServerRequest,
+              HttpServerRequest.fromWeb(request),
+            ),
+            Effect.provide(executorServices),
+            Effect.provide(auth.mcpIdentity),
+            Effect.provide(HttpServer.layerServices),
+          ),
+        ),
+      );
+    }
     const document = lazyHostedApiDocument(() => executorSelfHostApiDocument(auth.origin));
     const api = selfHostApi(document).pipe(
       Layer.provide(frameworkDocumentation(Effect.succeed(skills))),

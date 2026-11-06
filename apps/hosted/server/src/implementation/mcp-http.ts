@@ -58,7 +58,7 @@ import { hostedMcpBackend } from "./mcp.ts";
 // A native MCP server retains its tool handlers. Authority is supplied only while
 // dispatching the HTTP request, never while registering those handlers.
 type HostedBackend = Effect.Success<typeof hostedMcpBackend>;
-type RequestError =
+export type HostedMcpRequestError =
   | GrantForbidden
   | Effect.Error<ReturnType<HostedBackend[keyof HostedBackend]>>
   | Effect.Error<ReturnType<McpAuthentication["Service"]["authenticate"]>>;
@@ -85,28 +85,31 @@ const requestCaller = Effect.flatMap(RequestCaller, (caller) =>
     ? Effect.die("MCP request has no authenticated caller")
     : Effect.succeed(caller),
 );
-const RequestBackend = Context.Reference<McpBackend<RequestError>>("hosted/McpRequestBackend", {
-  defaultValue: () => ({
-    listSkills: unavailable,
-    readSkill: unavailable,
-    listApps: unavailable,
-    listAccounts: unavailable,
-    listTools: unavailable,
-    searchableTools: unavailable,
-    searchTools: unavailable,
-    callTool: unavailable,
-    resumeInvocation: unavailable,
-    authorizeElicitation: () => Effect.fail(new ElicitationFailed({ reason: "forbidden" })),
-    eventDefinitions: unavailable,
-    findEventSubscription: unavailable,
-    subscribeEvent: unavailable,
-    unsubscribeEvent: unavailable,
-  }),
-});
+const RequestBackend = Context.Reference<McpBackend<HostedMcpRequestError>>(
+  "hosted/McpRequestBackend",
+  {
+    defaultValue: () => ({
+      listSkills: unavailable,
+      readSkill: unavailable,
+      listApps: unavailable,
+      listAccounts: unavailable,
+      listTools: unavailable,
+      searchableTools: unavailable,
+      searchTools: unavailable,
+      callTool: unavailable,
+      resumeInvocation: unavailable,
+      authorizeElicitation: () => Effect.fail(new ElicitationFailed({ reason: "forbidden" })),
+      eventDefinitions: unavailable,
+      findEventSubscription: unavailable,
+      subscribeEvent: unavailable,
+      unsubscribeEvent: unavailable,
+    }),
+  },
+);
 const RequestApprovalUrl = Context.Reference<
   ((address: import("@executor-js/mcp/browser").BrowserApprovalAddress) => string) | undefined
 >("hosted/McpApprovalUrl", { defaultValue: () => undefined });
-const requestBackend: McpBackend<RequestError> = {
+const requestBackend: McpBackend<HostedMcpRequestError> = {
   listSkills: (input, options) =>
     Effect.flatMap(RequestBackend, (backend) => backend.listSkills(input, options)),
   readSkill: (input) => Effect.flatMap(RequestBackend, (backend) => backend.readSkill(input)),
@@ -175,12 +178,12 @@ export const requestedMcpOrganization = (url: URL): OrganizationReference | unde
 export const mcpSessionKey = ({ userId, clientId, access, grant }: McpAccess) =>
   JSON.stringify([userId, clientId, access.organization, grant.id]);
 
-/** Supply fresh authorized operations to an existing native MCP transport. */
-export const dispatchHostedMcp = <E, R>(
-  access: McpAccess,
-  address: McpAddress,
-  handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
-) =>
+/**
+ * The backend one authenticated MCP request runs with: every call, resume, skill read and
+ * elicitation rechecks the request's bearer, grant and membership first. A grant that cannot serve
+ * this address is the refusal response instead. Built per request, never kept across callers.
+ */
+export const hostedMcpRequestBackend = (access: McpAccess, address: McpAddress) =>
   Effect.gen(function* () {
     const authentication = yield* McpAuthentication;
     const request = yield* HttpServerRequest.HttpServerRequest;
@@ -195,11 +198,15 @@ export const dispatchHostedMcp = <E, R>(
           Effect.provideService(CurrentUserId, fresh.userId),
           Effect.provideService(CurrentMcpGrant, fresh.grant.id),
         );
-        return restrictMcpBackend<RequestError, never>(backend, Effect.succeed(fresh.grant));
+        return restrictMcpBackend<HostedMcpRequestError, never>(
+          backend,
+          Effect.succeed(fresh.grant),
+        );
       });
     // Clients print a refusal's body after their own prefix, so it keeps the typed cause.
     const scope = yield* Effect.result(scoped(access));
-    if (Result.isFailure(scope)) return yield* refusedMcpRequest(scope.failure);
+    if (Result.isFailure(scope))
+      return { refused: yield* refusedMcpRequest(scope.failure) } as const;
     const backend = scope.success;
     const services = yield* Effect.context<HostedExecutor | GroupDatabase>().pipe(
       Effect.map(Context.pick(HostedExecutor, GroupDatabase)),
@@ -259,8 +266,8 @@ export const dispatchHostedMcp = <E, R>(
     const batchedCall = (
       batch: NonNullable<Effect.Success<typeof StatementBatch>>,
       cache: NonNullable<Effect.Success<typeof CallStateCache>>,
-      input: Parameters<McpBackend<RequestError>["callTool"]>[0],
-      options: Parameters<McpBackend<RequestError>["callTool"]>[1],
+      input: Parameters<McpBackend<HostedMcpRequestError>["callTool"]>[0],
+      options: Parameters<McpBackend<HostedMcpRequestError>["callTool"]>[1],
     ) =>
       Effect.gen(function* () {
         const executor = yield* Effect.flatten(HostedExecutor).pipe(
@@ -369,7 +376,7 @@ export const dispatchHostedMcp = <E, R>(
           Effect.provideService(InvocationPrefetch, read.invocation),
         );
       });
-    const authorized: McpBackend<RequestError> = {
+    const authorized: McpBackend<HostedMcpRequestError> = {
       ...backend,
       listSkills: (input, options) =>
         current.pipe(Effect.flatMap((fresh) => fresh.listSkills(input, options))),
@@ -422,18 +429,43 @@ export const dispatchHostedMcp = <E, R>(
       subscribeEvent: (input) =>
         current.pipe(Effect.flatMap((fresh) => fresh.subscribeEvent(input))),
     };
-    return yield* handler.pipe(
-      Effect.provideService(RequestBackend, authorized),
-      Effect.provideService(RequestApprovalUrl, (address) => {
-        const url = new URL(`/mcp/approve/${address.requestId}`, authentication.origin);
-        url.searchParams.set("sessionId", address.sessionId);
-        url.searchParams.set("grantId", access.grant.id);
-        return url.toString();
-      }),
-      Effect.provideService(RequestCaller, mcpSessionKey(access)),
-      Effect.provideService(McpRequestAttributes, caller),
-      Effect.provideService(CurrentUsage, { source: "mcp", client_id: access.clientId }),
-    );
+    return { backend: authorized, caller } as const;
+  });
+
+/** Run one MCP request's handler with the backend, caller and approval URL its access names. */
+export const provideHostedMcpRequest = <A, E, R>(
+  access: McpAccess,
+  backend: McpBackend<HostedMcpRequestError>,
+  origin: string,
+  handler: Effect.Effect<A, E, R>,
+) =>
+  handler.pipe(
+    Effect.provideService(RequestBackend, backend),
+    Effect.provideService(RequestApprovalUrl, (address) => {
+      const url = new URL(`/mcp/approve/${address.requestId}`, origin);
+      url.searchParams.set("sessionId", address.sessionId);
+      url.searchParams.set("grantId", access.grant.id);
+      return url.toString();
+    }),
+    Effect.provideService(RequestCaller, mcpSessionKey(access)),
+    Effect.provideService(
+      McpRequestAttributes,
+      callerSpanAttributes(access.access.organization, access.userId),
+    ),
+    Effect.provideService(CurrentUsage, { source: "mcp", client_id: access.clientId }),
+  );
+
+/** Supply fresh authorized operations to an existing native MCP transport. */
+export const dispatchHostedMcp = <E, R>(
+  access: McpAccess,
+  address: McpAddress,
+  handler: Effect.Effect<HttpServerResponse.HttpServerResponse, E, R>,
+) =>
+  Effect.gen(function* () {
+    const authentication = yield* McpAuthentication;
+    const request = yield* hostedMcpRequestBackend(access, address);
+    if ("refused" in request) return request.refused;
+    return yield* provideHostedMcpRequest(access, request.backend, authentication.origin, handler);
   });
 
 /** The 401 that sends a client without a valid bearer to the MCP resource's metadata. */
