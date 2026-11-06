@@ -40,6 +40,22 @@ const errorMessage = Match.type<HostedError>().pipe(
     ScheduleInvalid: () => "Update the interval or calendar timing in the app source.",
     GroupNotFound: () =>
       "This group is unavailable or you do not have access. Ask an organization admin.",
+    BundleConflict: ({ reason }) =>
+      ({
+        changed:
+          "This bundle changed while you were editing. Your changes were not saved. Close this form, refresh, and try again.",
+        name_taken: "Another bundle already uses this name. Choose another name.",
+      })[reason],
+    BundleNotFound: () => "This connection bundle no longer exists.",
+    BundleInvalid: ({ reason }) =>
+      reason === "app"
+        ? "An app in this bundle is no longer available. Remove it and try again."
+        : "A group in this bundle is no longer available. Choose the current groups.",
+    BundlesUnavailable: () => "Connection bundles could not be loaded or saved. Try again.",
+    ConnectionManaged: () =>
+      "This connection comes from a bundle your admins manage. Ask an admin to change it.",
+    ConnectionsRestricted: () =>
+      "Your admins set up your connections. Use a bundle from your Connect page, or ask an admin.",
     GroupsUnavailable: () => "Groups could not be loaded or saved. Try again.",
     GroupConflict: ({ reason }) =>
       ({

@@ -24,7 +24,11 @@ import {
   type ApprovalMode,
   type GrantTarget,
 } from "@executor-js/mcp-auth";
-import { ConnectionPolicy, connectionGrantPolicy } from "@executor-js/mcp-auth/connections";
+import {
+  ConnectionId,
+  ConnectionPolicy,
+  connectionGrantPolicy,
+} from "@executor-js/mcp-auth/connections";
 import { Clock, Context, Effect, Option, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import { authMillis, isSqlite, SqlBoolean } from "fumadb-effect/dialect";
@@ -45,6 +49,21 @@ import {
 import { OrganizationForbidden } from "../contracts/organization.ts";
 import { isApiKey } from "./api-keys.ts";
 import { patGrantId, type HostedOAuthOrigins } from "./mcp-oauth.ts";
+import { grantPermitted } from "./connection-bundles.ts";
+
+/** A member's grant must still be one the organization's connection setting allows. */
+const requirePermitted = (
+  sql: SqlClient.SqlClient,
+  organization: string,
+  role: typeof OrganizationRole.Type,
+  connection: string | undefined,
+) =>
+  grantPermitted(sql, organization, role, connection).pipe(
+    Effect.mapError(() => unavailable),
+    Effect.flatMap((permitted) =>
+      permitted ? Effect.void : Effect.fail(forbidden("bundles_only")),
+    ),
+  );
 
 /**
  * Why a bearer was refused, before translation into the MCP or API contract. A valid credential
@@ -63,6 +82,8 @@ export interface BearerRequest {
   readonly headers: Headers;
   /** The organization in the URL (`/org/<ref>/mcp`) or the API's `organization` parameter. */
   readonly organization?: OrganizationReference | undefined;
+  /** The scoped connection the MCP URL names, if any. */
+  readonly connection?: ConnectionId | undefined;
 }
 
 export interface ApiBearerAccess {
@@ -419,6 +440,7 @@ const oauthAccess = (
     );
     if (requested !== undefined && requested !== organization)
       return yield* forbidden("organization_mismatch");
+    if (kind === "mcp") yield* requirePermitted(sql, organization, role, connection);
     return {
       userId: row.subject,
       clientId: row.tokenClient,
@@ -678,6 +700,8 @@ export const mcpBearerAccess = (
       });
     }
     const key = yield* patAccess(sql, token, request);
+    // A personal access token reaches every app its user can use, as the plain MCP URL does.
+    yield* requirePermitted(sql, key.access.organization, key.access.role, undefined);
     const mode = request.mode ?? "model";
     return McpAccess.make({
       userId: key.userId,
@@ -748,6 +772,7 @@ export const ProxyGrant = Schema.Struct({
   user: Schema.NonEmptyString,
   organization: OrganizationId,
   mode: Schema.Literals(["model", "native", "browser"]),
+  connection: Schema.optionalKey(ConnectionId),
 });
 const proxyGrantPrefix = "proxy:";
 export const proxyGrantId = (value: typeof ProxyGrant.Type) =>
@@ -767,6 +792,31 @@ export const proxyGrantOf = (id: string) =>
     : Option.none();
 
 const UserRow = Schema.Struct({ id: Schema.String });
+const ConnectionRow = Schema.Struct({
+  userId: Schema.String,
+  resource: Schema.String,
+  policy: Schema.String,
+  revoked: SqlBoolean,
+});
+
+/** The current policy of a user's own live scoped connection in one organization, or none. */
+export const proxyConnectionPolicy = (
+  sql: SqlClient.SqlClient,
+  user: string,
+  organization: string,
+  connection: ConnectionId,
+) =>
+  Effect.gen(function* () {
+    const rows = yield* sql`select "userId", resource, policy, revoked from "mcpConnection"
+      where id = ${connection}`;
+    if (rows.length !== 1) return Option.none();
+    const row = yield* Schema.decodeUnknownEffect(ConnectionRow)(rows[0]);
+    if (row.revoked || row.userId !== user || row.resource !== organization) return Option.none();
+    const policy = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(ConnectionPolicy))(
+      row.policy,
+    );
+    return Option.some(connectionGrantPolicy(policy));
+  }).pipe(Effect.mapError(() => unavailable));
 
 /** The user with this verified email and their memberships, or none when no account has it. */
 export const proxyUserMemberships = (sql: SqlClient.SqlClient, email: string) =>
@@ -784,9 +834,10 @@ export const proxyUserMemberships = (sql: SqlClient.SqlClient, email: string) =>
 
 /**
  * MCP authority for a caller the fronting identity proxy verified, by email: the account with that
- * email, in the organization the request names, else its only organization, with the authority of
- * a personal access token. The account must exist (people make it by signing in to the console
- * once); a URL naming a scoped connection is refused by the grant's target, which names none.
+ * email, in the organization the request names, else its only organization. The account must exist
+ * (people make it by signing in to the console once). A URL naming one of the caller's own scoped
+ * connections has that connection's current authority; any other has a personal access token's.
+ * Either way the organization's connection setting must allow it.
  */
 export const proxyMcpAccess = (
   email: string,
@@ -816,13 +867,31 @@ export const proxyMcpAccess = (
     );
     yield* recordCaller(organization, userId);
     const mode = request.mode ?? "model";
+    const connection = request.connection;
+    const policy =
+      connection === undefined
+        ? GrantPolicy.make({ kind: "all" })
+        : yield* proxyConnectionPolicy(sql, userId, organization, connection).pipe(
+            Effect.flatMap(
+              Option.match({
+                onNone: () => Effect.fail(unauthorized),
+                onSome: Effect.succeed,
+              }),
+            ),
+          );
+    yield* requirePermitted(sql, organization, role, connection);
     return McpAccess.make({
       userId,
       clientId: "proxy:cloudflare-access",
       grant: {
-        id: proxyGrantId({ user: userId, organization, mode }),
-        policy: { kind: "all" },
-        target: { kind: "mcp", mode },
+        id: proxyGrantId({
+          user: userId,
+          organization,
+          mode,
+          ...(connection === undefined ? {} : { connection }),
+        }),
+        policy,
+        target: { kind: "mcp", mode, ...(connection === undefined ? {} : { connection }) },
       },
       access: { organization, owner: organizationOwner(organization), role },
     });

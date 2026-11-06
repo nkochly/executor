@@ -1,4 +1,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
+import { useAtomValue } from "@effect/atom-react";
+import { Option } from "effect";
+import { AsyncResult } from "effect/reactivity";
 import { Button } from "@executor-js/ui/components/button";
 import { Code } from "@executor-js/ui/dashboard/code";
 import { McpInstallInstructions } from "@executor-js/ui/dashboard/connect";
@@ -21,6 +24,7 @@ import {
   revokeMcpConnectionAtom,
   saveMcpConnectionAtom,
 } from "../../contracts/mcp-connections.ts";
+import { bundlesAtom } from "../../contracts/connection-bundles.ts";
 import { useDocumentationUrl } from "../documentation.ts";
 import { useResourceOrigins } from "../resource-origin.ts";
 
@@ -34,6 +38,7 @@ export const connectionPageReads: OrganizationPageReads = (organization) => [
 export const connectPageReads: OrganizationPageReads = (organization, params) => [
   ...connectionPageReads(organization, params),
   mcpAgentsAtom(organization),
+  bundlesAtom(organization),
 ];
 
 /** Headless setup: a personal access token against this organization's own addresses. */
@@ -131,12 +136,18 @@ function useConnectionBindings() {
 /** The member's full-access URL, scoped connections and connected agents for this organization. */
 export function ConnectPage() {
   const bindings = useConnectionBindings();
-  const { organization } = useOrganizationRoute();
+  const { organization, role } = useOrganizationRoute();
   const origins = useResourceOrigins();
+  // Until the setting loads, offer creation; the server refuses it when the setting is off.
+  const setting = Option.match(AsyncResult.value(useAtomValue(bundlesAtom(organization))), {
+    onNone: () => true,
+    onSome: (view) => view.membersCreateConnections,
+  });
   return (
     <ScopedConnectionsPage
       key={organization}
       {...bindings}
+      canCreate={role !== "member" || setting}
       endpoint={`${origins.mcp[0]}/mcp`}
       agents={
         <ConnectedAgents

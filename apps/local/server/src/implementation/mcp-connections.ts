@@ -34,7 +34,7 @@ const resolveApp = (sql: SqlClient.SqlClient, executor: Executor, input: Connect
     const linked = new Set(
       (yield* linkedAccounts(sql, executor, app)).map((account) => account.id),
     );
-    yield* Effect.forEach(input.runsAs, (target) =>
+    yield* Effect.forEach(input.runsAs ?? [], (target) =>
       Effect.gen(function* () {
         if (target.kind === "app") {
           if (needsAccount) return yield* invalid("target");

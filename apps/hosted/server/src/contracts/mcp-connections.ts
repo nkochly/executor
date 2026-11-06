@@ -17,6 +17,12 @@ import {
 import { ConnectedAgent, ConnectedAgentNotFound } from "@executor-js/mcp-auth/agents";
 import { GrantId } from "@executor-js/mcp-auth";
 import { Schema } from "effect";
+import {
+  BundlesUnavailable,
+  ConnectionManaged,
+  ConnectionsRestricted,
+  HostedConnectionView,
+} from "./connection-bundles.ts";
 import { HttpApiEndpoint, HttpApiGroup } from "effect/http-api";
 import { AuthenticationUnavailable, RequireUser } from "./auth.ts";
 import { RequiredAction } from "./authorization.ts";
@@ -45,8 +51,8 @@ export const HostedMcpConnections = HttpApiGroup.make("mcpConnections")
   .add(
     HttpApiEndpoint.get("list", path, {
       params: organization,
-      success: Schema.Array(ConnectionView),
-      error: errors,
+      success: Schema.Array(HostedConnectionView),
+      error: [...errors, BundlesUnavailable],
     })
       .annotate(RequiredAction, "manage")
       .middleware(RequireUser),
@@ -56,7 +62,7 @@ export const HostedMcpConnections = HttpApiGroup.make("mcpConnections")
       params: organization,
       payload: ConnectionInput,
       success: ConnectionView,
-      error: [...saveErrors, ConnectionIdTaken],
+      error: [...saveErrors, ConnectionIdTaken, ConnectionsRestricted, BundlesUnavailable],
     })
       .annotate(RequiredAction, "manage")
       .middleware(RequireUser),
@@ -69,7 +75,7 @@ export const HostedMcpConnections = HttpApiGroup.make("mcpConnections")
         apps: ConnectionInput.fields.apps,
       }),
       success: ConnectionView,
-      error: [...saveErrors, ConnectionNotFound],
+      error: [...saveErrors, ConnectionNotFound, ConnectionManaged, BundlesUnavailable],
     })
       .annotate(RequiredAction, "manage")
       .middleware(RequireUser),
@@ -78,7 +84,7 @@ export const HostedMcpConnections = HttpApiGroup.make("mcpConnections")
     HttpApiEndpoint.post("revoke", `${path}/:connection/revoke`, {
       params: connection,
       success: Schema.Void,
-      error: [...errors, ConnectionNotFound],
+      error: [...errors, ConnectionNotFound, ConnectionManaged, BundlesUnavailable],
     })
       .annotate(RequiredAction, "manage")
       .middleware(RequireUser),

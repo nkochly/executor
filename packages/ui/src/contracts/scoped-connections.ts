@@ -60,7 +60,7 @@ export interface ConnectionDraft {
 
 const targetInput = (
   target: ConnectionTarget,
-): ConnectionInput["apps"][number]["runsAs"][number] =>
+): NonNullable<ConnectionInput["apps"][number]["runsAs"]>[number] =>
   target.kind === "app" ? target : { kind: "account", id: target.id };
 
 /**
@@ -102,9 +102,17 @@ export interface ConnectionSave {
   readonly input: ConnectionInput;
 }
 
+/**
+ * A connection as its owner sees it. A host with admin-managed bundles names the bundle a
+ * connection was made from; its owner can connect with it but cannot edit or revoke it.
+ */
+export type OwnedConnectionView = ConnectionView & {
+  readonly bundle?: { readonly id: string; readonly name: string };
+};
+
 /** Product bindings for the shared connections page. One renderer handles every failure. */
 export interface ScopedConnectionBindings<EL, ES, ER> {
-  readonly connections: Query<readonly ConnectionView[], EL>;
+  readonly connections: Query<readonly OwnedConnectionView[], EL>;
   readonly save: Atom.AtomResultFn<ConnectionSave, ConnectionView, ES>;
   readonly revoke: Atom.AtomResultFn<ConnectionId, void, ER>;
 }

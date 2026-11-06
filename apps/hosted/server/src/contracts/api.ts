@@ -10,6 +10,7 @@ import { RequestRejection } from "@executor-js/sdk/core";
 import { Context, Schema } from "effect";
 import { HostedGroups } from "./groups.ts";
 import { HostedMcpConnections } from "./mcp-connections.ts";
+import { HostedConnectionBundles } from "./connection-bundles.ts";
 import { HttpApi, HttpApiEndpoint, HttpApiGroup, OpenApi } from "effect/http-api";
 import {
   AuthenticationUnavailable,
@@ -185,6 +186,7 @@ export const HostedApi = HttpApi.make("executor-hosted")
     HostedOAuthClients,
     HostedAppData,
     HostedMcpConnections,
+    HostedConnectionBundles,
     HostedFeedback,
   )
   .add(

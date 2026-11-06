@@ -24,6 +24,7 @@ import {
   type ConnectionTarget,
   connectionInput,
   defaultConnectionName,
+  type OwnedConnectionView,
   type ScopedConnectionBindings,
 } from "../../contracts/scoped-connections.ts";
 import { HugeiconsIcon } from "@hugeicons/react";
@@ -33,6 +34,7 @@ import {
   ConnectIcon,
   Copy01Icon,
   Delete02Icon,
+  SquareLock02Icon,
   MoreHorizontalIcon,
   Search01Icon,
   Tick02Icon,
@@ -119,16 +121,19 @@ function ConnectionReads<E, EL extends E>({
   children,
 }: {
   readonly query: Query<Inventory, E>;
-  readonly connections: Query<readonly ConnectionView[], EL>;
+  readonly connections: Query<readonly OwnedConnectionView[], EL>;
   readonly Failure: ComponentType<FailureProps<E>>;
   readonly pending: ReactNode;
-  readonly children: (inventory: Inventory, connections: readonly ConnectionView[]) => ReactNode;
+  readonly children: (
+    inventory: Inventory,
+    connections: readonly OwnedConnectionView[],
+  ) => ReactNode;
 }) {
   usePreload(query, connections);
   const inventory = useQuery(query);
   const stored = useQuery(connections);
   return (
-    <QueryResult<{ inventory: Inventory; stored: readonly ConnectionView[] }, E>
+    <QueryResult<{ inventory: Inventory; stored: readonly OwnedConnectionView[] }, E>
       result={allResults({ inventory: inventory.result, stored: stored.result })}
       Failure={Failure}
       retry={() => {
@@ -145,27 +150,35 @@ function ConnectionReads<E, EL extends E>({
 interface ConnectionCardView {
   readonly id: ConnectionId | undefined;
   readonly name: string;
+  /** The admin-managed bundle this connection was made from. */
+  readonly bundle?: string;
   readonly url: string;
   readonly apps: readonly { readonly app: App | undefined; readonly name: string }[];
 }
 
-/** The full-access URL first, then each scoped connection. */
+/** The full-access URL first, when the member may use it, then each scoped connection. */
 const connectionCards = (
   endpoint: string,
-  connections: readonly ConnectionView[],
+  connections: readonly OwnedConnectionView[],
   apps: readonly App[],
+  fullAccess: boolean,
 ): readonly ConnectionCardView[] => {
   const byId = new Map<AppId, App>(apps.map((app) => [app.id, app]));
   return [
-    {
-      id: undefined,
-      name: "Full access",
-      url: endpoint,
-      apps: apps.map((app) => ({ app, name: app.name })),
-    },
+    ...(fullAccess
+      ? [
+          {
+            id: undefined,
+            name: "Full access",
+            url: endpoint,
+            apps: apps.map((app) => ({ app, name: app.name })),
+          },
+        ]
+      : []),
     ...connections.map((connection) => ({
       id: connection.id,
       name: connection.name,
+      ...(connection.bundle === undefined ? {} : { bundle: connection.bundle.name }),
       url: connection.url,
       apps: connection.policy.apps.map((item) => {
         const app = byId.get(item.app);
@@ -179,12 +192,18 @@ const connectionCards = (
 export function ScopedConnectionsPage<E, EL extends E, ES extends E, ER extends E>({
   endpoint,
   agents,
+  canCreate = true,
   ...bindings
 }: ConnectionPageBindings<E, EL, ES, ER> & {
   /** The full-access URL. */
   readonly endpoint: string;
   /** The agents connected through these URLs, when the host lists them. */
   readonly agents?: ReactNode;
+  /**
+   * False when the organization lets members use only the connections its admins set up: no new
+   * connections and no full-access URL.
+   */
+  readonly canCreate?: boolean;
 }) {
   const { query, connections, Failure, ConnectionLink, renderInstallation } = bindings;
   const [connecting, setConnecting] = useState<ConnectionCardView>();
@@ -197,12 +216,18 @@ export function ScopedConnectionsPage<E, EL extends E, ES extends E, ER extends 
             Each connection gives an agent its own MCP URL that reaches only the apps you pick.
           </p>
         </div>
-        <Button asChild>
-          <ConnectionLink connection="new">
-            <HugeiconsIcon icon={Add01Icon} strokeWidth={2} aria-hidden />
-            New connection
-          </ConnectionLink>
-        </Button>
+        {canCreate ? (
+          <Button asChild>
+            <ConnectionLink connection="new">
+              <HugeiconsIcon icon={Add01Icon} strokeWidth={2} aria-hidden />
+              New connection
+            </ConnectionLink>
+          </Button>
+        ) : (
+          <p className="max-w-64 text-[12px] text-muted-foreground">
+            Your organization's admins set up your connections.
+          </p>
+        )}
       </header>
       <ConnectionReads
         query={query}
@@ -216,7 +241,7 @@ export function ScopedConnectionsPage<E, EL extends E, ES extends E, ER extends 
             aria-label="Connections"
             className="grid grid-cols-3 gap-4 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1"
           >
-            {connectionCards(endpoint, stored, inventory.apps).map((card) => (
+            {connectionCards(endpoint, stored, inventory.apps, canCreate).map((card) => (
               <ConnectionCard
                 key={card.id ?? "full"}
                 connection={card}
@@ -305,6 +330,7 @@ function ConnectionCard({
             Default
           </span>
         )}
+        {connection.bundle !== undefined && <ManagedBadge />}
       </span>
       <ul className="mt-4 grid gap-1.5">
         {shown.map((item) => (
@@ -348,7 +374,7 @@ const draftFrom = (
       name: choice?.app.name ?? "Unavailable app",
       tools: item.tools,
       ...(item.events === undefined ? {} : { events: item.events }),
-      targets: item.runsAs.map((target): ConnectionTarget => {
+      targets: (item.runsAs ?? []).map((target): ConnectionTarget => {
         if (target.kind === "app") return target;
         const option = choice?.options.find(
           (candidate) => candidate.target.kind === "account" && candidate.target.id === target.id,
@@ -406,6 +432,16 @@ export function ScopedConnectionPage<E, EL extends E, ES extends E, ER extends E
                 </p>
               </>
             );
+          if (stored.bundle !== undefined)
+            return (
+              <ManagedConnection
+                connection={stored}
+                bundle={stored.bundle.name}
+                choices={choices}
+                ConnectionLink={props.ConnectionLink}
+                renderInstallation={props.renderInstallation}
+              />
+            );
           return (
             <ConnectionForm
               {...props}
@@ -419,6 +455,98 @@ export function ScopedConnectionPage<E, EL extends E, ES extends E, ER extends E
         }}
       </ConnectionReads>
     </PageFrame>
+  );
+}
+
+function ManagedBadge() {
+  return (
+    <span className="relative z-10 inline-flex items-center gap-1 rounded-md border border-border px-1.5 py-px text-[11px] text-muted-foreground">
+      <HugeiconsIcon icon={SquareLock02Icon} size={11} strokeWidth={2} aria-hidden />
+      Managed
+    </span>
+  );
+}
+
+const toolsLabel = (tools: ConnectionView["policy"]["apps"][number]["tools"]): string =>
+  tools.kind === "all"
+    ? "All tools"
+    : tools.kind === "readOnly"
+      ? "Read-only tools"
+      : plural(tools.names.length, "tool");
+
+/**
+ * A connection made from an admin-managed bundle. Its owner connects agents with it; only the
+ * bundle changes it. Each app runs as the accounts its owner linked to that app.
+ */
+function ManagedConnection({
+  connection,
+  bundle,
+  choices,
+  ConnectionLink,
+  renderInstallation,
+}: {
+  readonly connection: ConnectionView;
+  readonly bundle: string;
+  readonly choices: ReadonlyMap<AppId, AppChoices>;
+  readonly ConnectionLink: ComponentType<ConnectionLinkProps>;
+  readonly renderInstallation: (target: ConnectTarget) => ReactNode;
+}) {
+  const [connecting, setConnecting] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const apps = connection.policy.apps.map((item) => {
+    const choice = choices.get(item.app);
+    return { item, app: choice?.app, name: choice?.app.name ?? "Unavailable app" };
+  });
+  return (
+    <div className="max-w-220">
+      <BackLink ConnectionLink={ConnectionLink} />
+      <header className="flex items-start justify-between gap-4 max-[600px]:flex-col">
+        <div className="min-w-0 flex-1">
+          <h1 className="flex items-center gap-2 text-[22px] font-semibold tracking-[-0.035em]">
+            <span className="truncate">{connection.name}</span>
+            <ManagedBadge />
+          </h1>
+          <p className="mt-1 text-[13px] text-muted-foreground">
+            Your organization's admins manage this connection through the bundle “{bundle}”. Each
+            app runs as the accounts you link to it. Ask an admin to change what it reaches.
+          </p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button type="button" variant="outline" onClick={() => setConnecting(true)}>
+            <HugeiconsIcon icon={ConnectIcon} strokeWidth={2} aria-hidden />
+            Connect
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() =>
+              void navigator.clipboard.writeText(connection.url).then(() => setCopied(true))
+            }
+          >
+            <HugeiconsIcon icon={copied ? Tick02Icon : Copy01Icon} strokeWidth={2} aria-hidden />
+            {copied ? "Copied" : "Copy MCP URL"}
+          </Button>
+        </div>
+      </header>
+      <ul aria-label="Apps" className="mt-6 divide-y rounded-xl border border-border">
+        {apps.map(({ item, app, name }) => (
+          <li key={item.app} className="flex items-center gap-3 p-4 text-[13px]">
+            <AppIcon app={app} name={name} />
+            <span className="min-w-0 flex-1 truncate font-medium">{name}</span>
+            <span className="text-muted-foreground">{toolsLabel(item.tools)}</span>
+          </li>
+        ))}
+      </ul>
+      <ConnectDialog
+        target={
+          connecting
+            ? { name: connection.name, url: connection.url, apps: apps.map((app) => app.name) }
+            : undefined
+        }
+        renderInstallation={renderInstallation}
+        onClose={() => setConnecting(false)}
+      />
+    </div>
   );
 }
 

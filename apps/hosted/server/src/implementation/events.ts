@@ -18,7 +18,7 @@ import { authMillis, SqlBoolean } from "fumadb-effect/dialect";
 import { GroupDatabase } from "../contracts/groups.ts";
 import { OrganizationId, organizationOwner } from "../contracts/organization.ts";
 import { patGrantOf } from "./mcp-oauth.ts";
-import { proxyGrantOf } from "./bearer-access.ts";
+import { proxyConnectionPolicy, proxyGrantOf } from "./bearer-access.ts";
 import { accountAccesses, resourceAuthorityForApp } from "./resource-policy.ts";
 
 const GrantRow = Schema.Struct({
@@ -63,10 +63,22 @@ const grantStanding = (sql: SqlClient.SqlClient, id: string) =>
       const members = yield* sql`select 1 as one from member
         where "userId" = ${proxy.value.user} and "organizationId" = ${proxy.value.organization}`;
       if (members.length === 0) return Option.none();
+      // One naming a scoped connection stands on that connection, with its current policy.
+      const connection = proxy.value.connection;
+      const policy =
+        connection === undefined
+          ? Option.some(GrantPolicy.make({ kind: "all" }))
+          : yield* proxyConnectionPolicy(
+              sql,
+              proxy.value.user,
+              proxy.value.organization,
+              connection,
+            ).pipe(Effect.orElseSucceed(() => Option.none()));
+      if (Option.isNone(policy)) return Option.none();
       return Option.some({
         userId: proxy.value.user,
         organization: proxy.value.organization,
-        policy: GrantPolicy.make({ kind: "all" }),
+        policy: policy.value,
       });
     }
     const rows = yield* sql`select g."userId" as "userId", g.resource, g.policy, g.revoked,

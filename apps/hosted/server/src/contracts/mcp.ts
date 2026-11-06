@@ -37,6 +37,7 @@ export const McpForbiddenReason = Schema.Literals([
   "organization_required",
   "organization_mismatch",
   "membership",
+  "bundles_only",
 ]);
 export type McpForbiddenReason = typeof McpForbiddenReason.Type;
 const forbidden: { readonly [Reason in McpForbiddenReason]: ErrorPresentation } = {
@@ -59,6 +60,17 @@ const forbidden: { readonly [Reason in McpForbiddenReason]: ErrorPresentation } 
       action: "Use the organization this credential belongs to in the URL and header, then retry.",
       instructions:
         "OAuth connections and organization-pinned tokens work only in their own organization. Make the organization in the MCP URL and in X-Executor-Organization agree with the credential, reconnect, and verify that tools are listed. To work in another organization, connect again from that organization. Do not bypass authorization.",
+    },
+  },
+  bundles_only: {
+    title: "Use a connection your admins set up",
+    description:
+      "This organization lets members connect agents only through the connection bundles its admins set up, and this MCP URL is not one of them.",
+    recovery: {
+      action:
+        "Open the Connect page, copy the MCP URL of one of your bundle connections, and connect with it.",
+      instructions:
+        "The organization's admins turned off members' own connections. Reconnect this agent with the MCP URL of a connection marked as a bundle on the Connect page, or ask an organization admin for one. Do not bypass authorization.",
     },
   },
   membership: {
@@ -136,6 +148,7 @@ export class McpAuthentication extends Context.Service<
       headers: Headers,
       mode?: ApprovalMode,
       organization?: OrganizationReference,
+      connection?: ConnectionId,
     ) => Effect.Effect<McpAccess, McpUnauthorized | McpForbidden | AuthenticationUnavailable>;
     readonly browserGrant: (
       headers: Headers,

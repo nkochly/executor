@@ -2,11 +2,13 @@
  * Self-host behind Cloudflare Access. Access signs in every caller, MCP clients through its own
  * OAuth, and passes each request a signed assertion naming the person. With the team and the
  * application's audience configured, an assertion that verifies against the team's published keys
- * is the caller's identity on `/mcp`; one for another application, one signed by a key the team
- * does not publish, and one naming someone outside the organization are not.
+ * is the caller's identity on `/mcp` and on the caller's own scoped connection URLs; one for another
+ * application, one signed by a key the team does not publish, one naming someone outside the
+ * organization, and a connection the caller does not own are not.
  */
 import { expect, layer } from "@effect/vitest";
-import { Effect } from "effect";
+import { Effect, Schema } from "effect";
+import { randomUUID } from "node:crypto";
 import { Browser } from "../support/browser.ts";
 import { TestLive, withCase } from "../support/case.ts";
 import { startControlledSelfHost } from "../support/managed-server.ts";
@@ -59,11 +61,11 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
           ).toBe(200);
 
           /** Initialize an MCP session carrying `assertion`, the way Access forwards a request. */
-          const initialize = (step: string, assertion?: string) =>
+          const initialize = (step: string, assertion?: string, path = "/mcp") =>
             browser.use(step, (page) =>
               page
                 .context()
-                .request.post(`${origin}/mcp`, {
+                .request.post(`${origin}${path}`, {
                   headers: {
                     accept: "application/json, text/event-stream",
                     "content-type": "application/json",
@@ -108,6 +110,44 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               yield* team.accessAssertion("stranger@access.example.test", audience),
             ),
           ).toBe(403);
+
+          // A scoped connection's URL works through Access too, as that connection's caller.
+          const connection = randomUUID();
+          const [organization] = yield* Schema.decodeUnknownEffect(
+            Schema.Array(Schema.Struct({ id: Schema.String })),
+          )(
+            yield* browser.use("List the owner's organizations", (page) =>
+              page
+                .context()
+                .request.get(`${origin}/api/auth/organization/list`, { headers: { origin } })
+                .then((response) => response.json()),
+            ),
+          );
+          expect(
+            yield* browser.use("Create a scoped connection", (page) =>
+              page
+                .context()
+                .request.post(`${origin}/api/organizations/${organization?.id}/mcp-connections`, {
+                  headers: { origin },
+                  data: { id: connection, name: "Through Access", apps: [] },
+                })
+                .then((response) => response.status()),
+            ),
+          ).toBe(200);
+          expect(
+            yield* initialize(
+              "The owner's scoped connection, signed in by Access",
+              yield* team.accessAssertion(owner, audience),
+              `/mcp?connection=${connection}`,
+            ),
+          ).toBe(200);
+          expect(
+            yield* initialize(
+              "A connection the owner does not have",
+              yield* team.accessAssertion(owner, audience),
+              `/mcp?connection=${randomUUID()}`,
+            ),
+          ).toBe(401);
         }),
       ),
     ),

@@ -29,6 +29,7 @@ import { Route as McpApproveRequestIdRouteImport } from './routes/mcp.approve.$r
 import { Route as OrgOrganizationSlugIndexRouteImport } from './routes/org.$organizationSlug.index'
 import { Route as OrgOrganizationSlugApiKeysRouteImport } from './routes/org.$organizationSlug.api-keys'
 import { Route as OrgOrganizationSlugBillingRouteImport } from './routes/org.$organizationSlug.billing'
+import { Route as OrgOrganizationSlugBundlesRouteImport } from './routes/org.$organizationSlug.bundles'
 import { Route as OrgOrganizationSlugConnectRouteImport } from './routes/org.$organizationSlug.connect'
 import { Route as OrgOrganizationSlugOrganizationRouteImport } from './routes/org.$organizationSlug.organization'
 import { Route as OrgOrganizationSlugSetupRouteImport } from './routes/org.$organizationSlug_.setup'
@@ -149,6 +150,12 @@ const OrgOrganizationSlugBillingRoute =
   OrgOrganizationSlugBillingRouteImport.update({
     id: '/billing',
     path: '/billing',
+    getParentRoute: () => OrgOrganizationSlugRoute,
+  } as any)
+const OrgOrganizationSlugBundlesRoute =
+  OrgOrganizationSlugBundlesRouteImport.update({
+    id: '/bundles',
+    path: '/bundles',
     getParentRoute: () => OrgOrganizationSlugRoute,
   } as any)
 const OrgOrganizationSlugConnectRoute =
@@ -280,6 +287,7 @@ export interface FileRoutesByFullPath {
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
   '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
+  '/org/$organizationSlug/bundles': typeof OrgOrganizationSlugBundlesRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
   '/org/$organizationSlug/setup': typeof OrgOrganizationSlugSetupRouteWithChildren
@@ -318,6 +326,7 @@ export interface FileRoutesByTo {
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
   '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
+  '/org/$organizationSlug/bundles': typeof OrgOrganizationSlugBundlesRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
   '/org/$organizationSlug': typeof OrgOrganizationSlugIndexRoute
@@ -358,6 +367,7 @@ export interface FileRoutesById {
   '/mcp/approve/$requestId': typeof McpApproveRequestIdRoute
   '/org/$organizationSlug/api-keys': typeof OrgOrganizationSlugApiKeysRoute
   '/org/$organizationSlug/billing': typeof OrgOrganizationSlugBillingRoute
+  '/org/$organizationSlug/bundles': typeof OrgOrganizationSlugBundlesRoute
   '/org/$organizationSlug/connect': typeof OrgOrganizationSlugConnectRoute
   '/org/$organizationSlug/organization': typeof OrgOrganizationSlugOrganizationRoute
   '/org/$organizationSlug_/setup': typeof OrgOrganizationSlugSetupRouteWithChildren
@@ -400,6 +410,7 @@ export interface FileRouteTypes {
     | '/mcp/approve/$requestId'
     | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
+    | '/org/$organizationSlug/bundles'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
     | '/org/$organizationSlug/setup'
@@ -438,6 +449,7 @@ export interface FileRouteTypes {
     | '/mcp/approve/$requestId'
     | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
+    | '/org/$organizationSlug/bundles'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
     | '/org/$organizationSlug'
@@ -477,6 +489,7 @@ export interface FileRouteTypes {
     | '/mcp/approve/$requestId'
     | '/org/$organizationSlug/api-keys'
     | '/org/$organizationSlug/billing'
+    | '/org/$organizationSlug/bundles'
     | '/org/$organizationSlug/connect'
     | '/org/$organizationSlug/organization'
     | '/org/$organizationSlug_/setup'
@@ -657,6 +670,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgOrganizationSlugBillingRouteImport
       parentRoute: typeof OrgOrganizationSlugRoute
     }
+    '/org/$organizationSlug/bundles': {
+      id: '/org/$organizationSlug/bundles'
+      path: '/bundles'
+      fullPath: '/org/$organizationSlug/bundles'
+      preLoaderRoute: typeof OrgOrganizationSlugBundlesRouteImport
+      parentRoute: typeof OrgOrganizationSlugRoute
+    }
     '/org/$organizationSlug/connect': {
       id: '/org/$organizationSlug/connect'
       path: '/connect'
@@ -806,6 +826,7 @@ const AccountRouteWithChildren =
 interface OrgOrganizationSlugRouteChildren {
   OrgOrganizationSlugApiKeysRoute: typeof OrgOrganizationSlugApiKeysRoute
   OrgOrganizationSlugBillingRoute: typeof OrgOrganizationSlugBillingRoute
+  OrgOrganizationSlugBundlesRoute: typeof OrgOrganizationSlugBundlesRoute
   OrgOrganizationSlugConnectRoute: typeof OrgOrganizationSlugConnectRoute
   OrgOrganizationSlugOrganizationRoute: typeof OrgOrganizationSlugOrganizationRoute
   OrgOrganizationSlugIndexRoute: typeof OrgOrganizationSlugIndexRoute
@@ -826,6 +847,7 @@ interface OrgOrganizationSlugRouteChildren {
 const OrgOrganizationSlugRouteChildren: OrgOrganizationSlugRouteChildren = {
   OrgOrganizationSlugApiKeysRoute: OrgOrganizationSlugApiKeysRoute,
   OrgOrganizationSlugBillingRoute: OrgOrganizationSlugBillingRoute,
+  OrgOrganizationSlugBundlesRoute: OrgOrganizationSlugBundlesRoute,
   OrgOrganizationSlugConnectRoute: OrgOrganizationSlugConnectRoute,
   OrgOrganizationSlugOrganizationRoute: OrgOrganizationSlugOrganizationRoute,
   OrgOrganizationSlugIndexRoute: OrgOrganizationSlugIndexRoute,
