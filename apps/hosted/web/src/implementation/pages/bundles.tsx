@@ -27,6 +27,7 @@ import {
   type BundleApp,
   BundleConflict,
   type BundlesView,
+  bundleSlug,
 } from "@executor-js/hosted-server/connection-bundles";
 import { GroupId } from "@executor-js/hosted-server/groups";
 import { type OrganizationPageReads, useOrganizationRoute } from "../components/organization.tsx";
@@ -43,6 +44,9 @@ import {
 import { appError, type HostedError } from "../../contracts/errors.ts";
 
 export const bundlesTitle = "Bundles";
+
+/** The one MCP URL every member of a bundle's groups connects at; each reaches their own copy. */
+const bundleUrl = (name: string) => `${window.location.origin}/mcp?connection=${bundleSlug(name)}`;
 
 /** Admins read bundles, the apps and groups to choose from, and every member's connections. */
 export const bundlesPageReads: OrganizationPageReads = (organization) => [
@@ -157,6 +161,9 @@ function Bundles({ data }: { readonly data: typeof BundlesView.Type }) {
                 <HugeiconsIcon icon={SquareLock02Icon} size={15} aria-hidden />
                 {bundle.name}
               </h3>
+              <p className="mt-1 truncate font-mono text-[11px] text-muted-foreground">
+                {bundleUrl(bundle.name)}
+              </p>
               <ul className="mt-3 space-y-1 text-xs">
                 {bundle.apps.map((item) => (
                   <li key={item.app} className="flex justify-between gap-3">
@@ -346,7 +353,7 @@ function BundleEditor({
               Option.isSome(failure) &&
                 failure.value instanceof BundleConflict &&
                 failure.value.reason === "name_taken"
-                ? "Another bundle already uses this name. Choose another name."
+                ? "Another bundle already uses this name, or one with the same MCP URL. Choose another name."
                 : appError(result.cause),
             );
           }}
@@ -369,6 +376,11 @@ function BundleEditor({
               disabled={saving.waiting}
               onChange={(event) => setName(event.target.value)}
             />
+            <p className="mt-2 text-xs text-muted-foreground">
+              {bundleSlug(trimmed) === ""
+                ? "The name makes the bundle's MCP URL, so it needs a letter or number."
+                : `Members connect at ${bundleUrl(trimmed)}. Renaming the bundle changes this URL.`}
+            </p>
           </div>
           <fieldset disabled={saving.waiting} className="space-y-2">
             <legend className="mb-2 text-xs font-medium">Apps · {apps.size} selected</legend>

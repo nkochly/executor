@@ -4,7 +4,8 @@
  * application's audience configured, an assertion that verifies against the team's published keys
  * is the caller's identity on `/mcp` and on the caller's own scoped connection URLs; one for another
  * application, one signed by a key the team does not publish, one naming someone outside the
- * organization, and a connection the caller does not own are not.
+ * organization, and a connection the caller does not own are not. A bundle's URL names the bundle,
+ * and reaches the caller's own copy of it only while the caller is in one of its groups.
  */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
@@ -146,6 +147,81 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               "A connection the owner does not have",
               yield* team.accessAssertion(owner, audience),
               `/mcp?connection=${randomUUID()}`,
+            ),
+          ).toBe(401);
+
+          // A bundle's URL names the bundle; each member of its groups reaches their own copy.
+          const prefix = `${origin}/api/organizations/${organization?.id}`;
+          const post = (step: string, path: string, data: unknown) =>
+            browser.use(step, (page) =>
+              page
+                .context()
+                .request.post(`${prefix}${path}`, { headers: { origin }, data })
+                .then((response) =>
+                  response.json().then((body: unknown) => ({ status: response.status(), body })),
+                ),
+            );
+          const { members } = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({
+              members: Schema.Array(Schema.Struct({ id: Schema.String })),
+            }),
+          )(
+            yield* browser.use("List the organization's members", (page) =>
+              page
+                .context()
+                .request.get(`${prefix}/groups`, { headers: { origin } })
+                .then((response) => response.json()),
+            ),
+          );
+          const group = yield* post("Make a group with the owner", "/groups", {
+            name: "Sales",
+            description: "",
+            memberIds: members.map((member) => member.id),
+          });
+          expect(group.status).toBe(200);
+          const { id: groupId } = yield* Schema.decodeUnknownEffect(
+            Schema.Struct({ id: Schema.String }),
+          )(group.body);
+          expect(
+            (yield* post("Give the group a bundle", "/connection-bundles", {
+              name: "Sales Team",
+              apps: [],
+              groups: [groupId],
+            })).status,
+          ).toBe(200);
+          expect(
+            (yield* post("A bundle no group holds", "/connection-bundles", {
+              name: "Unassigned",
+              apps: [],
+              groups: [],
+            })).status,
+          ).toBe(200);
+          expect(
+            (yield* post("A name with the same URL as another bundle", "/connection-bundles", {
+              name: "sales-team",
+              apps: [],
+              groups: [],
+            })).status,
+          ).toBe(409);
+          expect(
+            (yield* post("A name that makes no URL", "/connection-bundles", {
+              name: "!!!",
+              apps: [],
+              groups: [],
+            })).status,
+          ).toBe(400);
+          expect(
+            yield* initialize(
+              "The owner's bundle by its name, signed in by Access",
+              yield* team.accessAssertion(owner, audience),
+              "/mcp?connection=sales-team",
+            ),
+          ).toBe(200);
+          expect(
+            yield* initialize(
+              "A bundle the owner holds no copy of",
+              yield* team.accessAssertion(owner, audience),
+              "/mcp?connection=unassigned",
             ),
           ).toBe(401);
         }),

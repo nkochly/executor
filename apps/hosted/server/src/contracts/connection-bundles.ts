@@ -65,6 +65,20 @@ export const Bundle = Schema.Struct({
 });
 export type Bundle = typeof Bundle.Type;
 
+/**
+ * The name a bundle is reached by in an MCP URL: `/mcp?connection=<slug>`. Every member of the
+ * bundle's groups uses the same URL and reaches their own copy. Lowercase letters, digits and
+ * single hyphens; empty when the name has no letter or digit. Unique within an organization.
+ */
+export const bundleSlug = (name: string) =>
+  name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/gu, "-")
+    .replace(/^-+|-+$/gu, "")
+    .slice(0, 64)
+    .replace(/-+$/u, "");
+
 /** An app or group an admin can put in a bundle, named for the editor. */
 export const BundleChoice = Schema.Struct({ id: Schema.NonEmptyString, name: Schema.String });
 export type BundleChoice = typeof BundleChoice.Type;
@@ -102,7 +116,8 @@ export type MemberConnections = typeof MemberConnections.Type;
 
 const bundleConflicts = {
   changed: "The bundle changed since it was read. Read it again and reapply the edit.",
-  name_taken: "Another bundle in this organization already uses this name.",
+  name_taken:
+    "Another bundle in this organization already uses this name, or a name with the same MCP URL.",
 } as const;
 /** Safe conflicts preserve the admin's draft; no partial edit is committed. */
 export const BundleConflict = ApiError.define({
@@ -123,11 +138,13 @@ export type BundleNotFound = typeof BundleNotFound.Type;
 export const BundleInvalid = ApiError.define({
   tag: "BundleInvalid",
   status: 400,
-  fields: { reason: Schema.Literals(["app", "group"]), id: Schema.String },
+  fields: { reason: Schema.Literals(["app", "group", "name"]), id: Schema.String },
   message: ({ reason, id }) =>
     reason === "app"
       ? `App ${id} is not an app of this organization.`
-      : `Group ${id} is not a group of this organization.`,
+      : reason === "group"
+        ? `Group ${id} is not a group of this organization.`
+        : "A bundle name needs at least one letter or digit, which make its MCP URL.",
   recorded: ({ reason }) => `A bundle named a ${reason} outside its organization`,
 });
 export type BundleInvalid = typeof BundleInvalid.Type;

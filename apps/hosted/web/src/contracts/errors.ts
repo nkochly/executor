@@ -44,13 +44,16 @@ const errorMessage = Match.type<HostedError>().pipe(
       ({
         changed:
           "This bundle changed while you were editing. Your changes were not saved. Close this form, refresh, and try again.",
-        name_taken: "Another bundle already uses this name. Choose another name.",
+        name_taken:
+          "Another bundle already uses this name, or one with the same MCP URL. Choose another name.",
       })[reason],
     BundleNotFound: () => "This connection bundle no longer exists.",
     BundleInvalid: ({ reason }) =>
       reason === "app"
         ? "An app in this bundle is no longer available. Remove it and try again."
-        : "A group in this bundle is no longer available. Choose the current groups.",
+        : reason === "group"
+          ? "A group in this bundle is no longer available. Choose the current groups."
+          : "Give the bundle a name with at least one letter or number.",
     BundlesUnavailable: () => "Connection bundles could not be loaded or saved. Try again.",
     ConnectionManaged: () =>
       "This connection comes from a bundle your admins manage. Ask an admin to change it.",

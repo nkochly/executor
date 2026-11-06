@@ -73,7 +73,10 @@ const grantStanding = (sql: SqlClient.SqlClient, id: string) =>
               proxy.value.user,
               proxy.value.organization,
               connection,
-            ).pipe(Effect.orElseSucceed(() => Option.none()));
+            ).pipe(
+              Effect.map(Option.map((resolved) => resolved.policy)),
+              Effect.orElseSucceed(() => Option.none()),
+            );
       if (Option.isNone(policy)) return Option.none();
       return Option.some({
         userId: proxy.value.user,

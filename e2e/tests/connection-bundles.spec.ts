@@ -169,6 +169,8 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             );
             expect(copies).toHaveLength(1);
             const copy = copies[0]!;
+            // Every member of the bundle's groups shares one URL, named for the bundle.
+            expect(copy.url).toMatch(new RegExp(`/mcp\\?connection=sales-bundle-${suffix}$`, "u"));
             expect(copy.policy.apps).toEqual([
               expect.objectContaining({ app: app.id, tools: { kind: "readOnly" } }),
             ]);
