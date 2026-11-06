@@ -16,6 +16,9 @@ import {
   apiBearerAccess,
   callerSpanAttributes,
   mcpBearerAccess,
+  proxyMcpAccess,
+  proxyGrantOf,
+  McpUnauthorized,
   Authentication,
   AuthenticationUnavailable,
   sessionPrincipal,
@@ -31,6 +34,7 @@ import { Context, Effect, Layer, Option, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 import { AuthDatabase } from "./contracts/database.ts";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
+import { accessProxy } from "./implementation/access-proxy.ts";
 
 /** Initialize auth before listening; the database owns persistent users and sessions. */
 export const selfHostAuth = Effect.gen(function* () {
@@ -87,21 +91,48 @@ export const selfHostAuth = Effect.gen(function* () {
         Effect.withSpan("auth.removeOrganization"),
       ),
   });
+  // With Access in front of the host, the person Access signed in is the MCP caller.
+  const proxy = yield* accessProxy;
   const mcpIdentity = Layer.succeed(McpAuthentication, {
     ...origins,
     authenticate: (headers, mode, organization) =>
-      mcpBearerAccess(origins, { headers, mode, organization }).pipe(
+      proxy.verify(headers).pipe(
+        Effect.flatMap((email) =>
+          Option.isSome(email)
+            ? proxyMcpAccess(email.value, { headers, mode, organization })
+            : mcpBearerAccess(origins, { headers, mode, organization }),
+        ),
         Effect.provideService(SqlClient.SqlClient, sql),
         Effect.tap(({ access, userId }) =>
           Effect.annotateCurrentSpan(callerSpanAttributes(access.organization, userId)),
         ),
         Effect.withSpan("auth.authenticate"),
       ),
-    browserGrant: (headers, id) =>
-      Effect.tryPromise({
+    browserGrant: (headers, id) => {
+      // A proxy grant is approved in the browser by the same person Access signed in there.
+      const grant = proxyGrantOf(id);
+      if (Option.isSome(grant))
+        return proxy.verify(headers).pipe(
+          Effect.flatMap((email) =>
+            Option.isNone(email)
+              ? Effect.fail(new McpUnauthorized())
+              : proxyMcpAccess(email.value, {
+                  headers,
+                  mode: grant.value.mode,
+                  organization: grant.value.organization,
+                }),
+          ),
+          Effect.provideService(SqlClient.SqlClient, sql),
+          Effect.flatMap((access) =>
+            access.grant.id === id ? Effect.succeed(access) : Effect.fail(new McpUnauthorized()),
+          ),
+          Effect.catchTag("McpForbidden", () => Effect.fail(new McpUnauthorized())),
+        );
+      return Effect.tryPromise({
         try: () => auth.api.getMcpBrowserAccess({ headers, body: { id } }),
         catch: mcpBrowserGrantError,
-      }),
+      });
+    },
     metadata: Effect.tryPromise({
       try: () => auth.api.getOAuthServerConfig(),
       catch: () => new AuthenticationUnavailable(),

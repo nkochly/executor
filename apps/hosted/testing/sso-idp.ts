@@ -58,6 +58,11 @@ const decode = <A>(schema: Schema.Decoder<A>, value: unknown) =>
   Schema.decodeUnknownEffect(schema)(value);
 const escape = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
+const AccessAssertion = Schema.Struct({
+  email: Schema.String,
+  aud: Schema.String,
+  unpublished: Schema.optionalKey(Schema.Boolean),
+});
 const jwks = (key: KeyObject, kid: string) => ({
   keys: [{ ...key.export({ format: "jwk" }), kid, use: "sig", alg: "RS256" }],
 });
@@ -204,6 +209,38 @@ const command = Command.make("sso-idp", {
                 if (control.mode === "jwks-redirect" && (yield* listener) !== cleartextOrigin)
                   return HttpServerResponse.redirect(`${cleartextOrigin}/jwks`);
                 return yield* HttpServerResponse.json(jwks(keys.publicKey, "synthetic"));
+              }),
+            ),
+            // Cloudflare Access: the team's signing keys, and an assertion it would pass the
+            // application for `email`, signed by the published key or, for `unpublished`, another.
+            HttpRouter.add(
+              "GET",
+              "/cdn-cgi/access/certs",
+              Effect.suspend(() => HttpServerResponse.json(jwks(keys.publicKey, "synthetic"))),
+            ),
+            HttpRouter.add(
+              "POST",
+              "/control/access-assertion",
+              Effect.gen(function* () {
+                const request = yield* HttpServerRequest.HttpServerRequest;
+                const body = yield* request.json.pipe(
+                  Effect.flatMap((value) => decode(AccessAssertion, value)),
+                );
+                const origin = yield* Deferred.await(issuer);
+                const now = Math.floor(Date.now() / 1000);
+                const key = body.unpublished === true ? unpublished.privateKey : keys.privateKey;
+                // The unpublished key claims the published key's id, so only its signature is wrong.
+                const { signed, signature } = signJwt(key, "synthetic", {
+                  aud: [body.aud],
+                  email: body.email,
+                  iss: origin,
+                  sub: randomUUID(),
+                  iat: now,
+                  nbf: now,
+                  exp: now + 300,
+                  type: "app",
+                });
+                return yield* HttpServerResponse.json({ token: `${signed}.${signature}` });
               }),
             ),
             HttpRouter.add(

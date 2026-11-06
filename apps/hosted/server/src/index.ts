@@ -90,7 +90,13 @@ export {
 export { authEndpointTemplates, grantExpiry, type GrantExpiry } from "@executor-js/mcp-auth/oauth";
 export type { OriginList, ResourceOrigins } from "@executor-js/mcp-auth";
 export { ConnectionId, mcpOAuthResources, singleResourceOrigin } from "@executor-js/mcp-auth";
-export { apiBearerAccess, mcpBearerAccess } from "./implementation/bearer-access.ts";
+export {
+  apiBearerAccess,
+  mcpBearerAccess,
+  proxyMcpAccess,
+  proxyGrantOf,
+  proxyUserMemberships,
+} from "./implementation/bearer-access.ts";
 export {
   makeHostedMcp,
   mcpSessionKey,

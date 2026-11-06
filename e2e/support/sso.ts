@@ -159,5 +159,14 @@ export const selfHostSsoIdp = (application: string) =>
       discoveryUrl: `${issuer}/.well-known/openid-configuration`,
       configure: (email: string, mode: IdentityMode) =>
         emulatorRequest(origin, "/control", { email, mode }),
+      /**
+       * A Cloudflare Access assertion for `email` and application `aud`, issued by `issuer` with
+       * the key it publishes at `/cdn-cgi/access/certs`, or by an unpublished key under the same id.
+       */
+      accessAssertion: (email: string, aud: string, unpublished = false) =>
+        emulatorRequest(origin, "/control/access-assertion", { email, aud, unpublished }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ token: Schema.String }))),
+          Effect.map(({ token }) => token),
+        ),
     };
   });

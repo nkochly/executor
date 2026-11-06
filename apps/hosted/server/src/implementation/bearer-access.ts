@@ -738,3 +738,100 @@ export const apiBearerAccess = (origins: HostedOAuthOrigins, request: BearerRequ
           : new OrganizationForbidden(),
     ),
   );
+
+/**
+ * A grant ID for a caller a fronting identity proxy (Cloudflare Access) signed in. It names the
+ * user, organization and approval mode; it is never a credential, since every request proves the
+ * caller again through the proxy's signed assertion.
+ */
+export const ProxyGrant = Schema.Struct({
+  user: Schema.NonEmptyString,
+  organization: OrganizationId,
+  mode: Schema.Literals(["model", "native", "browser"]),
+});
+const proxyGrantPrefix = "proxy:";
+export const proxyGrantId = (value: typeof ProxyGrant.Type) =>
+  GrantId.make(proxyGrantPrefix + encodeURIComponent(JSON.stringify(value)));
+/** The proxy grant a grant ID names, or none for any other grant ID. */
+export const proxyGrantOf = (id: string) =>
+  id.startsWith(proxyGrantPrefix)
+    ? Schema.decodeUnknownOption(Schema.fromJsonString(ProxyGrant))(
+        (() => {
+          try {
+            return decodeURIComponent(id.slice(proxyGrantPrefix.length));
+          } catch {
+            return "";
+          }
+        })(),
+      )
+    : Option.none();
+
+const UserRow = Schema.Struct({ id: Schema.String });
+
+/** The user with this verified email and their memberships, or none when no account has it. */
+export const proxyUserMemberships = (sql: SqlClient.SqlClient, email: string) =>
+  Effect.gen(function* () {
+    const users = yield* sql`select id from "user" where lower(email) = lower(${email})`;
+    if (users.length !== 1) return Option.none();
+    const user = yield* Schema.decodeUnknownEffect(UserRow)(users[0]);
+    const rows =
+      yield* sql`select m."organizationId" as organization, m.role as role, o.slug as slug
+      from member m left join organization o on o.id = m."organizationId"
+      where m."userId" = ${user.id}`;
+    const memberships = yield* Schema.decodeUnknownEffect(Memberships)(rows);
+    return Option.some({ userId: user.id, memberships });
+  }).pipe(Effect.mapError(() => unavailable));
+
+/**
+ * MCP authority for a caller the fronting identity proxy verified, by email: the account with that
+ * email, in the organization the request names, else its only organization, with the authority of
+ * a personal access token. The account must exist (people make it by signing in to the console
+ * once); a URL naming a scoped connection is refused by the grant's target, which names none.
+ */
+export const proxyMcpAccess = (
+  email: string,
+  request: BearerRequest & { readonly mode?: ApprovalMode | undefined },
+) =>
+  Effect.gen(function* () {
+    const sql = yield* SqlClient.SqlClient;
+    const found = yield* proxyUserMemberships(sql, email);
+    if (Option.isNone(found)) return yield* forbidden("membership");
+    const { userId, memberships } = found.value;
+    const reference = request.organization;
+    const named =
+      reference === undefined
+        ? memberships.length === 1
+          ? memberships
+          : []
+        : memberships.filter((item) => item.organization === reference || item.slug === reference);
+    if (reference === undefined && memberships.length > 1)
+      return yield* forbidden("organization_required");
+    const membership = named[0];
+    if (membership === undefined || named.length !== 1) return yield* forbidden("membership");
+    const organization = yield* Schema.decodeUnknownEffect(OrganizationId)(
+      membership.organization,
+    ).pipe(Effect.mapError(() => forbidden("membership")));
+    const role = yield* Schema.decodeUnknownEffect(OrganizationRole)(membership.role).pipe(
+      Effect.mapError(() => forbidden("membership")),
+    );
+    yield* recordCaller(organization, userId);
+    const mode = request.mode ?? "model";
+    return McpAccess.make({
+      userId,
+      clientId: "proxy:cloudflare-access",
+      grant: {
+        id: proxyGrantId({ user: userId, organization, mode }),
+        policy: { kind: "all" },
+        target: { kind: "mcp", mode },
+      },
+      access: { organization, owner: organizationOwner(organization), role },
+    });
+  }).pipe(
+    Effect.mapError(({ reason }) =>
+      reason === "unauthorized"
+        ? new McpUnauthorized()
+        : reason === "unavailable"
+          ? new AuthenticationUnavailable()
+          : new McpForbidden({ reason }),
+    ),
+  );

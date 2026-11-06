@@ -59,6 +59,9 @@ export const OperatorSettings = Schema.Struct({
   SSO_ADMIN_EMAILS: Schema.optionalKey(Schema.String),
   SSO_PROVIDER_VERIFIES_EMAIL: Schema.optionalKey(Schema.String),
   EXECUTOR_OAUTH_CLIENT_METADATA_URL: Schema.optionalKey(Schema.NonEmptyString),
+  /** The Cloudflare Access team and application whose assertions name the MCP caller. */
+  EXECUTOR_ACCESS_TEAM_DOMAIN: Schema.optionalKey(Schema.NonEmptyString),
+  EXECUTOR_ACCESS_AUD: Schema.optionalKey(Schema.NonEmptyString),
   /** The build an upgrade installs. */
   EXECUTOR_BUILD_VERSION: Schema.optionalKey(Schema.NonEmptyString),
   /**

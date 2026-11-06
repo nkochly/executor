@@ -18,6 +18,7 @@ import { authMillis, SqlBoolean } from "fumadb-effect/dialect";
 import { GroupDatabase } from "../contracts/groups.ts";
 import { OrganizationId, organizationOwner } from "../contracts/organization.ts";
 import { patGrantOf } from "./mcp-oauth.ts";
+import { proxyGrantOf } from "./bearer-access.ts";
 import { accountAccesses, resourceAuthorityForApp } from "./resource-policy.ts";
 
 const GrantRow = Schema.Struct({
@@ -53,6 +54,18 @@ const grantStanding = (sql: SqlClient.SqlClient, id: string) =>
       return Option.some({
         userId: key.value.userId,
         organization: pat.value.organization,
+        policy: GrantPolicy.make({ kind: "all" }),
+      });
+    }
+    // A proxy grant stands while its user is still a member of its organization.
+    const proxy = proxyGrantOf(id);
+    if (Option.isSome(proxy)) {
+      const members = yield* sql`select 1 as one from member
+        where "userId" = ${proxy.value.user} and "organizationId" = ${proxy.value.organization}`;
+      if (members.length === 0) return Option.none();
+      return Option.some({
+        userId: proxy.value.user,
+        organization: proxy.value.organization,
         policy: GrantPolicy.make({ kind: "all" }),
       });
     }

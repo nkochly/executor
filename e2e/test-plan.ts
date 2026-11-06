@@ -1394,6 +1394,16 @@ export const scenarios = plan({
       local: na("Local has no sign-in or SSO."),
     },
   },
+  selfHostAccessProxyMcp: {
+    file: "self-host-access-proxy.spec.ts",
+    title:
+      "Self-host behind Cloudflare Access takes a verified Access assertion as the MCP caller and refuses forged, foreign or non-member ones",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Cloud is not served behind Cloudflare Access."),
+      local: na("Local has no sign-in."),
+    },
+  },
   selfHostSsoDiscoveryRedirect: {
     file: "self-host-sso.spec.ts",
     title: "Self-host SSO stays unavailable when its HTTPS discovery redirects to cleartext",
