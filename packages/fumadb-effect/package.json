@@ -33,7 +33,8 @@
     "./package.json": "./package.json",
     "./pglite": "./src/pglite.ts",
     "./sqlite": "./src/sqlite.ts",
-    "./dialect": "./src/dialect.ts"
+    "./dialect": "./src/dialect.ts",
+    "./sqlite-native": "./src/sqlite-native.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit -p tsconfig.json"

@@ -6,7 +6,8 @@ import {
 } from "@executor-js/hosted-server/migrations";
 import { makeSqliteAuthDatabase } from "@executor-js/mcp-auth/sqlite-database";
 import { SqlClient } from "effect/sql";
-import { Effect, Layer, Redacted } from "effect";
+import { Effect, Layer, Option, Redacted } from "effect";
+import { SqliteStorageService } from "fumadb-effect/sqlite";
 import { AuthDatabase } from "../contracts/database.ts";
 import { makeAuthDatabase } from "./auth-database.ts";
 /** Acquire one engine and initialize both schemas before exposing services. */
@@ -14,9 +15,10 @@ export const selfHostDatabaseSchema = Layer.effect(
   AuthDatabase,
   Effect.gen(function* () {
     const sqlite = hostedDatabaseProvider(yield* SqlClient.SqlClient) === "sqlite";
+    const storage = yield* Effect.serviceOption(SqliteStorageService);
     const database = AuthDatabase.of(
-      sqlite
-        ? { db: yield* makeSqliteAuthDatabase, type: "sqlite", transaction: true }
+      sqlite && Option.isSome(storage)
+        ? { db: yield* makeSqliteAuthDatabase(storage.value), type: "sqlite", transaction: true }
         : { db: yield* makeAuthDatabase, type: "postgres", transaction: true },
     );
     const settings = yield* selfHostAuthSettings;

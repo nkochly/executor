@@ -1,9 +1,10 @@
-/** Product Worker. One durable actor owns PostgreSQL, auth, sessions and background work. */
+/** Product Worker. One durable actor owns the database, auth, sessions and background work. */
 import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import { PGlite } from "@electric-sql/pglite";
 import { PgliteClient } from "@effect/sql-pglite";
+import { sqliteLayer } from "fumadb-effect/sqlite";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import { bindingWorkerdApps } from "@executor-js/sdk/workerd";
 import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
@@ -101,7 +102,31 @@ const configuration = (native: HttpBinding) =>
     ),
   );
 
-const prepare = (state: DurableObjectState, env: Environment) =>
+/**
+ * The product database: the Durable Object's own SQLite storage with `EXECUTOR_DATABASE=sqlite`,
+ * else PGlite persisted in it. SQLite needs no import, initdb or WebAssembly engine.
+ */
+const productDatabase = (state: DurableObjectState, env: Environment) =>
+  Effect.gen(function* () {
+    const engine = yield* Config.Literals(["pglite", "sqlite"], "EXECUTOR_DATABASE").pipe(
+      Config.withDefault("pglite"),
+    );
+    if (engine === "sqlite")
+      return {
+        layer: sqliteLayer(state.storage),
+        exportDatabase: async () => new Response(null, { status: 501 }),
+      };
+    const pg = yield* pgliteDatabase(state, env);
+    return {
+      layer: PgliteClient.layer({ liveClient: pg }),
+      exportDatabase: async () =>
+        new Response(await pg.dumpDataDir("none"), {
+          headers: { "content-type": "application/x-tar" },
+        }),
+    };
+  });
+
+const pgliteDatabase = (state: DurableObjectState, env: Environment) =>
   Effect.gen(function* () {
     const fs = yield* prepareProductFilesystem(state.storage, env.LEGACY_DATABASE);
     const pg = yield* Effect.acquireRelease(
@@ -119,10 +144,13 @@ const prepare = (state: DurableObjectState, env: Environment) =>
       (pg) => Effect.promise(() => pg.close()),
     );
     yield* completeProductBootstrap(state.storage);
-    const exportDatabase = async () =>
-      new Response(await pg.dumpDataDir("none"), {
-        headers: { "content-type": "application/x-tar" },
-      });
+    return pg;
+  });
+
+const prepare = (state: DurableObjectState, env: Environment) =>
+  Effect.gen(function* () {
+    const database = yield* productDatabase(state, env);
+    const exportDatabase = database.exportDatabase;
     if (yield* Config.Boolean("EXECUTOR_STORAGE_EXPORT").pipe(Config.withDefault(false)))
       return {
         fetch: async (_request: Request) => new Response(null, { status: 503 }),
@@ -132,7 +160,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
     const telemetry = yield* telemetryConfig("executor-selfhost");
     const common = yield* Layer.build(
       Layer.mergeAll(
-        selfHostDatabaseSchema.pipe(Layer.provideMerge(PgliteClient.layer({ liveClient: pg }))),
+        selfHostDatabaseSchema.pipe(Layer.provideMerge(database.layer)),
         telemetry.traces === undefined && telemetry.logs === undefined
           ? telemetryLayer({
               ...telemetry,

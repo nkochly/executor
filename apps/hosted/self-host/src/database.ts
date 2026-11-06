@@ -1,7 +1,8 @@
 /** One persisted PGlite engine for self-host auth and product data. */
 import { Config, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { pgliteLayer } from "fumadb-effect/pglite";
-import { nativeSqliteStorage, sqliteLayer } from "fumadb-effect/sqlite";
+import { sqliteLayer } from "fumadb-effect/sqlite";
+import { nativeSqliteStorage } from "fumadb-effect/sqlite-native";
 import { lock } from "proper-lockfile";
 import { dataDirectory } from "./contracts/config.ts";
 import { DatabaseUnavailable } from "./contracts/database.ts";

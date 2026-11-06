@@ -1,5 +1,6 @@
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
+import { isSqlite, json } from "fumadb-effect/dialect";
 import { StorageError, type App, type VersionId } from "@executor-js/sdk/core";
 
 /**
@@ -31,11 +32,12 @@ export const executorDefaultRedeployed =
   (wake: Effect.Effect<void>) => (app: App, replaced: VersionId, version: VersionId) =>
     Effect.gen(function* () {
       const sql = yield* SqlClient.SqlClient;
-      yield* sql`update "organization" set metadata = jsonb_set(
-        metadata::jsonb, '{executorDefaults,deployment}', to_jsonb(${version}::text)
-      )::text
-      where metadata::jsonb -> 'executorDefaults' ->> 'app' = ${app.id}
-        and metadata::jsonb -> 'executorDefaults' ->> 'deployment' = ${replaced}`.pipe(
+      const recorded = isSqlite(sql)
+        ? sql`json_set(metadata, '$.executorDefaults.deployment', ${version})`
+        : sql`jsonb_set(metadata::jsonb, '{executorDefaults,deployment}', to_jsonb(${version}::text))::text`;
+      yield* sql`update "organization" set metadata = ${recorded}
+      where ${json(sql, "metadata")} -> 'executorDefaults' ->> 'app' = ${app.id}
+        and ${json(sql, "metadata")} -> 'executorDefaults' ->> 'deployment' = ${replaced}`.pipe(
         Effect.mapError(() => new StorageError()),
       );
       // Polling recovers a missed wake.

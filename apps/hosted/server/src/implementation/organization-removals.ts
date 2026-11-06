@@ -1,6 +1,7 @@
 /** Tombstone storage: one row hides an organization from the moment removal is accepted. */
 import { Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
+import { now } from "fumadb-effect/dialect";
 import type { OrganizationId } from "../contracts/organization.ts";
 import {
   OrganizationRemovalRecord,
@@ -96,7 +97,7 @@ export const makeOrganizationRemovals = (
         database.pipe(
           Effect.flatMap(
             (sql) =>
-              sql`update hosted_organization_removal set status = 'done', finished_at = now()
+              sql`update hosted_organization_removal set status = 'done', finished_at = ${now(sql)}
                 where organization_id = ${organization}`,
           ),
           Effect.mapError(unavailable),

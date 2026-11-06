@@ -1,8 +1,8 @@
 /** SQLite over Durable Object storage, or a native file with the same contract. */
 export {
-  nativeSqliteStorage,
   normalizedStorage,
   sqliteLayer,
   sqliteParameter,
+  SqliteStorageService,
   type SqliteStorage,
 } from "./implementation/sqlite.ts";

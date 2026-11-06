@@ -38,6 +38,15 @@ create constraint trigger executor_test_commit_fault after insert on executor_te
   deferrable initially deferred for each row execute function pg_temp.executor_test_commit_fault();
 insert into executor_test_commit_fault values (1);`;
 
+/**
+ * SQLite has no deferred triggers: a deferred foreign key that no row satisfies fails the COMMIT
+ * the same way, and the transaction rolls back. It has no statement timer either, so a timeout
+ * is the same refusal.
+ */
+const sqliteCommitFault = `pragma defer_foreign_keys = on;
+insert into hosted_group_members (group_id, member_id)
+  values ('storage-fault-fixture', 'storage-fault-fixture');`;
+
 /** Names of the spans enclosing a statement, innermost first. */
 const enclosing = (span: Tracer.AnySpan): ReadonlyArray<string> => {
   const names: Array<string> = [];
@@ -92,7 +101,17 @@ export const storageFaultFixture = Effect.sync(() => {
                   const commit = fault.commit;
                   if (commit !== "lost")
                     return target.withTransaction(
-                      Effect.tap(work, () => target.unsafe(commitFault(commit)).unprepared),
+                      Effect.tap(work, () =>
+                        target.onDialectOrElse({
+                          sqlite: () =>
+                            Effect.forEach(
+                              sqliteCommitFault.split(";").filter((part) => part.trim() !== ""),
+                              (part) => target.unsafe(part).unprepared,
+                              { discard: true },
+                            ),
+                          orElse: () => target.unsafe(commitFault(commit)).unprepared,
+                        }),
+                      ),
                     );
                   return Effect.andThen(
                     target.withTransaction(work),

@@ -629,6 +629,7 @@
         "@executor-js/utils": "workspace:*",
         "better-auth": "1.7.16",
         "effect": "4.0.1",
+        "fumadb-effect": "workspace:*",
         "kysely": "0.29.6",
       },
     },
