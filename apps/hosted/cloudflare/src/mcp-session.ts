@@ -14,30 +14,10 @@
  * a program it wakes itself every `holdMillis`. A deploy or crash loses its sessions; clients
  * initialize again, and a resume of a lost program reads as lost.
  */
-import { DurableObject, RpcTarget } from "cloudflare:workers";
+import { DurableObject } from "cloudflare:workers";
 import type { DurableObjectState, WorkerLoader } from "@cloudflare/workers-types";
-import {
-  McpAccess,
-  fromWire,
-  isolatedProgram,
-  makeHostedMcp,
-  provideHostedMcpRequest,
-  remoteMcpBackend,
-  toWire,
-  type HostedMcpRequestError,
-  type McpBackendCall,
-  type ProgramHost,
-  type StartIsolatedProgram,
-  type WireExit,
-} from "@executor-js/hosted-server";
-import programSandbox from "executor:program-sandbox";
-import { selfHostMcpLimits } from "@executor-js/hosted-self-host/product";
+import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { BrowserApprovalAddress } from "@executor-js/mcp/browser";
-import type { McpBackend } from "@executor-js/mcp";
-import { ElicitationResponse } from "apps/contracts";
-import { Cause, ConfigProvider, Config, Effect, Exit, Schema, Scope } from "effect";
-import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
-import { workerConfiguration } from "./configuration.ts";
 
 /** The header the product sets on a forwarded request: the caller's access, as encoded JSON. */
 export const mcpSessionAccessHeader = "x-executor-mcp-access";
@@ -55,126 +35,37 @@ export interface McpSessionEnvironment {
   readonly LOADER?: WorkerLoader;
 }
 
-/** The most CPU time one program may use; Cloudflare allows a Worker invocation five minutes. */
-const maxProgramCpuMs = 300_000;
-
-/** The host a program's isolate calls back, as an RPC target so its methods cross as calls. */
-class ProgramHostTarget extends RpcTarget implements ProgramHost {
-  readonly #host: ProgramHost;
-  constructor(host: ProgramHost) {
-    super();
-    this.#host = host;
-  }
-  backend(call: Parameters<ProgramHost["backend"]>[0]) {
-    return this.#host.backend(call);
-  }
-  progress(report: Parameters<ProgramHost["progress"]>[0]) {
-    this.#host.progress(report);
-  }
-  deadline() {
-    return this.#host.deadline();
-  }
+/** An open session object's operations (`mcp-session-open.ts`). */
+export interface McpSessionHandle {
+  fetch(request: Request): Promise<Response>;
+  /** How many programs the object holds. */
+  programs(): number;
+  approvalView(caller: string, address: BrowserApprovalAddress): Promise<unknown>;
+  approvalAnswer(
+    caller: string,
+    address: BrowserApprovalAddress,
+    response: unknown,
+  ): Promise<WireExit>;
 }
-
-interface ProgramEntrypoint {
-  run(code: string, limits: unknown, host: ProgramHostTarget): Promise<unknown>;
-}
-
-/** Load a fresh isolate for one program, with no network and the program's CPU budget. */
-const startInIsolate =
-  (loader: WorkerLoader): StartIsolatedProgram =>
-  (code, limits, host) => {
-    const worker = loader.load({
-      compatibilityDate: "2026-09-01",
-      compatibilityFlags: ["nodejs_compat"],
-      mainModule: "program.js",
-      modules: { "program.js": programSandbox },
-      globalOutbound: null,
-      limits: { cpuMs: Math.min(limits.timeoutMs, maxProgramCpuMs) },
-    });
-    const program = worker.getEntrypoint("Program") as unknown as ProgramEntrypoint;
-    return program.run(code, limits, new ProgramHostTarget(host));
-  };
-
-const decodeAccess = Schema.decodeUnknownEffect(Schema.fromJsonString(McpAccess));
-const decodeResponse = Schema.decodeUnknownEffect(ElicitationResponse);
-
-const open = (env: McpSessionEnvironment) =>
-  Effect.gen(function* () {
-    const { limits, beforeExecute } = yield* selfHostMcpLimits;
-    const origin = yield* Config.String("BETTER_AUTH_URL");
-    const hosted = yield* makeHostedMcp(
-      beforeExecute,
-      limits,
-      undefined,
-      undefined,
-      env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
-    );
-    const product = env.PRODUCT.getByName("product");
-    const serve = Effect.gen(function* () {
-      const request = yield* HttpServerRequest.HttpServerRequest;
-      const encoded = request.headers[mcpSessionAccessHeader];
-      const access = yield* decodeAccess(encoded ?? "");
-      // Each operation goes back with the headers the client sent, which the product
-      // authenticates again; the access header is the product's own and does not go back.
-      const headers = new Headers(request.headers);
-      headers.delete(mcpSessionAccessHeader);
-      // Each operation is sent without the request's body.
-      headers.delete("content-length");
-      headers.delete("transfer-encoding");
-      const url = new URL(request.url, origin).toString();
-      // Its errors are the product's own, rebuilt by class, so they are the request's errors.
-      const backend = remoteMcpBackend((call) =>
-        product.mcpBackend(new Request(url, { method: "POST", headers }), call),
-      ) as unknown as McpBackend<HostedMcpRequestError>;
-      return yield* provideHostedMcpRequest(access, backend, origin, hosted.http);
-    }).pipe(
-      Effect.catchTag("SchemaError", () =>
-        Effect.succeed(HttpServerResponse.empty({ status: 400 })),
-      ),
-    );
-    const context = yield* Effect.context<never>();
-    return {
-      fetch: HttpEffect.toWebHandlerWith<never, Effect.Services<typeof serve>>(context)(serve),
-      approvals: hosted.approvals,
-      programs: hosted.programs,
-      context,
-    };
-  }).pipe(Effect.provide(HttpServer.layerServices));
 
 /** A caller's MCP protocol sessions and running programs. Reached only through the product. */
 export class ExecutorMcpSession extends DurableObject<McpSessionEnvironment> {
   readonly #state: DurableObjectState;
   readonly #env: McpSessionEnvironment;
-  #opening: Promise<Effect.Success<ReturnType<typeof open>>> | undefined;
+  #opening: Promise<McpSessionHandle> | undefined;
   constructor(state: DurableObjectState, env: McpSessionEnvironment) {
     super(state, env);
     this.#state = state;
     this.#env = env;
   }
   #session() {
-    this.#opening ??= this.#open().catch((error: unknown) => {
-      this.#opening = undefined;
-      throw error;
-    });
+    this.#opening ??= import("./mcp-session-open.ts")
+      .then(({ openMcpSession }) => openMcpSession(this.#env))
+      .catch((error: unknown) => {
+        this.#opening = undefined;
+        throw error;
+      });
     return this.#opening;
-  }
-  async #open() {
-    const scope = Scope.makeUnsafe();
-    const opened = await Effect.runPromiseExit(
-      workerConfiguration(this.#env).pipe(
-        Effect.flatMap((config) =>
-          open(this.#env).pipe(
-            Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(config))),
-          ),
-        ),
-        Effect.provideService(Scope.Scope, scope),
-      ),
-    );
-    if (Exit.isSuccess(opened)) return opened.value;
-    console.error(Cause.pretty(opened.cause));
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-    throw new Error("Executor MCP session could not open.", { cause: opened.cause });
   }
   /** While the object holds a program, an alarm is due within `holdMillis`. */
   async #hold() {
@@ -199,10 +90,7 @@ export class ExecutorMcpSession extends DurableObject<McpSessionEnvironment> {
   }
   /** A pending request for the browser approval page; the product checks the page's access. */
   async approvalView(caller: string, address: BrowserApprovalAddress): Promise<unknown> {
-    const session = await this.#session();
-    return toWire(
-      await Effect.runPromiseWith(session.context)(session.approvals.get(caller, address)),
-    );
+    return (await this.#session()).approvalView(caller, address);
   }
   /** The browser approval page's answer to a pending request. */
   async approvalAnswer(
@@ -210,18 +98,6 @@ export class ExecutorMcpSession extends DurableObject<McpSessionEnvironment> {
     address: BrowserApprovalAddress,
     response: unknown,
   ): Promise<WireExit> {
-    const session = await this.#session();
-    const exit = await Effect.runPromiseWith(session.context)(
-      decodeResponse(fromWire(response)).pipe(
-        Effect.orDie,
-        Effect.flatMap((answer) => session.approvals.answer(caller, address, answer)),
-        Effect.exit,
-      ),
-    );
-    if (Exit.isSuccess(exit)) return { ok: true, value: toWire(exit.value) };
-    const error = Cause.findErrorOption(exit.cause);
-    return error._tag === "Some"
-      ? { ok: false, error: toWire(error.value) }
-      : { ok: false, defect: Cause.pretty(exit.cause) };
+    return (await this.#session()).approvalAnswer(caller, address, response);
   }
 }

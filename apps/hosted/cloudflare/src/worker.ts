@@ -10,62 +10,17 @@
  *   endpoint is configured;
  * - blobs, app repositories and the app runtime come from `platform.ts`.
  */
-import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
-import { sqliteLayer } from "fumadb-effect/sqlite";
-import { executorSkillFiles } from "@executor-js/app-templates/executor";
-import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
-import { telemetryConfig, telemetryLayer } from "@executor-js/telemetry";
-import { urlPolicyConfig } from "@executor-js/utils/url-policy";
-import {
-  Cause,
-  Config,
-  ConfigProvider,
-  Context,
-  Effect,
-  Exit,
-  Layer,
-  Option,
-  Schema,
-  Scope,
-} from "effect";
-import {
-  FetchHttpClient,
-  HttpEffect,
-  HttpRouter,
-  HttpServer,
-  HttpServerRequest,
-  HttpServerResponse,
-} from "effect/http";
-import {
-  FirstPartyOAuthClientsInvalid,
-  McpAccess,
-  fromWire,
-  toWire,
-  type McpBackendCall,
-  type WireExit,
-} from "@executor-js/hosted-server";
-import type { BrowserApprovalView, BrowserApprovals } from "@executor-js/mcp/browser";
-import {
-  bindingDashboard,
-  bindingHttpClient,
-  selfHostExecutorServices,
-  selfHostRouteMap,
-  sqliteDatabaseSchema,
-  SelfHostWorkflowRequests,
-  type HttpBinding,
-  type McpSessionHost,
-} from "@executor-js/hosted-self-host/product";
-import skills from "executor:skills";
-import dashboard from "executor:dashboard";
-import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
-import { cloudflarePlatform, type PlatformBindings } from "./platform.ts";
-import { mcpSessionAccessHeader } from "./mcp-session.ts";
+import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
+import type { PlatformBindings } from "./platform.ts";
 
+// Only the Durable Objects build the product and the MCP sessions, and each loads its module when
+// it first opens: evaluating them at startup exceeds the CPU time Cloudflare allows a Worker to
+// start. This module and `mcp-session.ts` import nothing else at run time.
 export { ExecutorMcpSession } from "./mcp-session.ts";
 
-interface ProductStub {
+export interface ProductStub {
   fetch(request: Request): Promise<Response>;
   workflow(request: Request): Promise<Response>;
   mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
@@ -76,7 +31,7 @@ interface McpSessionStub {
   approvalView(caller: string, address: unknown): Promise<unknown>;
   approvalAnswer(caller: string, address: unknown, response: unknown): Promise<WireExit>;
 }
-interface Environment extends PlatformBindings {
+export interface Environment extends PlatformBindings {
   readonly PRODUCT: { getByName(name: string): ProductStub };
   /** Callers' MCP session objects; used when `EXECUTOR_MCP_SESSIONS` is true. */
   readonly MCP_SESSIONS?: { getByName(name: string): McpSessionStub };
@@ -86,124 +41,6 @@ interface Environment extends PlatformBindings {
   readonly SELF: Fetcher;
 }
 
-const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));
-
-/**
- * MCP sessions in their own objects: the product authenticates and forwards each `/mcp` request
- * to the caller's object, and runs the backend operations the object sends back. Until `serve`
- * is called no operation can run, and the product answers each with a defect.
- */
-const sessionHost = (sessions: NonNullable<Environment["MCP_SESSIONS"]>) => {
-  let served: ((request: Request, call: McpBackendCall) => Promise<WireExit>) | undefined;
-  const host: McpSessionHost = {
-    forward: (key, access) =>
-      Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        const web = yield* HttpServerRequest.toWeb(request).pipe(Effect.orDie);
-        const forwarded = new Request(web);
-        forwarded.headers.set(mcpSessionAccessHeader, encodeAccess(access));
-        const response = yield* Effect.promise(() => sessions.getByName(key).fetch(forwarded));
-        return HttpServerResponse.fromWeb(response);
-      }),
-    approvals: (key): BrowserApprovals => ({
-      get: (product, address) =>
-        Effect.promise(() => sessions.getByName(key).approvalView(product, address)).pipe(
-          Effect.map((view) => fromWire(view) as BrowserApprovalView),
-        ),
-      answer: (product, address, response) =>
-        Effect.promise(() =>
-          sessions.getByName(key).approvalAnswer(product, address, toWire(response)),
-        ).pipe(
-          Effect.flatMap((exit) =>
-            exit.ok
-              ? Effect.succeed(fromWire(exit.value) as never)
-              : "error" in exit
-                ? Effect.fail(fromWire(exit.error) as never)
-                : Effect.die(exit.defect),
-          ),
-        ),
-    }),
-    serve: (run) => {
-      served = run;
-    },
-  };
-  const backend = (request: Request, call: McpBackendCall): Promise<WireExit> =>
-    served === undefined
-      ? Promise.resolve({ ok: false, defect: "MCP sessions are not served by this product" })
-      : served(request, call);
-  return { host, backend };
-};
-
-/** Outbound requests leave through the Worker's network; the URL policy is checked before. */
-const network: HttpBinding = { fetch: (request) => fetch(request) };
-
-const prepare = (state: DurableObjectState, env: Environment) =>
-  Effect.gen(function* () {
-    const telemetry = yield* telemetryConfig("executor-cloudflare");
-    const common = yield* Layer.build(
-      Layer.mergeAll(
-        sqliteDatabaseSchema.pipe(Layer.provideMerge(sqliteLayer(state.storage))),
-        telemetryLayer(telemetry),
-        HttpServer.layerServices,
-        BrowserCrypto.layer,
-        Layer.succeed(ScheduleHostReady, Effect.void),
-      ),
-    );
-    return yield* Effect.gen(function* () {
-      const policy = yield* urlPolicyConfig;
-      const egress = {
-        policy,
-        client: yield* bindingHttpClient(policy, network, network, {
-          origin: yield* Config.String("BETTER_AUTH_URL"),
-          binding: env.SELF as unknown as HttpBinding,
-        }),
-      };
-      const services = yield* Layer.build(
-        selfHostExecutorServices(egress, cloudflarePlatform(env, state.storage)),
-      );
-      const sessions =
-        env.MCP_SESSIONS !== undefined &&
-        (yield* Config.Boolean("EXECUTOR_MCP_SESSIONS").pipe(Config.withDefault(false)))
-          ? sessionHost(env.MCP_SESSIONS)
-          : undefined;
-      const routes = yield* selfHostRouteMap({
-        ...(sessions === undefined ? {} : { mcpSessions: sessions.host }),
-        skills: executorSkillFiles(skills),
-        egress,
-        executorServices: Layer.succeedContext(services),
-        dashboard: bindingDashboard(env.ASSETS as unknown as HttpBinding, dashboard),
-      });
-      const http = yield* HttpRouter.toHttpEffect(routes).pipe(
-        Effect.provideService(Layer.CurrentMemoMap, yield* Layer.makeMemoMap),
-      );
-      const workflow = Context.get(services, SelfHostWorkflowRequests);
-      const context = yield* Effect.context<never>();
-      const addressed = Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* http.pipe(
-          Effect.provideService(
-            HttpServerRequest.HttpServerRequest,
-            request.modify({
-              remoteAddress: Option.fromUndefinedOr(request.headers["x-executor-client-ip"]),
-            }),
-          ),
-        );
-      });
-      return {
-        fetch: HttpEffect.toWebHandlerWith<never, Effect.Services<typeof addressed>>(context)(
-          addressed,
-        ),
-        workflow: HttpEffect.toWebHandlerWith<never, Effect.Services<typeof workflow>>(context)(
-          workflow,
-        ),
-        mcpBackend: (request: Request, call: McpBackendCall): Promise<WireExit> =>
-          sessions === undefined
-            ? Promise.resolve({ ok: false, defect: "MCP sessions are off" })
-            : sessions.backend(request, call),
-      };
-    }).pipe(Effect.provideContext(common));
-  });
-
 /**
  * Opening the store runs schema migrations and data steps, which can take longer on a large
  * install than a `blockConcurrencyWhile` callback may run. So the store opens outside it, and
@@ -212,7 +49,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
 export class ExecutorProduct extends DurableObject<Environment> implements ProductStub {
   readonly #state: DurableObjectState;
   readonly #env: Environment;
-  #opening: Promise<Effect.Success<ReturnType<typeof prepare>>> | undefined;
+  #opening: Promise<ProductStub> | undefined;
   constructor(state: DurableObjectState, env: Environment) {
     super(state, env);
     this.#state = state;
@@ -229,41 +66,8 @@ export class ExecutorProduct extends DurableObject<Environment> implements Produ
     return this.#opening;
   }
   async #open() {
-    const scope = Scope.makeUnsafe();
-    // Invalid settings say which setting, never a value, so they are reported as they are; any
-    // other failure keeps the whole cause.
-    let settings: string | undefined;
-    let failure: unknown;
-    try {
-      const opened = await Effect.runPromiseExit(
-        workerConfiguration(this.#env).pipe(
-          Effect.flatMap((config) =>
-            prepare(this.#state, this.#env).pipe(
-              Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(config))),
-            ),
-          ),
-          Effect.provideService(Scope.Scope, scope),
-          Effect.provide(FetchHttpClient.layer),
-        ),
-      );
-      if (Exit.isSuccess(opened)) {
-        await this.#state.storage.setAlarm(Date.now() + 30_000);
-        return opened.value;
-      }
-      const squashed = Cause.squash(opened.cause);
-      if (
-        Schema.is(FirstPartyOAuthClientsInvalid)(squashed) ||
-        Schema.is(WorkerConfigurationInvalid)(squashed)
-      )
-        settings = squashed.message;
-      failure = opened.cause;
-      // The Worker's logs are the operator's only view of why the product did not open.
-      console.error(Cause.pretty(opened.cause));
-    } catch (error) {
-      failure = error;
-    }
-    await Effect.runPromise(Scope.close(scope, Exit.void));
-    throw new Error(settings ?? "Executor product storage could not open.", { cause: failure });
+    const { openProduct } = await import("./product.ts");
+    return openProduct(this.#state, this.#env);
   }
   /** Dispatch the authenticated product routes. */
   async fetch(request: Request): Promise<Response> {
