@@ -40,4 +40,26 @@ describe("mcp usage log", () => {
       expect(line).toContain(part);
     log.mockRestore();
   });
+
+  it("logs Executor's trace id and the caller's own trace id", async () => {
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const req = post(
+      JSON.stringify({
+        method: "tools/call",
+        params: {
+          name: "wiki.search",
+          _meta: { traceparent: "00-0af7651916cd43dd8448eb211c80319c-00f067aa0ba902b7-01" },
+        },
+      }),
+    );
+    await loggedMcp(
+      { tenant: "acme", agent: null, subject: "a@b.c" },
+      req,
+      async () => new Response("ok"),
+    );
+    const line = String(log.mock.calls.at(-1)?.[0]);
+    expect(line).toContain('"trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"');
+    expect(line).toContain('"client_trace_id":"0af7651916cd43dd8448eb211c80319c"');
+    log.mockRestore();
+  });
 });
