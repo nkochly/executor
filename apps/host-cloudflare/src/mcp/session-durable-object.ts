@@ -34,6 +34,8 @@ import { makeCloudflareExecutionStackLayer, makeExecutionStack } from "../execut
 import { agentHasCoreTools, ensureAgentToolkit } from "../agent";
 import { startWorkspace, withHostExecutor } from "../new-workspace";
 import { makeAttributionMeta } from "../attribution";
+import { makeTraceMeta } from "./trace";
+import type { McpCallMetaInput } from "@executor-js/plugin-mcp";
 import { catalogIntegrations, refreshCatalog, unservedCatalogIntegrations } from "../platform";
 import { readTeamPage, readTeamPages, sessionInstructions, type TeamPage } from "../tenancy";
 import { preloadQuickJs } from "../quickjs";
@@ -223,8 +225,12 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
       );
       // Calls to wiki and Muster say who is behind them (client, person,
       // agent, guide); read lazily, since `initialize` lands after this build.
-      const callMeta = makeAttributionMeta({
-        origins: config.firstParty.map((server) => server.endpoint),
+      // They also carry this request's trace as `traceparent` (./trace.ts), so
+      // one call is followed from Executor into wiki and Muster.
+      const firstPartyOrigins = config.firstParty.map((server) => server.endpoint);
+      const traceMeta = makeTraceMeta(firstPartyOrigins);
+      const attributionMeta = makeAttributionMeta({
+        origins: firstPartyOrigins,
         // The OAuth client's registered name ("AI Studio") names the app;
         // `initialize` often names only the MCP library it is built on.
         client: () =>
@@ -234,6 +240,10 @@ export class McpSessionDO extends McpAgentSessionDOBase<CloudflareEnv, CfSession
         person: () => sessionMeta.email,
         agent: sessionMeta.resource?.kind === "toolkit" ? sessionMeta.resource.slug : undefined,
       });
+      const callMeta = (call: McpCallMetaInput): Record<string, unknown> | undefined => {
+        const meta = { ...attributionMeta(call), ...traceMeta(call.endpoint) };
+        return Object.keys(meta).length === 0 ? undefined : meta;
+      };
       const { engine, executor } = yield* makeExecutionStack(
         sessionMeta.userId,
         sessionMeta.organizationId,
