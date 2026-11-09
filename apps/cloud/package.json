@@ -89,7 +89,7 @@
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.23.0",
-    "@cloudflare/workers-types": "5.20261030.1",
+    "@cloudflare/workers-types": "5.20261104.1",
     "@effect/platform-node": "catalog:",
     "@effect/vitest": "catalog:",
     "@electric-sql/pglite": "^0.4.4",
@@ -107,6 +107,6 @@
     "typescript": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",
-    "wrangler": "4.156.0"
+    "wrangler": "4.158.0"
   }
 }
