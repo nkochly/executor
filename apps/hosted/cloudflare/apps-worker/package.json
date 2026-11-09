@@ -12,7 +12,7 @@
     "@executor-js/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "5.20260729.1",
+    "@cloudflare/workers-types": "5.20261104.1",
     "@effect/platform-node": "4.0.1",
     "@executor-js/app-templates": "workspace:*",
     "effect": "4.0.1",
