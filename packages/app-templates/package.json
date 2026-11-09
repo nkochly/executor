@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@executor-js/sdk": "workspace:*",
-    "@modelcontextprotocol/sdk": "1.32.1",
+    "@modelcontextprotocol/sdk": "1.32.2",
     "apps": "workspace:*",
     "effect": "4.0.1"
   },
