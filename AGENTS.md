@@ -38,6 +38,9 @@ executor.
   imports.
 - Extract shared logic only for genuinely shared behavior. Avoid generic
   abstractions for one-off duplication.
+- Use what a pinned SDK already provides (for example `agents` capabilities or
+  the MCP packages' extensions) before writing an equivalent; hand-roll only
+  what no SDK offers.
 - Public PRs, commits, generated files, and documentation contain no private
   names, internal context, customer-derived data, or AI attribution.
 
