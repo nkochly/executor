@@ -1,5 +1,5 @@
 diff --git a/dist/mcp/index.d.ts b/dist/mcp/index.d.ts
-index 80b4317..4d10028 100644
+index e8f3c9e..b084683 100644
 --- a/dist/mcp/index.d.ts
 +++ b/dist/mcp/index.d.ts
 @@ -68,6 +68,8 @@ import {
@@ -73,7 +73,7 @@ index 80b4317..4d10028 100644
    type CreateLegacyMcpHandlerOptions,
    type CreateMcpHandlerOptions,
 diff --git a/dist/mcp/index.js b/dist/mcp/index.js
-index 4cb9e00..c18303f 100644
+index 25bf4ff..9182ed7 100644
 --- a/dist/mcp/index.js
 +++ b/dist/mcp/index.js
 @@ -23,13 +23,60 @@ import { WebStandardStreamableHTTPServerTransport as WebStandardStreamableHTTPSe
@@ -239,7 +239,7 @@ index 4cb9e00..c18303f 100644
 -				ws.addEventListener("message", (event) => {
 +						});
 +					}
-+					for (const msg of messages) if (isJSONRPCRequest(msg)) __outstanding.set(__idKey(msg.id), msg.id);
++					for (const msg of messages) if (isJSONRPCRequest$1(msg)) __outstanding.set(__idKey(msg.id), msg.id);
 +					/**
 +					 * End the response stream when it will not end on its own, and
 +					 * answer whatever is still outstanding first.
@@ -971,7 +971,7 @@ index 4cb9e00..c18303f 100644
 +			// calls). initialize/tools/list resolve in milliseconds and clients
 +			// retry them; priming those streams adds a storage write and an
 +			// extra SSE frame per request for nothing.
-+			if (messages.some((message) => isJSONRPCRequest(message) && message.method === "tools/call")) await this.emitPrimingEvent(agent, connection, streamId);
++			if (messages.some((message) => isJSONRPCRequest$1(message) && message.method === "tools/call")) await this.emitPrimingEvent(agent, connection, streamId);
  			for (const message of messages) {
  				if (this.messageInterceptor) {
  					if (await this.messageInterceptor(message, {
