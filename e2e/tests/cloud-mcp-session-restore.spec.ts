@@ -339,10 +339,12 @@ layer(HostedLive, { excludeTestServices: true })("Cloud MCP session restore", (i
                   params: {
                     name: "call",
                     arguments: {
-                      calls: {
-                        path: `tools[${JSON.stringify(app.slug)}].review`,
-                        input: { note },
-                      },
+                      calls: [
+                        {
+                          path: `tools[${JSON.stringify(app.slug)}].review`,
+                          input: { note },
+                        },
+                      ],
                     },
                   },
                 },
@@ -384,7 +386,7 @@ layer(HostedLive, { excludeTestServices: true })("Cloud MCP session restore", (i
               );
               expect(resumed.result.structuredContent.execution).toMatchObject({
                 ok: true,
-                value: { ok: true, value: { reviewed: note } },
+                value: [{ ok: true, value: { reviewed: note } }],
               });
             });
 

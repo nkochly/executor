@@ -109,10 +109,10 @@ return { done: true };`,
 
     // A direct call returns its large result whole as well.
     const direct = yield* run("Call a large tool directly", "call", {
-      calls: { path: tool, input: { count: 15000 } },
+      calls: [{ path: tool, input: { count: 15000 } }],
     });
-    expect(direct).toMatchObject({ ok: true, value: { ok: true } });
-    expect(direct.value).toEqual({ path: tool, ok: true, value: listed });
+    expect(direct).toMatchObject({ ok: true, value: [{ ok: true }] });
+    expect(direct.value).toEqual([{ path: tool, ok: true, value: listed }]);
   });
 
 layer(TestLive, { excludeTestServices: true })("MCP large result", (it) => {

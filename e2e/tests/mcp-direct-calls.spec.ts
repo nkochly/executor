@@ -131,13 +131,13 @@ layer(HostedLive, { excludeTestServices: true })("MCP direct calls", (it) => {
         expect(described.missing.map((entry) => entry.path)).toEqual([`${echo}x`]);
         expect(described.missing[0]?.matches[0]).toBe(echo);
 
-        // One call returns its outcome alone.
+        // One call is a list of one and returns a list of one outcome.
         const single = yield* Schema.decodeUnknownEffect(Completed)(
-          yield* tool("Call one tool", "call", { calls: { path: echo, input: { text: "hi" } } }),
+          yield* tool("Call one tool", "call", { calls: [{ path: echo, input: { text: "hi" } }] }),
         );
         expect(single.execution).toMatchObject({
           ok: true,
-          value: { path: echo, ok: true, value: { text: "hi" } },
+          value: [{ path: echo, ok: true, value: { text: "hi" } }],
           toolCalls: [{ name: echo, outcome: "success" }],
         });
 
@@ -167,7 +167,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP direct calls", (it) => {
         // An approval pauses the call; resume runs it once and returns its outcome.
         const pending = yield* Schema.decodeUnknownEffect(Pending)(
           yield* tool("Call a tool that needs approval", "call", {
-            calls: { path: review, input: { note: "ship it" } },
+            calls: [{ path: review, input: { note: "ship it" } }],
           }),
         );
         const resumed = yield* Schema.decodeUnknownEffect(Completed)(
@@ -178,7 +178,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP direct calls", (it) => {
         );
         expect(resumed.execution).toMatchObject({
           ok: true,
-          value: { path: review, ok: true, value: { reviewed: "ship it" } },
+          value: [{ path: review, ok: true, value: { reviewed: "ship it" } }],
           toolCalls: [{ name: review, outcome: "success" }],
         });
       }).pipe(Effect.provide(McpClient.layer)),
@@ -208,12 +208,12 @@ layer(HostedLive, { excludeTestServices: true })("MCP direct calls", (it) => {
         // That confirmation answers the app's approval policy, so call asks nothing more.
         const called = yield* Schema.decodeUnknownEffect(Completed)(
           yield* callTool(client, "Call a tool that needs approval", "call", {
-            calls: { path: review, input: { note: "native" } },
+            calls: [{ path: review, input: { note: "native" } }],
           }),
         );
         expect(called.execution).toMatchObject({
           ok: true,
-          value: { path: review, ok: true, value: { reviewed: "native" } },
+          value: [{ path: review, ok: true, value: { reviewed: "native" } }],
           toolCalls: [{ name: review, outcome: "success" }],
         });
         expect(yield* client.elicitationCount).toBe(0);
