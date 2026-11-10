@@ -129,12 +129,22 @@ interface Environment {
   /** Seconds an idle app Worker stays loaded, zero for no idle unloading, or null for the default. */
   readonly APP_WORKER_IDLE_SECONDS?: number | null;
   readonly DATA: {
-    getByName(name: string): DataEntrypoint;
+    getByName(name: string, options?: { locationHint?: string }): DataEntrypoint;
     idFromName(name: string): DurableObjectId;
   };
+  /**
+   * The Cloudflare location hint a new app supervisor is created with, or empty for beside its
+   * first caller. A supervisor that exists stays where it was created.
+   */
+  readonly DATA_LOCATION_HINT?: string;
   readonly RUNS: Workflow<{ run: string }>;
   readonly HOST: Fetcher;
 }
+/** An app's supervisor, created at the configured location when it does not exist yet. */
+const appData = (env: Environment, app: string) => {
+  const hint = env.DATA_LOCATION_HINT?.trim();
+  return env.DATA.getByName(app, hint ? { locationHint: hint } : undefined);
+};
 const failure = () => new WorkflowFailure({ reason: "engine", retryable: true });
 /** The deployer sees the underlying failure; builds bind no accounts. */
 const buildFailed = (stage: RuntimeBuildFailed["stage"], cause: unknown) =>
@@ -223,13 +233,13 @@ const runner = (env: Environment, context: Pick<ExecutionContext, "waitUntil" | 
     // A later call's trim runs this, so the stub is made then, in that call's request.
     unloadFacet: (app, identity) =>
       Effect.tryPromise({
-        try: () => env.DATA.getByName(app).unload(identity),
+        try: () => appData(env, app).unload(identity),
         catch: (cause) => cause,
       }),
     outbound: appOutbound(context),
     credentialKey: credentials(env),
     data: (app) => {
-      const target = env.DATA.getByName(app);
+      const target = appData(env, app);
       return {
         invoke: (input, load, elicit, controls) =>
           Effect.tryPromise({
@@ -575,14 +585,12 @@ export default {
     if (url.pathname === "/rpc")
       return newWorkersRpcResponse(request, new AppApi(env, context), rpcOptions);
     if (url.pathname === "/changes")
-      return env.DATA.getByName(url.searchParams.get("app") ?? "").fetch(request);
+      return appData(env, url.searchParams.get("app") ?? "").fetch(request);
     // Evaluated results the host keeps in the app's supervisor, beside its app cache.
     if (url.pathname === "/evaluated") {
       const command = Schema.decodeUnknownOption(EvaluatedCommandJson)(await request.text());
       if (command._tag === "None") return new Response(null, { status: 400 });
-      const reply = await env.DATA.getByName(url.searchParams.get("app") ?? "").evaluated(
-        command.value,
-      );
+      const reply = await appData(env, url.searchParams.get("app") ?? "").evaluated(command.value);
       return new Response(Schema.encodeUnknownSync(EvaluatedReplyJson)(reply), {
         headers: { "content-type": "application/json" },
       });

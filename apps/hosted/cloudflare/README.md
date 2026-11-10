@@ -40,6 +40,17 @@ request and runs every backend operation the object sends back, so one caller's 
 neither blocks nor shares memory with another's. Sessions live in memory: after a deploy, clients
 initialize again. Unset, the product runs MCP sessions itself.
 
+## Where the product lives
+
+A Durable Object is created near the first request that reaches it and never moves. Set
+`EXECUTOR_PRODUCT_LOCATION` to a location hint (`wnam`, `enam`, `weur`, …) to keep the product,
+and every new caller's session object, in that region. The product then lives in an object named
+for the hint. On its first start it copies the storage of the unnamed object an earlier install
+used, in one transaction. From then on the unnamed object forwards anything that reaches it and
+keeps its copy until a deploy sets `EXECUTOR_PRODUCT_WIPE_PREVIOUS=true`, which deletes it. The
+app host Worker's `DATA_LOCATION_HINT` places new app supervisors the same way; one that exists
+stays where it is.
+
 ## Run locally
 
 ```sh

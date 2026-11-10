@@ -54,6 +54,7 @@ import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
 import { cloudflarePlatform } from "./platform.ts";
 import { mcpSessionAccessHeader } from "./mcp-session.ts";
+import { productLocation } from "./product-location.ts";
 import type { Environment, ProductStub } from "./worker.ts";
 
 const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));
@@ -63,7 +64,15 @@ const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));
  * to the caller's object, and runs the backend operations the object sends back. Until `serve`
  * is called no operation can run, and the product answers each with a defect.
  */
-const sessionHost = (sessions: NonNullable<Environment["MCP_SESSIONS"]>) => {
+const sessionHost = (
+  namespace: NonNullable<Environment["MCP_SESSIONS"]>,
+  locationHint: string | undefined,
+) => {
+  // A new caller's object is placed beside the product; one that exists stays where it is.
+  const sessions = {
+    getByName: (key: string) =>
+      namespace.getByName(key, locationHint === undefined ? undefined : { locationHint }),
+  };
   let served: ((request: Request, call: McpBackendCall) => Promise<WireExit>) | undefined;
   const host: McpSessionHost = {
     forward: (key, access) =>
@@ -134,7 +143,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
       const sessions =
         env.MCP_SESSIONS !== undefined &&
         (yield* Config.Boolean("EXECUTOR_MCP_SESSIONS").pipe(Config.withDefault(false)))
-          ? sessionHost(env.MCP_SESSIONS)
+          ? sessionHost(env.MCP_SESSIONS, productLocation(env))
           : undefined;
       const routes = yield* selfHostRouteMap({
         ...(sessions === undefined ? {} : { mcpSessions: sessions.host }),

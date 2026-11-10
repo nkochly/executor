@@ -24,6 +24,7 @@ import { ElicitationResponse } from "apps/contracts";
 import { Cause, ConfigProvider, Config, Effect, Exit, Schema, Scope } from "effect";
 import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { workerConfiguration } from "./configuration.ts";
+import { productStub } from "./product-location.ts";
 import {
   mcpSessionAccessHeader,
   type McpSessionEnvironment,
@@ -85,7 +86,7 @@ const open = (env: McpSessionEnvironment) =>
       undefined,
       env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
     );
-    const product = env.PRODUCT.getByName("product");
+    const product = productStub(env.PRODUCT, env);
     const serve = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const encoded = request.headers[mcpSessionAccessHeader];

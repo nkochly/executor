@@ -18,6 +18,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { DurableObjectState, WorkerLoader } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { BrowserApprovalAddress } from "@executor-js/mcp/browser";
+import type { ProductNamespace } from "./product-location.ts";
 
 /** The header the product sets on a forwarded request: the caller's access, as encoded JSON. */
 export const mcpSessionAccessHeader = "x-executor-mcp-access";
@@ -30,7 +31,8 @@ export interface McpSessionProduct {
   mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
 }
 export interface McpSessionEnvironment {
-  readonly PRODUCT: { getByName(name: string): McpSessionProduct };
+  readonly PRODUCT: ProductNamespace<McpSessionProduct>;
+  readonly EXECUTOR_PRODUCT_LOCATION?: string;
   /** Dynamic Workers; each program runs in one of its own when this is bound. */
   readonly LOADER?: WorkerLoader;
 }
