@@ -4,7 +4,7 @@
  * request's CPU time rather than the Worker's startup budget.
  */
 import { RpcTarget } from "cloudflare:workers";
-import type { WorkerLoader } from "@cloudflare/workers-types";
+import type { DurableObjectStorage, WorkerLoader } from "@cloudflare/workers-types";
 import {
   McpAccess,
   fromWire,
@@ -24,6 +24,7 @@ import { ElicitationResponse } from "apps/contracts";
 import { Cause, ConfigProvider, Config, Effect, Exit, Schema, Scope } from "effect";
 import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { workerConfiguration } from "./configuration.ts";
+import { mcpSessionStore } from "./mcp-session-store.ts";
 import { productStub } from "./product-location.ts";
 import {
   mcpSessionAccessHeader,
@@ -75,14 +76,15 @@ const startInIsolate =
 const decodeAccess = Schema.decodeUnknownEffect(Schema.fromJsonString(McpAccess));
 const decodeResponse = Schema.decodeUnknownEffect(ElicitationResponse);
 
-const open = (env: McpSessionEnvironment) =>
+const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
   Effect.gen(function* () {
     const { limits, beforeExecute } = yield* selfHostMcpLimits;
     const origin = yield* Config.String("BETTER_AUTH_URL");
     const hosted = yield* makeHostedMcp(
       beforeExecute,
       limits,
-      undefined,
+      // Protocol sessions are kept in the object's storage, so they outlive its eviction or restart.
+      mcpSessionStore(storage),
       undefined,
       env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
     );
@@ -119,12 +121,17 @@ const open = (env: McpSessionEnvironment) =>
   }).pipe(Effect.provide(HttpServer.layerServices));
 
 /** Open a caller's MCP sessions; a failure releases what it acquired. */
-export const openMcpSession = async (env: McpSessionEnvironment): Promise<McpSessionHandle> => {
+export const openMcpSession = async (
+  env: McpSessionEnvironment,
+  storage: DurableObjectStorage,
+): Promise<McpSessionHandle> => {
   const scope = Scope.makeUnsafe();
   const opened = await Effect.runPromiseExit(
     workerConfiguration(env).pipe(
       Effect.flatMap((config) =>
-        open(env).pipe(Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(config)))),
+        open(env, storage).pipe(
+          Effect.provide(ConfigProvider.layer(ConfigProvider.fromUnknown(config))),
+        ),
       ),
       Effect.provideService(Scope.Scope, scope),
     ),

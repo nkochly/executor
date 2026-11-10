@@ -11,8 +11,10 @@
  *
  * Protocol state and programs live in memory. An idle object is evicted 70 to 140 seconds after
  * its last event, and a program waiting for a person holds no request, so while the object holds
- * a program it wakes itself every `holdMillis`. A deploy or crash loses its sessions; clients
- * initialize again, and a resume of a lost program reads as lost.
+ * a program it wakes itself every `holdMillis`. Each protocol session's negotiated `initialize` is
+ * kept in the object's storage (`mcp-session-store.ts`), so after an eviction, deploy or crash the
+ * client continues with the same session id; a program running then is lost, and its resume reads
+ * as lost.
  */
 import { DurableObject } from "cloudflare:workers";
 import type { DurableObjectState, WorkerLoader } from "@cloudflare/workers-types";
@@ -62,7 +64,7 @@ export class ExecutorMcpSession extends DurableObject<McpSessionEnvironment> {
   }
   #session() {
     this.#opening ??= import("./mcp-session-open.ts")
-      .then(({ openMcpSession }) => openMcpSession(this.#env))
+      .then(({ openMcpSession }) => openMcpSession(this.#env, this.#state.storage))
       .catch((error: unknown) => {
         this.#opening = undefined;
         throw error;
