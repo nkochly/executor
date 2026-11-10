@@ -37,13 +37,19 @@ const moveHost = Layer.effect(
 
 const Served = Schema.Struct({ servedBy: Schema.String, notes: Schema.Array(Schema.String) });
 
-const seed = (release: "previous" | "current", notes: ReadonlyArray<string>) =>
+const seed = (
+  release: "previous" | "current",
+  notes: ReadonlyArray<string>,
+  options: { readonly refuseWipe?: boolean } = {},
+) =>
   Effect.gen(function* () {
     const { origin } = yield* MoveHost;
     const client = yield* HttpClient.HttpClient;
     const response = yield* client.execute(
       HttpClientRequest.bodyText(
-        HttpClientRequest.post(`${origin}/seed/${release}`),
+        HttpClientRequest.post(
+          `${origin}/seed/${release}${options.refuseWipe === true ? "?refuseWipe" : ""}`,
+        ),
         JSON.stringify(notes),
       ),
     );
@@ -60,6 +66,16 @@ const ask = (placed: string, previous: "previous" | "current") =>
     expect(response.status).toBe(200);
     return yield* response.json.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Served)));
   }).pipe(Effect.orDie);
+
+const unnamed = Effect.gen(function* () {
+  const { origin } = yield* MoveHost;
+  const client = yield* HttpClient.HttpClient;
+  const response = yield* client.execute(HttpClientRequest.get(`${origin}/unnamed`));
+  expect(response.status).toBe(200);
+  return yield* response.json.pipe(
+    Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(Schema.String))),
+  );
+}).pipe(Effect.orDie);
 
 layer(moveHost, { excludeTestServices: true })("Cloudflare product move", (it) => {
   it.effect(
@@ -80,6 +96,17 @@ layer(moveHost, { excludeTestServices: true })("Cloudflare product move", (it) =
       yield* seed("current", ["kept", "also kept"]);
       const served = yield* ask("product-wnam-b", "current");
       expect(served).toEqual({ servedBy: "placed", notes: ["kept", "also kept"] });
+      // The install asks for the unnamed object's copy to go, so it is gone once the copy is held.
+      expect(yield* unnamed).toEqual([]);
+    }),
+  );
+
+  it.effect("when the unnamed object cannot be deleted, the placed one still serves", () =>
+    Effect.gen(function* () {
+      yield* seed("current", ["still here"], { refuseWipe: true });
+      const served = yield* ask("product-wnam-c", "current");
+      expect(served).toEqual({ servedBy: "placed", notes: ["still here"] });
+      expect(yield* unnamed).toEqual(["still here"]);
     }),
   );
 });

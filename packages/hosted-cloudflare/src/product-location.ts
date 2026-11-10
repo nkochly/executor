@@ -103,6 +103,7 @@ const pageRows = 200;
 /** Roughly how many bytes of row values one page carries; RPC refuses a message over 32 MiB. */
 const pageBytes = 4 * 1024 * 1024;
 const adoptedKey = "executor:product-adopted-from";
+const wipedKey = "executor:product-previous-wiped";
 
 /** Tables, indexes, triggers and views the application created, in creation order. */
 const userSchema = (state: DurableObjectState) =>
@@ -225,7 +226,7 @@ export const adoptPreviousStorage = async (
 
 /**
  * Open the product of an install that names a location: copy the unnamed object's storage once,
- * delete it when the install says so, then open. `undefined` means the unnamed object cannot hand
+ * delete it once when the install says so, then open. `undefined` means the unnamed object cannot hand
  * over its storage yet, so it keeps serving.
  */
 export const openPlacedProduct = async <Product>(options: {
@@ -237,6 +238,15 @@ export const openPlacedProduct = async <Product>(options: {
 }): Promise<Product | undefined> => {
   if (!(await adoptPreviousStorage(options.state, options.previous, options.previousId)))
     return undefined;
-  if (options.env.EXECUTOR_PRODUCT_WIPE_PREVIOUS === "true") await options.previous.wipe();
+  if (
+    options.env.EXECUTOR_PRODUCT_WIPE_PREVIOUS === "true" &&
+    options.state.storage.kv.get(wipedKey) === undefined
+  ) {
+    // The copy is already held here, so a failed delete only leaves the old copy for a later start.
+    await options.previous.wipe().then(
+      () => options.state.storage.kv.put(wipedKey, options.previousId),
+      (error: unknown) => console.error("could not delete the previous product's storage", error),
+    );
+  }
   return options.open();
 };

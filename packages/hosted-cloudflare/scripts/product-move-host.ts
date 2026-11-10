@@ -37,7 +37,7 @@ const miniflare = new Miniflare({
     PREVIOUS_RELEASE: { className: "PreviousRelease", useSQLite: true },
   },
   durableObjectsPersist: persist,
-  bindings: { EXECUTOR_PRODUCT_LOCATION: "wnam" },
+  bindings: { EXECUTOR_PRODUCT_LOCATION: "wnam", EXECUTOR_PRODUCT_WIPE_PREVIOUS: "true" },
 });
 
 const url = await miniflare.ready;

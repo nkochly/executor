@@ -25,7 +25,15 @@ interface Environment {
   readonly EXECUTOR_PRODUCT_LOCATION: string;
   readonly PREVIOUS_RELEASE: { getByName(name: string): Served & Seeded };
   readonly PRODUCT: {
-    getByName(name: string, options?: { locationHint?: string }): Served & Seeded & RetiredProduct;
+    getByName(
+      name: string,
+      options?: { locationHint?: string },
+    ): Served &
+      Seeded &
+      RetiredProduct & {
+        refuseWipe(): Promise<void>;
+        remaining(): Promise<ReadonlyArray<string>>;
+      };
     idFromName(name: string): DurableObjectState["id"];
   };
 }
@@ -80,8 +88,16 @@ export class Product extends DurableObject<Environment> {
   async exportPage(cursor: StorageCursor | null) {
     return exportStoragePage(this.#state, cursor);
   }
+  /** Refuses while `refuseWipe` is set, as an object Cloudflare cannot reach would. */
   async wipe() {
+    if (this.ctx.storage.kv.get("refuseWipe") === true) throw new Error("unreachable");
     await this.ctx.storage.deleteAll();
+  }
+  async refuseWipe() {
+    this.ctx.storage.kv.put("refuseWipe", true);
+  }
+  async remaining() {
+    return notes(this.#state);
   }
   async fetch(request: Request): Promise<Response> {
     if (this.#retired) return productStub(this.env.PRODUCT, this.env).fetch(request);
@@ -104,7 +120,8 @@ export class Product extends DurableObject<Environment> {
   }
 }
 
-/** `POST /seed/<previous|current>` seeds that release's unnamed object; `GET /placed/<name>` asks a placed one. */
+/** `POST /seed/<previous|current>` seeds that release's unnamed object; `GET /placed/<name>` asks a placed one; `GET /unnamed` lists the
+ * notes the unnamed object still holds. */
 export default {
   async fetch(request: Request, env: Environment): Promise<Response> {
     const [, route, name = ""] = new URL(request.url).pathname.split("/");
@@ -115,8 +132,12 @@ export default {
           ? env.PREVIOUS_RELEASE.getByName("product")
           : env.PRODUCT.getByName("product");
       await target.seed(bodies);
+      if (new URL(request.url).searchParams.has("refuseWipe"))
+        await env.PRODUCT.getByName("product").refuseWipe();
       return new Response(null, { status: 204 });
     }
+    if (route === "unnamed")
+      return Response.json(await env.PRODUCT.getByName("product").remaining());
     if (route === "placed")
       return env.PRODUCT.getByName(name, { locationHint: "wnam" }).fetch(request);
     return new Response("not found", { status: 404 });
