@@ -26,6 +26,7 @@ import type {
   Row,
 } from "../../contracts/query-adapter.ts";
 import { deserialize, serialize } from "../schema-codec.ts";
+import { sqliteMaxParameters } from "../dialect.ts";
 import type { AnyColumn } from "../../contracts/schema/column.ts";
 import type { AnyRelation } from "../../contracts/schema/relation.ts";
 import type { AnySchema } from "../../contracts/schema/schema.ts";
@@ -105,14 +106,16 @@ const chunk = <A>(items: ReadonlyArray<A>, size: number): Array<ReadonlyArray<A>
 
 /**
  * The number of bound parameters one statement may carry, with headroom.
- * MSSQL allows 2100, SQLite 32766, PostgreSQL and CockroachDB 32767; MySQL
- * substitutes parameters client-side and has no comparable ceiling.
+ * MSSQL allows 2100, PostgreSQL and CockroachDB 32767; SQLite runs in a Durable
+ * Object or D1, which allow 100; MySQL substitutes parameters client-side and
+ * has no comparable ceiling.
  */
 const parameterBudget = (provider: Provider): number => {
   switch (provider) {
     case "mssql":
       return 2000;
     case "sqlite":
+      return sqliteMaxParameters;
     case "postgresql":
     case "cockroachdb":
       return 32000;
