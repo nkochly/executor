@@ -54,7 +54,7 @@ import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
 import { cloudflarePlatform } from "./platform.ts";
 import { mcpSessionAccessHeader } from "./mcp-session.ts";
-import { productLocation } from "./product-location.ts";
+import { productLocation } from "@executor-js/hosted-cloudflare/product-location";
 import type { Environment, ProductStub } from "./worker.ts";
 
 const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));

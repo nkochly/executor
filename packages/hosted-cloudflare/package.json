@@ -5,7 +5,8 @@
   "sideEffects": false,
   "exports": {
     "./blobs": "./src/blobs.ts",
-    "./app-source": "./src/app-source.ts"
+    "./app-source": "./src/app-source.ts",
+    "./product-location": "./src/product-location.ts"
   },
   "dependencies": {
     "@executor-js/app-source": "workspace:*",

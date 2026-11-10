@@ -25,7 +25,7 @@ import { Cause, ConfigProvider, Config, Effect, Exit, Schema, Scope } from "effe
 import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { workerConfiguration } from "./configuration.ts";
 import { mcpSessionStore } from "./mcp-session-store.ts";
-import { productStub } from "./product-location.ts";
+import { productStub } from "@executor-js/hosted-cloudflare/product-location";
 import {
   mcpSessionAccessHeader,
   type McpSessionEnvironment,

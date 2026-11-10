@@ -8,7 +8,34 @@
  *
  * This module imports nothing at run time; the Worker's entry modules load it at startup.
  */
-import type { DurableObjectId, DurableObjectState } from "@cloudflare/workers-types";
+
+/** The parts of a Durable Object's id this module compares. */
+interface DurableObjectId {
+  equals(other: DurableObjectId): boolean;
+  toString(): string;
+}
+type SqlRow = Record<string, ArrayBuffer | string | number | null>;
+interface SqlCursor<Row extends SqlRow> {
+  toArray(): Row[];
+  raw<Values extends Array<ArrayBuffer | string | number | null>>(): IterableIterator<Values>;
+  readonly columnNames: string[];
+}
+/** The parts of a SQLite-backed Durable Object's state this module reads and writes. */
+export interface DurableObjectState {
+  readonly id: DurableObjectId;
+  readonly storage: {
+    readonly sql: {
+      exec<Row extends SqlRow>(query: string, ...bindings: unknown[]): SqlCursor<Row>;
+    };
+    readonly kv: {
+      get(key: string): unknown;
+      put(key: string, value: unknown): void;
+      delete(key: string): boolean;
+      list(): Iterable<[string, unknown]>;
+    };
+    transactionSync<T>(closure: () => T): T;
+  };
+}
 
 export interface ProductLocationEnvironment {
   readonly EXECUTOR_PRODUCT_LOCATION?: string;
@@ -178,4 +205,21 @@ export const adoptPreviousStorage = async (
     for (const [key, value] of first?.values ?? []) state.storage.kv.put(key, value);
     state.storage.kv.put(adoptedKey, previousId);
   });
+};
+
+/**
+ * Open the product of an install that names a location: copy the unnamed object's storage once,
+ * delete it when the install says so, then open. `undefined` means the unnamed object cannot hand
+ * over its storage yet, so it keeps serving.
+ */
+export const openPlacedProduct = async <Product>(options: {
+  readonly state: DurableObjectState;
+  readonly env: ProductLocationEnvironment;
+  readonly previous: RetiredProduct;
+  readonly previousId: string;
+  readonly open: () => Promise<Product>;
+}): Promise<Product | undefined> => {
+  await adoptPreviousStorage(options.state, options.previous, options.previousId);
+  if (options.env.EXECUTOR_PRODUCT_WIPE_PREVIOUS === "true") await options.previous.wipe();
+  return options.open();
 };

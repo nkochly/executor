@@ -20,7 +20,7 @@ import { DurableObject } from "cloudflare:workers";
 import type { DurableObjectState, WorkerLoader } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { BrowserApprovalAddress } from "@executor-js/mcp/browser";
-import type { ProductNamespace } from "./product-location.ts";
+import type { ProductNamespace } from "@executor-js/hosted-cloudflare/product-location";
 
 /** The header the product sets on a forwarded request: the caller's access, as encoded JSON. */
 export const mcpSessionAccessHeader = "x-executor-mcp-access";

@@ -17,9 +17,9 @@ import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { PlatformBindings } from "./platform.ts";
 import {
-  adoptPreviousStorage,
   exportStoragePage,
   isRetiredProduct,
+  openPlacedProduct,
   previousProduct,
   productLocation,
   productStub,
@@ -28,13 +28,13 @@ import {
   type RetiredProduct,
   type StorageCursor,
   type StoragePage,
-} from "./product-location.ts";
+} from "@executor-js/hosted-cloudflare/product-location";
 import { traced, type WorkersTracing } from "./trace.ts";
 
 // Only the Durable Objects build the product and the MCP sessions, and each loads its module when
 // it first opens: evaluating them at startup exceeds the CPU time Cloudflare allows a Worker to
 // start. This module and `mcp-session.ts` import nothing else at run time but
-// `product-location.ts`.
+// `@executor-js/hosted-cloudflare/product-location`.
 export { ExecutorMcpSession } from "./mcp-session.ts";
 
 export interface ProductStub {
@@ -73,7 +73,7 @@ export class ExecutorProduct
   readonly #env: Environment;
   /** The unnamed object of an install that names a location: it serves nothing. */
   readonly #retired: boolean;
-  #opening: Promise<ProductStub> | undefined;
+  #opening: Promise<ProductStub | undefined> | undefined;
   constructor(state: DurableObjectState, env: Environment) {
     super(state, env);
     this.#state = state;
@@ -82,26 +82,34 @@ export class ExecutorProduct
     // Start at once, as after a restart; a failure is reported to the events that wait for it.
     if (!this.#retired) this.#product().catch(() => undefined);
   }
-  /** The open product. A failed open releases what it acquired, and the next event retries it. */
-  #product() {
+  /**
+   * The open product. A failed open releases what it acquired, and the next event retries it.
+   * While the unnamed object this one succeeds cannot hand over its storage yet, that object
+   * serves, and the next event tries again.
+   */
+  async #product(): Promise<ProductStub> {
     this.#opening ??= this.#open().catch((error: unknown) => {
       this.#opening = undefined;
       throw error;
     });
-    return this.#opening;
+    const opened = await this.#opening;
+    if (opened !== undefined) return opened;
+    this.#opening = undefined;
+    return previousProduct(this.#env.PRODUCT);
   }
-  async #open() {
-    if (productLocation(this.#env) !== undefined) {
-      await adoptPreviousStorage(
-        this.#state,
-        previousProduct(this.#env.PRODUCT),
-        this.#env.PRODUCT.idFromName("product").toString(),
-      );
-      if (this.#env.EXECUTOR_PRODUCT_WIPE_PREVIOUS === "true")
-        await previousProduct(this.#env.PRODUCT).wipe();
-    }
-    const { openProduct } = await import("./product.ts");
-    return openProduct(this.#state, this.#env);
+  async #open(): Promise<ProductStub | undefined> {
+    const open = async () => {
+      const { openProduct } = await import("./product.ts");
+      return openProduct(this.#state, this.#env);
+    };
+    if (productLocation(this.#env) === undefined) return open();
+    return openPlacedProduct({
+      state: this.#state,
+      env: this.#env,
+      previous: previousProduct(this.#env.PRODUCT),
+      previousId: this.#env.PRODUCT.idFromName("product").toString(),
+      open,
+    });
   }
   /** Dispatch the authenticated product routes. */
   async fetch(request: Request): Promise<Response> {
