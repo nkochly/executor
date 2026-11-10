@@ -37,9 +37,23 @@ const notes = (state: DurableObjectState) => {
     .toArray()
     .map(({ body }) => body);
 };
+/**
+ * Notes, plus tables shaped like the product's: a child created before its parent, and a foreign
+ * key whose parent column is unique only through an index of its own.
+ */
 const seed = (state: DurableObjectState, bodies: ReadonlyArray<string>) => {
   notes(state);
-  for (const body of bodies) state.storage.sql.exec("INSERT INTO note (body) VALUES (?)", body);
+  const sql = state.storage.sql;
+  sql.exec(
+    "CREATE TABLE IF NOT EXISTS app (id INTEGER PRIMARY KEY, deployment TEXT REFERENCES deployment (id))",
+  );
+  sql.exec("CREATE TABLE IF NOT EXISTS deployment (id TEXT NOT NULL)");
+  sql.exec("CREATE UNIQUE INDEX IF NOT EXISTS deployment_id ON deployment (id)");
+  for (const body of bodies) {
+    sql.exec("INSERT INTO note (body) VALUES (?)", body);
+    sql.exec("INSERT INTO deployment (id) VALUES (?)", body);
+    sql.exec("INSERT INTO app (deployment) VALUES (?)", body);
+  }
 };
 
 /** The release before the move: no `exportPage`. */
