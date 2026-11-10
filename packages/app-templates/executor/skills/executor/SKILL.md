@@ -22,8 +22,9 @@ This is the Executor app's `executor` skill. Read its other skills with
 `tools.<slug>.<tool>`, and input type; `describe({ paths })` returns full
 signatures. Never guess argument names.
 
-For a few independent calls, use `call({ calls: { path, input } })`; an array
-of calls runs concurrently. Each result has `ok` and its `value` or `error`.
+For a few independent calls, use `call({ calls: [{ path, input }] })`; `calls`
+is always an array and runs concurrently. Results come back as an array in the
+same order, each with `ok` and its `value` or `error`.
 
 Write a JavaScript program for `execute` when one call's result feeds another,
 or a large result should be filtered before it reaches you. Inside it, the same

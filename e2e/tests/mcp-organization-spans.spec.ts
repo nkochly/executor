@@ -253,7 +253,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP organization spans", (it) 
               yield* callTool("Search", "search", { query: "echo" });
               yield* callTool("Describe", "describe", { paths: [tool("echo")] });
               const called = yield* callTool("Call", "call", {
-                calls: { path: tool("echo"), input: { text: "called" } },
+                calls: [{ path: tool("echo"), input: { text: "called" } }],
               });
               expect(JSON.stringify(called.structuredContent)).toContain("called");
               const executed = yield* callTool("Execute", "execute", {

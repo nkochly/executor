@@ -451,11 +451,12 @@ export const CallRequest = Schema.Struct({
   input: Schema.Json.annotate({ description: "The tool's input, matching its input type." }),
 });
 /**
- * One call, or several independent calls that run concurrently. The union sits below the top
- * level because several MCP clients reject a tool input schema that is itself a union.
+ * A list of independent calls that run concurrently, one or more. Always a list, never a union of
+ * one call or a list: some MCP clients validate input against only the first member of a union and
+ * then refuse the list form.
  */
 export const CallInput = Schema.Struct({
-  calls: Schema.Union([CallRequest, Schema.Array(CallRequest).check(Schema.isMinLength(1))]),
+  calls: Schema.Array(CallRequest).check(Schema.isMinLength(1)),
 });
 /** How one direct call ended. A failed call does not stop the others in its batch. */
 export const CallOutcome = Schema.Union([
@@ -545,7 +546,7 @@ export const DescribeTool = McpTool.make("describe", {
 
 /** Shared by every delivery mode; each appends how pending interactions are answered. */
 export const callDescription =
-  "Call Executor app tools directly by exact path from search. Pass one {path, input} as calls, or an array of independent calls to run them concurrently; results come back in the same order, each with ok and its value or error. Use execute instead when one call's output feeds another, or to filter a large result before it reaches you. Never ask the user for secrets in chat; accounts connect through Executor's secure links.";
+  "Call Executor app tools directly by exact path from search. Pass calls as an array of {path, input}, one or more independent calls that run concurrently; results come back as an array in the same order, each with ok and its value or error. Use execute instead when one call's output feeds another, or to filter a large result before it reaches you. Never ask the user for secrets in chat; accounts connect through Executor's secure links.";
 /** Call tools without a program. Pending interactions return as from execute. */
 export const CallTool = McpTool.make("call", {
   description: `${callDescription} If approval-required or input-required is returned, show it to the user and call resume with their answer; never repeat the call to continue it.`,

@@ -2518,7 +2518,7 @@ try { return await call(); } catch (error) {
         // A direct call gets the same answer.
         const direct = yield* app.client.use("Call a hinted read directly", (client, signal) =>
           client.callTool(
-            { name: "call", arguments: { calls: { path: peek, input: {} } } },
+            { name: "call", arguments: { calls: [{ path: peek, input: {} }] } },
             undefined,
             {
               signal,
@@ -2529,20 +2529,25 @@ try { return await call(); } catch (error) {
         const called = yield* Schema.decodeUnknownEffect(
           Schema.Struct({
             execution: Schema.Struct({
-              value: Schema.Struct({
-                ok: Schema.Literal(false),
-                error: Schema.Struct({
-                  response: Schema.Struct({
-                    code: Schema.String,
-                    retryable: Schema.Boolean,
-                    recovery: Schema.Struct({ action: Schema.String, instructions: Schema.String }),
+              value: Schema.Tuple([
+                Schema.Struct({
+                  ok: Schema.Literal(false),
+                  error: Schema.Struct({
+                    response: Schema.Struct({
+                      code: Schema.String,
+                      retryable: Schema.Boolean,
+                      recovery: Schema.Struct({
+                        action: Schema.String,
+                        instructions: Schema.String,
+                      }),
+                    }),
                   }),
                 }),
-              }),
+              ]),
             }),
           }),
         )(direct.structuredContent);
-        expect(called.execution.value.error.response).toMatchObject({
+        expect(called.execution.value[0].error.response).toMatchObject({
           code: "ToolCallFailed",
           retryable: false,
           recovery: { action: unknownOutcomeAction },
@@ -2639,18 +2644,20 @@ return { failed: failed.isError, text: failed.content[0].text, read: read.isErro
             client.callTool(
               {
                 name: "call",
-                arguments: { calls: { path: `${tools}.remote.lookup`, input: {} } },
+                arguments: { calls: [{ path: `${tools}.remote.lookup`, input: {} }] },
               },
               undefined,
               { signal, timeout: 55_000 },
             ),
         );
         expect(yield* outcomes(direct.structuredContent)).toEqual({
-          value: {
-            path: `${tools}.remote.lookup`,
-            ok: true,
-            value: { isError: true, content: [{ type: "text", text: reportedError }] },
-          },
+          value: [
+            {
+              path: `${tools}.remote.lookup`,
+              ok: true,
+              value: { isError: true, content: [{ type: "text", text: reportedError }] },
+            },
+          ],
           calls: [[`${tools}.remote.lookup`, "failure"]],
         });
 

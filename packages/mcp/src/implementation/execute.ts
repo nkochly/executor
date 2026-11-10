@@ -1839,9 +1839,7 @@ const callFailure = (
 export function callTools(input: typeof CallInput.Type): Program {
   return (backend, limits, deadline, progress) =>
     Effect.suspend(() => {
-      const single = "path" in input.calls;
-      const requests: ReadonlyArray<typeof CallRequest.Type> =
-        "path" in input.calls ? [input.calls] : input.calls;
+      const requests: ReadonlyArray<typeof CallRequest.Type> = input.calls;
       const failure = (kind: CodeMode.DiagnosticKind, message: string) => ({
         execution: executionDiagnostic({
           ok: false as const,
@@ -1942,7 +1940,7 @@ export function callTools(input: typeof CallInput.Type): Program {
         return {
           execution: {
             ok: true as const,
-            value: single ? (outcomes.value[0] ?? null) : outcomes.value,
+            value: outcomes.value,
             toolCalls: reportedCalls(progress),
           },
           unavailableApps: discovered.unavailableApps(),

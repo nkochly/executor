@@ -137,15 +137,17 @@ const CallFailed = Schema.Struct({
   status: Schema.Literal("completed"),
   execution: Schema.Struct({
     ok: Schema.Literal(true),
-    value: Schema.Struct({
-      path: Schema.String,
-      ok: Schema.Literal(false),
-      error: Schema.Struct({
-        kind: Schema.String,
-        message: Schema.String,
-        response: Schema.optional(Response),
+    value: Schema.Tuple([
+      Schema.Struct({
+        path: Schema.String,
+        ok: Schema.Literal(false),
+        error: Schema.Struct({
+          kind: Schema.String,
+          message: Schema.String,
+          response: Schema.optional(Response),
+        }),
       }),
-    }),
+    ]),
   }),
 });
 
@@ -215,9 +217,9 @@ const agentSession = Effect.gen(function* () {
   const called = (app: { readonly slug: string }, name: string) =>
     Effect.gen(function* () {
       const { trace, result } = yield* tool(`Call ${app.slug}`, "call", {
-        calls: { path: `${root(app)}.${name}`, input: {} },
+        calls: [{ path: `${root(app)}.${name}`, input: {} }],
       });
-      const { error } = (yield* Schema.decodeUnknownEffect(CallFailed)(result)).execution.value;
+      const [{ error }] = (yield* Schema.decodeUnknownEffect(CallFailed)(result)).execution.value;
       return { trace, error };
     });
   /** An execute program that calls one of the app's tools, as its agent reads it. */
