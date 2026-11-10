@@ -16,6 +16,14 @@ export const sqliteUuid =
 export const isSqlite = (sql: SqlClient.SqlClient) =>
   sql.onDialectOrElse({ sqlite: () => true, orElse: () => false });
 
+/**
+ * Most parameters one statement may bind. SQLite runs where a Durable Object or D1 limits a
+ * statement to 100, far below SQLite's own default; PostgreSQL allows 65535, kept with headroom.
+ */
+export const sqliteMaxParameters = 100;
+export const maxParameters = (sql: SqlClient.SqlClient) =>
+  isSqlite(sql) ? sqliteMaxParameters : 32000;
+
 /** The current instant in the client's dialect, for interpolation. */
 export const now = (sql: SqlClient.SqlClient) => sql.literal(isSqlite(sql) ? sqliteNow : "now()");
 

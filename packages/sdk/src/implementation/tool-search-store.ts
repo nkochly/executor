@@ -4,7 +4,7 @@
  */
 import { Clock, Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
-import { isSqlite, SqlJson } from "fumadb-effect/dialect";
+import { isSqlite, maxParameters, sqliteMaxParameters, SqlJson } from "fumadb-effect/dialect";
 import type { SqlError } from "effect/sql/SqlError";
 import {
   Json,
@@ -134,7 +134,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
     ),
   });
   /**
-   * Insert rows in batches bounded by count and JSON size. Each row is encoded only when its
+   * Insert rows in batches bounded by count, bound parameters and JSON size. Each row is encoded only when its
    * batch is built, and a batch is dropped once inserted.
    */
   const insertBatched = <A, R extends Record<string, unknown>>(
@@ -143,11 +143,17 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
     insert: (rows: ReadonlyArray<R>) => Effect.Effect<unknown, SqlError>,
   ) =>
     Effect.gen(function* () {
+      const parameters = maxParameters(sql);
       let batch: Array<R> = [];
       let chars = 0;
       for (const [index, item] of items.entries()) {
         const encoded = encode(item, index);
-        if (batch.length > 0 && (batch.length >= batchRows || chars + encoded.chars > batchChars)) {
+        // Every column of every row is one bound parameter.
+        const rows = Math.max(1, Math.floor(parameters / Object.keys(encoded.row).length));
+        if (
+          batch.length > 0 &&
+          (batch.length >= Math.min(batchRows, rows) || chars + encoded.chars > batchChars)
+        ) {
           yield* insert(batch);
           batch = [];
           chars = 0;
@@ -157,11 +163,14 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
       }
       if (batch.length > 0) yield* insert(batch);
     });
-  /** Delete the tool and definition rows of the listings. */
+  /** Delete the tool and definition rows of the listings, in groups SQLite can bind. */
   const removeRows = (listings: ReadonlyArray<ToolSearchListing>) =>
     Effect.gen(function* () {
-      yield* sql`delete from executor_tool_search where listing in ${sql.in(listings)}`;
-      yield* sql`delete from executor_tool_search_definitions where listing in ${sql.in(listings)}`;
+      for (let start = 0; start < listings.length; start += sqliteMaxParameters) {
+        const group = listings.slice(start, start + sqliteMaxParameters);
+        yield* sql`delete from executor_tool_search where listing in ${sql.in(group)}`;
+        yield* sql`delete from executor_tool_search_definitions where listing in ${sql.in(group)}`;
+      }
     });
   /**
    * Mark the target's other listings evaluated before this one superseded, and delete those
@@ -187,7 +196,9 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
       if (expired.length === 0) return;
       const listings = expired.map((kept) => ToolSearchListing.make(kept.listing));
       yield* removeRows(listings);
-      yield* sql`delete from executor_tool_search_listings where listing in ${sql.in(listings)}`;
+      for (let start = 0; start < listings.length; start += sqliteMaxParameters)
+        yield* sql`delete from executor_tool_search_listings
+          where listing in ${sql.in(listings.slice(start, start + sqliteMaxParameters))}`;
     });
   /**
    * Insert the listing's row, or lock the one that is kept. A kept row cleanup deletes while this
@@ -467,6 +478,21 @@ const bytewise = (left: string, right: string) => {
 };
 
 /**
+ * Run a read once per group of values small enough to bind in one SQLite statement, and join the
+ * rows. Each group's statement binds only that group's values.
+ */
+const inGroups = <V, A, E, R>(
+  values: ReadonlyArray<V>,
+  read: (group: ReadonlyArray<V>) => Effect.Effect<ReadonlyArray<A>, E, R>,
+) =>
+  Effect.gen(function* () {
+    const rows: Array<A> = [];
+    for (let start = 0; start < values.length; start += sqliteMaxParameters)
+      rows.push(...(yield* read(values.slice(start, start + sqliteMaxParameters))));
+    return rows;
+  });
+
+/**
  * The ranked page on SQLite. SQLite has no arrays, `unnest` or guaranteed `ln`, so the statement
  * the PostgreSQL store runs becomes reads of the targets' rows and the same ranking in code. The
  * caller runs it in one transaction, which on SQLite holds the database: every read sees one
@@ -493,9 +519,11 @@ const sqlitePage = (
     const rows =
       listings.length === 0
         ? []
-        : yield* sql`select id, listing, name, signature, terms, length, read_only
-            from executor_tool_search where listing in ${sql.in(listings)}`.pipe(
-            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteScopeRow))),
+        : yield* inGroups(listings, (group) =>
+            sql`select id, listing, name, signature, terms, length, read_only
+              from executor_tool_search where listing in ${sql.in(group)}`.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteScopeRow))),
+            ),
           );
     const byListing = new Map<string, Array<typeof SqliteScopeRow.Type>>();
     for (const row of rows)
@@ -593,13 +621,16 @@ const sqlitePage = (
     const shownRows =
       page.length === 0
         ? []
-        : yield* sql`select s.id, s.listing, s.tool, s.definitions, l.routers
-            from executor_tool_search s
-            join executor_tool_search_listings l on l.listing = s.listing
-            where ${sql.in(
-              "s.id",
-              page.map((item) => item.id),
-            )}`.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteShownRow))));
+        : yield* inGroups(
+            page.map((item) => item.id),
+            (group) =>
+              sql`select s.id, s.listing, s.tool, s.definitions, l.routers
+                from executor_tool_search s
+                join executor_tool_search_listings l on l.listing = s.listing
+                where ${sql.in("s.id", group)}`.pipe(
+                Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteShownRow))),
+              ),
+          );
     const shownById = new Map(shownRows.map((row) => [row.id, row]));
     const items = page.flatMap((item) => {
       const shown = shownById.get(item.id);
@@ -623,9 +654,11 @@ const sqlitePage = (
     const definitions =
       definitionIds.length === 0
         ? []
-        : (yield* sql`select listing, position, definition from executor_tool_search_definitions
-            where ${sql.in("id", definitionIds)}`.pipe(
-            Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteDefinitionRow))),
+        : (yield* inGroups(definitionIds, (group) =>
+            sql`select listing, position, definition from executor_tool_search_definitions
+              where ${sql.in("id", group)}`.pipe(
+              Effect.flatMap(Schema.decodeUnknownEffect(Schema.Array(SqliteDefinitionRow))),
+            ),
           )).map((row) => [row.listing, row.position, JSON.parse(row.definition)] as const);
     return yield* Schema.decodeUnknownEffect(Ranked)({
       total: merged.length,

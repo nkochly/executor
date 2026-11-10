@@ -2,6 +2,7 @@
 import { appendFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type { SqlStorage } from "@cloudflare/workers-types";
+import { sqliteMaxParameters } from "./dialect.ts";
 import type { SqliteStorage } from "./sqlite.ts";
 
 class Rollback extends Error {}
@@ -30,6 +31,11 @@ export const nativeSqliteStorage = (
     }
   };
   const run = (query: string, bindings: Array<unknown>) => {
+    // A Durable Object refuses these; a native file would accept them and hide the failure.
+    if (bindings.length > sqliteMaxParameters)
+      throw new Error(
+        `too many SQL variables: ${bindings.length} bound, at most ${sqliteMaxParameters}: SQLITE_ERROR`,
+      );
     const statement = db.prepare(query);
     const rows =
       statement.columns().length > 0
