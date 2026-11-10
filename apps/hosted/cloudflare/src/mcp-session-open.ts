@@ -23,6 +23,7 @@ import type { McpBackend } from "@executor-js/mcp";
 import { ElicitationResponse } from "apps/contracts";
 import { Cause, ConfigProvider, Config, Effect, Exit, Schema, Scope } from "effect";
 import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "effect/http";
+import { withRemoteSpan } from "@executor-js/telemetry";
 import { workerConfiguration } from "./configuration.ts";
 import { mcpSessionStore } from "./mcp-session-store.ts";
 import { productStub } from "@executor-js/hosted-cloudflare/product-location";
@@ -105,7 +106,16 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
       const backend = remoteMcpBackend((call) =>
         product.mcpBackend(new Request(url, { method: "POST", headers }), call),
       ) as unknown as McpBackend<HostedMcpRequestError>;
-      return yield* provideHostedMcpRequest(access, backend, origin, hosted.http);
+      // The product hands over the request's trace context; continuing it here keeps the
+      // session's spans, its programs and every app call in the caller's trace.
+      return yield* provideHostedMcpRequest(access, backend, origin, hosted.http).pipe(
+        withRemoteSpan(
+          new Request("https://mcp-session.internal", {
+            headers: { traceparent: request.headers.traceparent ?? "" },
+          }),
+          "mcp.session.request",
+        ),
+      );
     }).pipe(
       Effect.catchTag("SchemaError", () =>
         Effect.succeed(HttpServerResponse.empty({ status: 400 })),
