@@ -164,20 +164,29 @@ export interface RetiredProduct {
   wipe(): Promise<void>;
 }
 
+/** The error Workers RPC gives for a method the receiving object's release does not have. */
+const previousRelease = (error: unknown) =>
+  error instanceof Error && error.message.includes('does not implement the method "exportPage"');
+
 /**
  * Copy the retired object's storage into this one, once. The copy is read in pages and written
- * in one transaction, so this object holds either nothing of it or all of it.
+ * in one transaction, so this object holds either nothing of it or all of it. `false` when the
+ * retired object still runs a release that cannot hand its storage over.
  */
 export const adoptPreviousStorage = async (
   state: DurableObjectState,
   previous: RetiredProduct,
   previousId: string,
-): Promise<void> => {
-  if (state.storage.kv.get(adoptedKey) !== undefined) return;
+): Promise<boolean> => {
+  if (state.storage.kv.get(adoptedKey) !== undefined) return true;
   const pages: StoragePage[] = [];
   let cursor: StorageCursor | null = null;
   do {
-    const page: StoragePage = await previous.exportPage(cursor);
+    const page: StoragePage | undefined = await previous.exportPage(cursor).catch((error) => {
+      if (cursor === null && previousRelease(error)) return undefined;
+      throw error;
+    });
+    if (page === undefined) return false;
     pages.push(page);
     cursor = page.next ?? null;
   } while (cursor !== null);
@@ -205,6 +214,7 @@ export const adoptPreviousStorage = async (
     for (const [key, value] of first?.values ?? []) state.storage.kv.put(key, value);
     state.storage.kv.put(adoptedKey, previousId);
   });
+  return true;
 };
 
 /**
@@ -219,7 +229,8 @@ export const openPlacedProduct = async <Product>(options: {
   readonly previousId: string;
   readonly open: () => Promise<Product>;
 }): Promise<Product | undefined> => {
-  await adoptPreviousStorage(options.state, options.previous, options.previousId);
+  if (!(await adoptPreviousStorage(options.state, options.previous, options.previousId)))
+    return undefined;
   if (options.env.EXECUTOR_PRODUCT_WIPE_PREVIOUS === "true") await options.previous.wipe();
   return options.open();
 };
