@@ -5,6 +5,12 @@ import type { Principal } from "@executor-js/host-mcp";
 
 import { makeAccessVerifier, principalFromAccessClaims } from "./auth/cloudflare-access";
 import { recordPerson } from "./catalog-access";
+import {
+  consentDestination,
+  REFUSED_REDIRECT,
+  redirectAllowed,
+  registrationGate,
+} from "./agent-redirects";
 import type { CloudflareConfig, CloudflareEnv } from "./config";
 import { AGENT_SLUG, agentRequest, agentSlug, type AgentGrant } from "./agent";
 import {
@@ -421,6 +427,9 @@ const authorize = async (
       await startAgentWorkspace(request, env, config, app, chosen, team);
     }
     const approved = await helpers.approveConsent(request, handle);
+    if (!redirectAllowed(approved.request.redirectUri, config.agentRedirectAllowList)) {
+      return page(REFUSED_REDIRECT, undefined, 400);
+    }
     await Effect.runPromise(
       recordPerson(
         env.DB,
@@ -452,6 +461,9 @@ const authorize = async (
   }
 
   const authRequest = await helpers.parseAuthRequest(request);
+  if (!redirectAllowed(authRequest.redirectUri, config.agentRedirectAllowList)) {
+    return page(REFUSED_REDIRECT, undefined, 400);
+  }
   if (directory && memberships.length === 0) {
     return page("<p>You are not in any tenant yet. Ask a tenant owner to add you.</p>");
   }
@@ -470,6 +482,7 @@ const authorize = async (
   return page(
     `<h1>Connect an agent</h1>` +
       address.html +
+      consentDestination(client) +
       (directory
         ? `<p>${escapeHtml(clientName)} will act as you (${escapeHtml(email)}) in one tenant, as one agent, with that agent's tools only.</p>` +
           `<form method="post"><h2>Tenant</h2>${tenants}`
@@ -717,6 +730,9 @@ export const oauthProviderFor = (
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
     clientRegistrationEndpoint: "/register",
+    // Registration is open to anyone, so the redirect is held to the allow-list here and again at /authorize.
+    clientRegistrationCallback: ({ clientMetadata }) =>
+      registrationGate(config.agentRedirectAllowList)(clientMetadata),
     // An agent stays signed in while it is used and ends after a week idle.
     // The person is re-checked on every call (membership, or Access's admin
     // list), so removing them still takes effect at once.

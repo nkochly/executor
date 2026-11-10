@@ -108,6 +108,12 @@ export interface CloudflareEnv {
    */
   readonly WEBEX_CLIENT_ID?: string | SecretBinding;
   readonly WEBEX_CLIENT_SECRET?: string | SecretBinding;
+  /**
+   * Redirect URIs an agent's MCP client may register with Executor's own
+   * OAuth, comma-separated; `/*` admits every path under an origin. Loopback
+   * is always admitted (src/agent-redirects.ts).
+   */
+  readonly OAUTH_REDIRECT_URIS?: string;
 }
 
 /** A Secrets Store secret binding. */
@@ -140,6 +146,8 @@ export interface CloudflareConfig {
   readonly firstParty: readonly FirstPartyMcp[];
   /** The company's Webex integration; `null` when none is configured. */
   readonly webex: WebexIntegration | null;
+  /** Where agent sign-ins may be sent (OAUTH_REDIRECT_URIS); unset admits loopback only. */
+  readonly agentRedirectAllowList?: string;
 }
 
 export interface WebexIntegration {
@@ -315,5 +323,8 @@ export const loadConfig = (env: CloudflareConfigEnv): CloudflareConfig => {
       env.WEBEX_CLIENT_ID && env.WEBEX_CLIENT_SECRET
         ? { clientId: env.WEBEX_CLIENT_ID, clientSecret: env.WEBEX_CLIENT_SECRET }
         : null,
+    ...(env.OAUTH_REDIRECT_URIS?.trim()
+      ? { agentRedirectAllowList: env.OAUTH_REDIRECT_URIS.trim() }
+      : {}),
   };
 };
