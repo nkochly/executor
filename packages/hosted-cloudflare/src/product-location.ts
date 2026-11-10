@@ -203,14 +203,20 @@ export const adoptPreviousStorage = async (
     const keys = Array.from(state.storage.kv.list(), ([key]) => key);
     for (const key of keys) state.storage.kv.delete(key);
     const schema = first?.schema ?? [];
+    // Tables, then the indexes a foreign key's parent column may need, then rows; a row's parent
+    // may come later in the copy, so foreign keys are checked when the transaction commits.
+    // Triggers and views come last, so no trigger fires for a copied row.
     for (const entry of schema) if (entry.type === "table") state.storage.sql.exec(entry.sql);
+    for (const entry of schema) if (entry.type === "index") state.storage.sql.exec(entry.sql);
+    state.storage.sql.exec("PRAGMA defer_foreign_keys = ON");
     for (const page of pages) {
       if (page.table === undefined || page.columns === undefined || page.rows === undefined)
         continue;
       const insert = `INSERT INTO ${quoted(page.table)} (${page.columns.map(quoted).join(", ")}) VALUES (${page.columns.map(() => "?").join(", ")})`;
       for (const row of page.rows) state.storage.sql.exec(insert, ...row);
     }
-    for (const entry of schema) if (entry.type !== "table") state.storage.sql.exec(entry.sql);
+    for (const entry of schema)
+      if (entry.type !== "table" && entry.type !== "index") state.storage.sql.exec(entry.sql);
     for (const [key, value] of first?.values ?? []) state.storage.kv.put(key, value);
     state.storage.kv.put(adoptedKey, previousId);
   });
