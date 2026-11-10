@@ -36,6 +36,7 @@ import {
   ProductAnalytics,
 } from "@executor-js/hosted-server";
 import { recordRequestRejections, requestTiming } from "@executor-js/telemetry/http";
+import { withRemoteSpan } from "@executor-js/telemetry";
 import { appAddresses, hostedAppUi } from "@executor-js/hosted-server/app-ui";
 import { appSignInCallbackPath } from "apps/ui/auth";
 import { AppUiApi } from "apps/ui/contracts";
@@ -123,6 +124,9 @@ export const selfHostRouteMap = <DashboardE, DashboardR>(options: {
             Effect.provide(executorServices),
             Effect.provide(auth.mcpIdentity),
             Effect.provide(HttpServer.layerServices),
+            // The session object sends the caller's trace context, so the operation, and every
+            // app call it makes, joins the request's trace.
+            withRemoteSpan(request, "mcp.backend.call"),
           ),
         ),
       );
