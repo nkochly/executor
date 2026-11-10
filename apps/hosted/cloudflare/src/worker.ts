@@ -7,9 +7,11 @@
  * - outbound HTTP is the global `fetch`, behind the same URL policy;
  * - requests to this instance's own origin go to the product through `SELF`;
  * - telemetry is logged to the console, which Workers observability collects, unless an OTLP
- *   endpoint is configured;
+ *   endpoint is configured; every public request continues this invocation's Workers trace
+ *   (`trace.ts`), so one trace id follows it through the product, its apps and their calls;
  * - blobs, app repositories and the app runtime come from `platform.ts`.
  */
+import * as workers from "cloudflare:workers";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
@@ -27,6 +29,7 @@ import {
   type StorageCursor,
   type StoragePage,
 } from "./product-location.ts";
+import { traced, type WorkersTracing } from "./trace.ts";
 
 // Only the Durable Objects build the product and the MCP sessions, and each loads its module when
 // it first opens: evaluating them at startup exceeds the CPU time Cloudflare allows a Worker to
@@ -158,9 +161,13 @@ export class SelfOrigin extends WorkerEntrypoint<Environment> {
   }
 }
 
+/** The runtime's tracing API, absent where the runtime has none (requests then run untraced). */
+const tracing = (workers as { tracing?: WorkersTracing }).tracing;
+
 /**
  * Public traffic reaches only the product's authenticated route map. The client address is the
- * one Cloudflare's edge saw; any address header the client sent is replaced.
+ * one Cloudflare's edge saw; any address header the client sent is replaced. The trace context is
+ * this invocation's, never the client's.
  */
 export default {
   fetch(request: Request, env: Environment): Promise<Response> {
@@ -168,6 +175,8 @@ export default {
     addressed.headers.delete("x-executor-client-ip");
     const client = request.headers.get("cf-connecting-ip");
     if (client !== null) addressed.headers.set("x-executor-client-ip", client);
-    return productStub(env.PRODUCT, env).fetch(addressed);
+    return traced(tracing, addressed, (forwarded) =>
+      productStub(env.PRODUCT, env).fetch(forwarded),
+    );
   },
 };
