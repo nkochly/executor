@@ -44,12 +44,14 @@ initialize again. Unset, the product runs MCP sessions itself.
 
 A Durable Object is created near the first request that reaches it and never moves. Set
 `EXECUTOR_PRODUCT_LOCATION` to a location hint (`wnam`, `enam`, `weur`, …) to keep the product,
-and every new caller's session object, in that region. The product then lives in an object named
+and every caller's session object, in that region. The product then lives in an object named
 for the hint. On its first start it copies the storage of the unnamed object an earlier install
 used, in one transaction. From then on the unnamed object forwards anything that reaches it and
-keeps its copy until a deploy sets `EXECUTOR_PRODUCT_WIPE_PREVIOUS=true`, which deletes it. The
-app host Worker's `DATA_LOCATION_HINT` places new app supervisors the same way; one that exists
-stays where it is.
+keeps its copy until a deploy sets `EXECUTOR_PRODUCT_WIPE_PREVIOUS=true`, which deletes it.
+Callers' session objects are then named for the hint too; they hold only in-memory sessions. The
+app host Worker's `DATA_LOCATION_HINT` does the same for app supervisors: each app's supervisor
+becomes the object named for the hint and the app, and starts with an empty app database and
+cache.
 
 ## Run locally
 

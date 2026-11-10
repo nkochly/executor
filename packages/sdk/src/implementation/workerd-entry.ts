@@ -133,17 +133,23 @@ interface Environment {
     idFromName(name: string): DurableObjectId;
   };
   /**
-   * The Cloudflare location hint a new app supervisor is created with, or empty for beside its
-   * first caller. A supervisor that exists stays where it was created.
+   * A Cloudflare location hint. When set, each app's supervisor is the object named for the hint
+   * and the app, created in that location; the objects named for the app alone, and their app
+   * databases and caches, are left behind.
    */
   readonly DATA_LOCATION_HINT?: string;
   readonly RUNS: Workflow<{ run: string }>;
   readonly HOST: Fetcher;
 }
-/** An app's supervisor, created at the configured location when it does not exist yet. */
+/** The name of an app's supervisor: the app, behind the location hint when one is set. */
+const supervisorName = (env: Environment, app: string) => {
+  const hint = env.DATA_LOCATION_HINT?.trim();
+  return hint ? `${hint}:${app}` : app;
+};
+/** An app's supervisor, created at the configured location. */
 const appData = (env: Environment, app: string) => {
   const hint = env.DATA_LOCATION_HINT?.trim();
-  return env.DATA.getByName(app, hint ? { locationHint: hint } : undefined);
+  return env.DATA.getByName(supervisorName(env, app), hint ? { locationHint: hint } : undefined);
 };
 const failure = () => new WorkflowFailure({ reason: "engine", retryable: true });
 /** The deployer sees the underlying failure; builds bind no accounts. */
@@ -394,7 +400,7 @@ export class AppDataSupervisor extends DurableObject<Environment> {
         ctx,
         env.LOADER,
         appOutbound(ctx),
-        (app) => ctx.id.equals(env.DATA.idFromName(app)),
+        (app) => ctx.id.equals(env.DATA.idFromName(supervisorName(env, app))),
         true,
       ),
     );

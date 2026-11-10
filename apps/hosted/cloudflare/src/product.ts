@@ -68,10 +68,13 @@ const sessionHost = (
   namespace: NonNullable<Environment["MCP_SESSIONS"]>,
   locationHint: string | undefined,
 ) => {
-  // A new caller's object is placed beside the product; one that exists stays where it is.
+  // With a location, each caller's object is the one named for it there. Sessions live in
+  // memory, so an object left elsewhere holds nothing a caller loses.
   const sessions = {
     getByName: (key: string) =>
-      namespace.getByName(key, locationHint === undefined ? undefined : { locationHint }),
+      locationHint === undefined
+        ? namespace.getByName(key)
+        : namespace.getByName(`${locationHint}:${key}`, { locationHint }),
   };
   let served: ((request: Request, call: McpBackendCall) => Promise<WireExit>) | undefined;
   const host: McpSessionHost = {
