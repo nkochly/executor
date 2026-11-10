@@ -74,8 +74,11 @@ const restartWithAdmins = (adminEmails: string) =>
     yield* serverControl("start");
   });
 
-/** Sign out, continue with SSO, pick `email` on the provider's page and land in the org. */
-const signInAs = (origin: string, email: string, wait = true) =>
+/**
+ * Sign out, continue with SSO, pick `email` on the provider's page and land in the org. With
+ * `direct` the sign-in page goes to the provider by itself, with no button to press.
+ */
+const signInAs = (origin: string, email: string, wait = true, direct = false) =>
   Effect.gen(function* () {
     const browser = yield* Browser;
     // Better Auth allows three sign-in attempts per address in ten seconds, and one SSO sign-in
@@ -83,9 +86,10 @@ const signInAs = (origin: string, email: string, wait = true) =>
     if (wait) yield* Effect.sleep("11 seconds");
     yield* browser.use(`${email}: sign out`, (page) => page.context().clearCookies());
     yield* browser.use(`${email}: open sign-in`, (page) => page.goto(`${origin}/login`));
-    yield* browser.use(`${email}: continue with SSO`, (page) =>
-      page.getByRole("button", { name: "Continue with SSO", exact: true }).click(),
-    );
+    if (!direct)
+      yield* browser.use(`${email}: continue with SSO`, (page) =>
+        page.getByRole("button", { name: "Continue with SSO", exact: true }).click(),
+      );
     yield* browser.use(`${email}: choose the identity at the provider`, (page) =>
       page.locator("form.user-form", { hasText: email }).getByRole("button").click(),
     );
@@ -182,6 +186,24 @@ layer(TestLive, { excludeTestServices: true })("Self-host SSO with an emulated p
             expect(yield* signInAs(origin, admin)).toBe("member");
             expect(yield* signInAs(origin, member)).toBe("admin");
             yield* browser.checkpoint("Admin role follows the operator's list");
+
+            // When the operator makes SSO the sign-in, the sign-in page goes to the provider.
+            yield* Effect.gen(function* () {
+              yield* serverControl("stop");
+              yield* serverControl("environment", 200, { SSO_DIRECT: "true" });
+              yield* serverControl("start");
+            }).pipe(Effect.provideService(Target, instance));
+            expect(yield* signInAs(origin, member, true, true)).toBe("admin");
+            yield* browser.checkpoint("Sign-in goes straight to the provider");
+            yield* browser.use("Sign out", (page) => page.context().clearCookies());
+            expect(
+              yield* browser.use("The password form stays reachable", (page) =>
+                page
+                  .goto(`${origin}/login?password`)
+                  .then(() => page.getByLabel("Password").waitFor())
+                  .then(() => page.url()),
+              ),
+            ).toBe(`${origin}/login?password`);
           }),
         ),
       ),

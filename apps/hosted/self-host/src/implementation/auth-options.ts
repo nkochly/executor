@@ -26,6 +26,8 @@ const Sso = Schema.Struct({
   allowedDomains: Schema.Array(Schema.NonEmptyString).check(Schema.isMinLength(1)),
   adminEmails: Schema.Array(Schema.NonEmptyString),
   providerVerifiesEmail: Schema.Boolean,
+  /** Sign-in goes straight to the provider instead of offering the password form beside it. */
+  direct: Schema.Boolean,
 });
 
 const list = (value: string) =>
@@ -53,6 +55,7 @@ export const selfHostAuthSettings = Effect.gen(function* () {
     providerVerifiesEmail: Config.Boolean("SSO_PROVIDER_VERIFIES_EMAIL").pipe(
       Config.withDefault(false),
     ),
+    direct: Config.Boolean("SSO_DIRECT").pipe(Config.withDefault(false)),
   });
   const sso = yield* Schema.decodeUnknownEffect(Sso)({
     ...configured,

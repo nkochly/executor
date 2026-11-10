@@ -58,6 +58,7 @@ export const OperatorSettings = Schema.Struct({
   SSO_ALLOWED_DOMAINS: Schema.optionalKey(Schema.NonEmptyString),
   SSO_ADMIN_EMAILS: Schema.optionalKey(Schema.String),
   SSO_PROVIDER_VERIFIES_EMAIL: Schema.optionalKey(Schema.String),
+  SSO_DIRECT: Schema.optionalKey(Schema.String),
   EXECUTOR_OAUTH_CLIENT_METADATA_URL: Schema.optionalKey(Schema.NonEmptyString),
   /** The Cloudflare Access team and application whose assertions name the MCP caller. */
   EXECUTOR_ACCESS_TEAM_DOMAIN: Schema.optionalKey(Schema.NonEmptyString),

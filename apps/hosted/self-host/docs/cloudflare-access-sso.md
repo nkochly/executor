@@ -23,14 +23,15 @@ Access then shows a client ID, a client secret and the configuration endpoint
 
 ## Product settings
 
-| Variable                      | Value                                                                                                          |
-| ----------------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `SSO_DISCOVERY_URL`           | The configuration endpoint above, exactly (the product does not follow redirects)                              |
-| `SSO_CLIENT_ID`               | The application's client ID                                                                                    |
-| `SSO_CLIENT_SECRET`           | The application's client secret (a secret, never a plain variable)                                             |
-| `SSO_ALLOWED_DOMAINS`         | The email domains Access admits, comma-separated                                                               |
-| `SSO_ADMIN_EMAILS`            | The platform admins, comma-separated; keep it equal to the operator list the other services use                |
-| `SSO_PROVIDER_VERIFIES_EMAIL` | `true` if Access's ID token carries no `email_verified` claim (check the first sign-in); leave unset otherwise |
+| Variable                      | Value                                                                                                                           |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `SSO_DISCOVERY_URL`           | The configuration endpoint above, exactly (the product does not follow redirects)                                               |
+| `SSO_CLIENT_ID`               | The application's client ID                                                                                                     |
+| `SSO_CLIENT_SECRET`           | The application's client secret (a secret, never a plain variable)                                                              |
+| `SSO_ALLOWED_DOMAINS`         | The email domains Access admits, comma-separated                                                                                |
+| `SSO_ADMIN_EMAILS`            | The platform admins, comma-separated; keep it equal to the operator list the other services use                                 |
+| `SSO_PROVIDER_VERIFIES_EMAIL` | `true` if Access's ID token carries no `email_verified` claim (check the first sign-in); leave unset otherwise                  |
+| `SSO_DIRECT`                  | `true` to make SSO the sign-in: a signed-out visit goes straight to Access, and `/login?password` still shows the password form |
 
 The product reads discovery once at startup, so a change to the Access application's endpoints needs
 a restart.

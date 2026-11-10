@@ -349,6 +349,7 @@ export const selfHostRegistration = (settings: Effect.Success<typeof selfHostAut
             return ctx.json({
               setup: users === 0 && organizations === 0,
               sso: settings.sso !== null,
+              ssoDirect: settings.sso?.direct === true,
             });
           }),
         ),

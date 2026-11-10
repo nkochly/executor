@@ -11,7 +11,7 @@ import { Button } from "@executor-js/ui/components/button";
 import { Input } from "@executor-js/ui/components/input";
 import { Cause, Exit, Option } from "effect";
 import { AsyncResult } from "effect/reactivity";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   configurationAtom,
   selfHostSignInAtom,
@@ -21,7 +21,11 @@ import { ssoRefusalExplanation } from "../../contracts/sso.ts";
 import { productTitle, useDocumentTitle } from "@executor-js/ui/hooks/document-title";
 import { SelfHostLoginPending } from "../components/login-pending.tsx";
 
-/** Password login and first-run setup; only an operator-configured SSO button is shown. */
+/**
+ * Password login and first-run setup; only an operator-configured SSO button is shown. When the
+ * operator makes SSO the sign-in (`SSO_DIRECT`), a signed-out visit starts it at once, unless the
+ * visit carries an invitation, an SSO refusal to explain, or `?password` for the password form.
+ */
 export function SelfHostLoginPage({ redirect, error: callbackError }: LoginProps) {
   useDocumentTitle(productTitle("Sign in"));
   const page = usePageUrl();
@@ -36,6 +40,24 @@ export function SelfHostLoginPage({ redirect, error: callbackError }: LoginProps
   const lastSession = AsyncResult.value(session);
   // A background check must not unmount a form shown after confirmed sign-out.
   const signedOut = Option.isSome(lastSession) && lastSession.value === null;
+  const directSso =
+    signedOut &&
+    !callbackError &&
+    AsyncResult.isSuccess(config) &&
+    config.value.sso &&
+    config.value.ssoDirect === true &&
+    !config.value.setup &&
+    !new URL(redirect, page.origin).searchParams.has("invitation") &&
+    !page.searchParams.has("password");
+  const ssoStarted = useRef(false);
+  useEffect(() => {
+    if (!directSso || ssoStarted.current) return;
+    ssoStarted.current = true;
+    setSubmittedKind("sso");
+    void submit({ kind: "sso", redirect }).then((result) => {
+      if (Exit.isFailure(result)) setError("Sign-in could not be started. Try again.");
+    });
+  }, [directSso, redirect, submit]);
   const signedIn = AsyncResult.isSuccess(session) && !session.waiting && session.value !== null;
   if (AsyncResult.isFailure(session) && !signedOut)
     return (
@@ -57,6 +79,7 @@ export function SelfHostLoginPage({ redirect, error: callbackError }: LoginProps
       />
     );
   if (
+    (directSso && error === null) ||
     (session.waiting && !signedOut) ||
     AsyncResult.isInitial(session) ||
     AsyncResult.isInitial(config)

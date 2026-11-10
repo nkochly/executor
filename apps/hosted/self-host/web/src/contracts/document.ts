@@ -3,7 +3,12 @@ import type { HostedDocument } from "@executor-js/hosted-web/document";
 import { Schema } from "effect";
 
 /** Whether first-run setup is open and whether the operator enabled SSO; no users or secrets. */
-export const SignInSettings = Schema.Struct({ setup: Schema.Boolean, sso: Schema.Boolean });
+export const SignInSettings = Schema.Struct({
+  setup: Schema.Boolean,
+  sso: Schema.Boolean,
+  /** SSO is the only sign-in offered: a signed-out visit goes straight to the provider. */
+  ssoDirect: Schema.optionalKey(Schema.Boolean),
+});
 export type SignInSettings = typeof SignInSettings.Type;
 
 export interface SelfHostDocumentContext extends HostedDocument {
