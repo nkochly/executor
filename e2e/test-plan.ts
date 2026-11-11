@@ -3856,6 +3856,17 @@ export const scenarios = plan({
       local: na("Exercises the shared OAuth lifecycle through hosted APIs."),
     },
   },
+  oauthRenewalInBackground: {
+    fixtures: "actors",
+    file: "oauth-refresh-resilience.spec.ts",
+    title:
+      "OAuth tokens past half their lifetime renew in the background while the call uses the current token, and the next call uses the renewed one",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Uses a scoped loopback issuer with a held token endpoint."),
+      local: na("Exercises the shared OAuth lifecycle through hosted APIs."),
+    },
+  },
   accountCacheScope: {
     fixtures: "actors",
     file: "account-cache-scope.spec.ts",

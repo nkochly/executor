@@ -273,6 +273,17 @@ const renewalLease = 20_000;
  */
 const heldClaims = new Set<string>();
 
+/**
+ * Accounts this process is renewing ahead of expiry. A use in the second half of a token's
+ * lifetime starts one renewal and goes on with the current token, so no call waits on the token
+ * endpoint while the account stays in use.
+ */
+const renewingAhead = new Set<AccountId>();
+
+/** Whether a token saved at `savedAt` and expiring at `expiresAt` is past half its lifetime. */
+const pastHalfLife = (expiresAt: number, savedAt: number, now: number) =>
+  expiresAt - now <= (expiresAt - savedAt) / 2;
+
 /** A stored grant row, as the resolve loop reads it. */
 export interface GrantRow {
   readonly id: string;
@@ -2341,6 +2352,7 @@ export const makeOAuth = (
     provider: ProviderDefinition,
     resolution: Resolution,
     rejected?: JsonObject,
+    early = false,
   ) =>
     Effect.gen(function* () {
       yield* Effect.annotateCurrentSpan("oauth.provider.id", account.provider);
@@ -2377,6 +2389,21 @@ export const makeOAuth = (
         const now = yield* Clock.currentTimeMillis;
         // A renewal holds the grant. Its row still carries the grant it started from.
         const claimed = !row.status.startsWith("ready_");
+        if (claimed && rejected === undefined) {
+          // The claimed row still holds the grant the renewal started from. A renewal ahead of
+          // expiry leaves its token good for more than the renewal window, and calls use it
+          // rather than wait; an early renewal never waits for another.
+          const current = yield* decrypt(account.id, row.encrypted, OAuthGrant);
+          if (
+            early ||
+            (!awaited && current.expiresAt !== undefined && current.expiresAt > now + 30_000)
+          )
+            return {
+              fields: Redacted.make(current.fields),
+              firstParty: isFirstPartyGrant(current) ? current.firstParty : undefined,
+              generation: current.generation ?? account.credentialGeneration,
+            } satisfies AccountCredential;
+        }
         if (
           claimed &&
           (heldClaims.has(row.status) || now - row.updatedAt.getTime() <= renewalLease)
@@ -2402,14 +2429,22 @@ export const makeOAuth = (
           generation: grant.generation ?? account.credentialGeneration,
         });
         if (refused && !renewable) return held(grant.fields);
+        const halfSpent =
+          renewable &&
+          grant.expiresAt !== undefined &&
+          pastHalfLife(grant.expiresAt, row.updatedAt.getTime(), now);
+        if (early && !halfSpent) return held(grant.fields);
         if (
+          !early &&
           !abandoned &&
           !refused &&
           (grant.expiresAt === undefined ||
             grant.expiresAt > now + (awaited ? 0 : 30_000) ||
             (!renewable && grant.expiresAt > now))
-        )
+        ) {
+          if (halfSpent && !awaited) yield* renewAhead(account, provider);
           return held(grant.fields);
+        }
         if (protocol === undefined) return yield* reconnect("not_renewable");
         const stage = grant.grant === "client_credentials" ? "clientCredentials" : "refresh";
         const renewal =
@@ -2860,6 +2895,27 @@ export const makeOAuth = (
         ? Effect.void
         : Effect.fail(new AccountUseRefused()),
     );
+  /**
+   * Renew the account's grant in the background when its token is past half its lifetime. The
+   * renewal takes the grant's claim like any other; it reads no batch's grant rows.
+   */
+  const renewAhead = (account: StoredAccount, provider: ProviderDefinition): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      if (renewingAhead.has(account.id)) return Effect.void;
+      renewingAhead.add(account.id);
+      return resolveCredentials(account, provider, { contested: false }, undefined, true).pipe(
+        Effect.provideService(GrantReadAhead, undefined),
+        Effect.catchCause((cause) =>
+          Effect.logWarning("OAuth renewal ahead of expiry failed", cause).pipe(
+            Effect.annotateLogs("oauth.provider.id", account.provider),
+          ),
+        ),
+        Effect.ensuring(Effect.sync(() => renewingAhead.delete(account.id))),
+        Effect.withSpan("oauth.renew_ahead"),
+        Effect.forkDetach,
+        Effect.asVoid,
+      );
+    });
   /**
    * Resolve one account checked in `allowed`, and run `recheck` if resolving waited or renewed.
    * `resolution` records whether it did.

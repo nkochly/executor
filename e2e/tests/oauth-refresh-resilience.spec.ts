@@ -701,6 +701,60 @@ layer(HostedLive, { excludeTestServices: true })("OAuth refresh resilience", (it
       }),
     ),
   );
+  it.effect(scenarios.oauthRenewalInBackground.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const { issuer, connect, read, expectRead, refreshes, evidence } = yield* renewalFixture;
+        // Tokens last 70 seconds: past half their lifetime after 35, and inside the host's
+        // 30-second renewal window after 40.
+        yield* issuer.configure({ expiresIn: 70, refreshedExpiresIn: 70 });
+        yield* connect("Background renewal account");
+        const signedIn = yield* refreshes;
+        yield* expectRead(signedIn);
+        expect(yield* refreshes, "A fresh token is used as it is").toBe(signedIn);
+
+        // The service holds the next renewal after issuing its tokens. A call past half the
+        // token's lifetime starts that renewal and answers with the current token meanwhile.
+        yield* issuer.configure({ hold: "refresh-issued" });
+        yield* Effect.sleep("36 seconds");
+        const before = yield* issuer.metrics;
+        const started = yield* Clock.currentTimeMillis;
+        yield* expectRead(signedIn);
+        const answeredIn = (yield* Clock.currentTimeMillis) - started;
+        yield* issuer.metrics.pipe(
+          Effect.flatMap((metrics) =>
+            metrics.held > before.held
+              ? Effect.void
+              : Effect.fail(new Error("The background renewal has not reached the service")),
+          ),
+          Effect.retry({ schedule: Schedule.spaced("100 millis"), times: 100 }),
+        );
+        // A second call while the renewal holds the grant's claim uses the current token too.
+        yield* expectRead(signedIn);
+        yield* issuer.configure({ hold: null });
+        yield* issuer.release;
+
+        // Once the renewal is saved, the next call uses its token without renewing again.
+        const renewed = signedIn + 1;
+        yield* read().pipe(
+          Effect.flatMap((response) => body(Read, response)),
+          Effect.filterOrFail(
+            (presentedNow) => presentedNow.service?.refreshed === true,
+            () => new Error("The background renewal has not been saved"),
+          ),
+          Effect.retry({ schedule: Schedule.spaced("250 millis"), times: 40 }),
+        );
+        yield* expectRead(renewed);
+        expect(yield* refreshes, "One renewal").toBe(renewed);
+        yield* evidence.json("renewal-in-background.json", {
+          answeredInMs: answeredIn,
+          refreshes: (yield* refreshes) - signedIn,
+        });
+        yield* issuer.configure({ expiresIn: 20, refreshedExpiresIn: null });
+      }),
+    ),
+  );
   it.effect(scenarios.oauthRenewalOnRefusal.title, (context) =>
     withHostedCase(
       context,
