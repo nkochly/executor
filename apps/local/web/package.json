@@ -42,7 +42,7 @@
     "@types/react-dom": "19.3.0",
     "@vitejs/plugin-react": "6.1.1",
     "tailwindcss": "4.3.3",
-    "vite": "npm:@voidzero-dev/vite-plus-core@0.3.3",
+    "vite": "npm:@voidzero-dev/vite-plus-core@1.5.1",
     "vite-plus": "1.5.1"
   }
 }
