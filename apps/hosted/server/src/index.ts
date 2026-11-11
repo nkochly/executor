@@ -28,9 +28,11 @@ export * from "./contracts/organization.ts";
 export {
   CallStateCache,
   ConcurrentStatements,
+  HostedBackground,
   HostedExecutor,
   StatementBatch,
   type CallState,
+  type HostedBackgroundWork,
   type StatementGroups,
 } from "./contracts/executor.ts";
 export { OrganizationDefaults } from "./contracts/organization-defaults.ts";
@@ -139,3 +141,5 @@ export {
   type ProgramHost,
   type StartIsolatedProgram,
 } from "./implementation/mcp-isolated.ts";
+export * from "./contracts/tool-call-log.ts";
+export { pruneToolCallLog, toolCallRetentionDays } from "./implementation/tool-call-log.ts";

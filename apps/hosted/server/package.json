@@ -13,6 +13,7 @@
     "./organization": "./src/contracts/organization.ts",
     "./groups": "./src/contracts/groups.ts",
     "./connection-bundles": "./src/contracts/connection-bundles.ts",
+    "./tool-call-log": "./src/contracts/tool-call-log.ts",
     "./resource-access": "./src/contracts/resource-access.ts",
     "./oauth-clients": "./src/contracts/oauth-clients.ts",
     "./database": "./src/implementation/database.ts",
