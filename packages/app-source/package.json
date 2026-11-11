@@ -14,7 +14,7 @@
     "@executor-js/sdk": "workspace:*",
     "@executor-js/telemetry": "workspace:*",
     "effect": "4.0.1",
-    "isomorphic-git": "1.37.4",
+    "isomorphic-git": "1.38.6",
     "memfs": "4.57.7"
   }
 }

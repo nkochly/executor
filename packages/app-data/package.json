@@ -21,6 +21,6 @@
     "@effect/sql-sqlite-do": "4.0.1",
     "esbuild": "0.28.2",
     "miniflare": "4.20260730.0",
-    "undici": "7.16.0"
+    "undici": "7.30.1"
   }
 }

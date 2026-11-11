@@ -150,7 +150,7 @@
     "@rhyssul/portless": "0.13.3",
     "@rrweb/replay": "2.1.6",
     "@types/node": "26.6.1",
-    "@vitest/ui": "5.0.1",
+    "@vitest/ui": "5.1.0",
     "autumn-js": "1.2.28",
     "dugite": "3.2.3",
     "effect": "4.0.1",
@@ -163,16 +163,35 @@
     "tsc-rs": "0.1.0",
     "typescript": "7.0.2",
     "typescript-5": "npm:typescript@5.9.3",
-    "vitest": "5.0.1",
+    "vitest": "5.1.0",
     "workerd": "1.20260918.1",
     "yaml": "2.9.1"
   },
   "overrides": {
+    "@azure/msal-node": "7.2.1",
     "@effect/platform-browser": "4.0.1",
     "@effect/platform-bun": "4.0.1",
     "@effect/platform-node": "4.0.1",
     "@effect/platform-node-shared": "4.0.1",
-    "effect": "4.0.1"
+    "@hono/node-server": "2.1.6",
+    "builder-util-runtime": "9.7.0",
+    "deepmerge": "npm:@fastify/deepmerge@3.2.4",
+    "effect": "4.0.1",
+    "glob@13": "14.0.4",
+    "happy-dom": "21.0.4",
+    "hono": "4.13.17",
+    "katex": "0.18.11",
+    "lodash": "4.18.1",
+    "lodash-es": "4.18.1",
+    "minimatch@10": "11.0.5",
+    "minimatch@9": "11.0.5",
+    "path-to-regexp@6": "6.3.0",
+    "postcss-selector-parser": "6.1.6",
+    "sharp": "0.35.5",
+    "undici@6": "7.30.2",
+    "undici@7": "7.30.2",
+    "valibot": "1.5.0",
+    "zod": "4.6.7"
   },
   "patchedDependencies": {
     "@cfworker/json-schema@4.1.1": "patches/@cfworker%2Fjson-schema@4.1.1.patch",
@@ -196,7 +215,8 @@
     "alchemy@2.0.0-beta.80": "patches/alchemy@2.0.0-beta.80.patch",
     "@alchemy.run/cloudflare-runtime@2.0.0-beta.80": "patches/@alchemy.run%2Fcloudflare-runtime@2.0.0-beta.80.patch",
     "@distilled.cloud/cloudflare@1.0.0-rc.13": "patches/@distilled.cloud%2Fcloudflare@1.0.0-rc.13.patch",
-    "@better-auth/api-key@1.7.16": "patches/@better-auth%2Fapi-key@1.7.16.patch"
+    "@better-auth/api-key@1.7.16": "patches/@better-auth%2Fapi-key@1.7.16.patch",
+    "swagger-client@3.38.2": "patches/swagger-client@3.38.2.patch"
   },
   "trustedDependencies": [
     "dugite",

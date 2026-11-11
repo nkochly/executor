@@ -1,0 +1,119 @@
+diff --git a/es/resolver/specmap/lib/index.js b/es/resolver/specmap/lib/index.js
+index bd782a39ef33a4adcb6a952327c428bc43dfb559..0fc757badc6d85a20c24963b3a5d2166bd49a45c 100644
+--- a/es/resolver/specmap/lib/index.js
++++ b/es/resolver/specmap/lib/index.js
+@@ -1,5 +1,38 @@
+ import * as jsonPatch from 'fast-json-patch';
+-import deepmerge from 'deepmerge';
++// deepmerge 4's merge, kept here so no key of a merged document can reach a prototype: `__proto__`
++// is skipped, as are keys inherited by the target or not enumerable on it.
++const isMergeableObject = value => value !== null && typeof value === 'object' && !['[object RegExp]', '[object Date]'].includes(Object.prototype.toString.call(value)) && value.$$typeof !== Symbol.for('react.element');
++const keysOf = value => [...Object.keys(value), ...Object.getOwnPropertySymbols(value).filter(symbol => Object.prototype.propertyIsEnumerable.call(value, symbol))];
++const isOnObject = (object, key) => {
++  try {
++    return key in object;
++  } catch {
++    return false;
++  }
++};
++const isUnsafe = (target, key) => isOnObject(target, key) && !(Object.prototype.hasOwnProperty.call(target, key) && Object.prototype.propertyIsEnumerable.call(target, key));
++const cloneValue = (value, options) => isMergeableObject(value) ? deepmerge(Array.isArray(value) ? [] : {}, value, options) : value;
++function deepmerge(target, source, options = {}) {
++  const sourceIsArray = Array.isArray(source);
++  if (sourceIsArray !== Array.isArray(target)) return cloneValue(source, options);
++  if (sourceIsArray) return target.concat(source).map(element => cloneValue(element, options));
++  const destination = {};
++  if (isMergeableObject(target)) {
++    keysOf(target).forEach(key => {
++      if (key !== '__proto__') destination[key] = cloneValue(target[key], options);
++    });
++  }
++  keysOf(source).forEach(key => {
++    if (key === '__proto__' || isUnsafe(target, key)) return;
++    if (isOnObject(target, key) && isMergeableObject(source[key])) {
++      const merge = options.customMerge?.(key, options) ?? deepmerge;
++      destination[key] = merge(target[key], source[key], options);
++    } else {
++      destination[key] = cloneValue(source[key], options);
++    }
++  });
++  return destination;
++}
+ export default {
+   add,
+   replace,
+diff --git a/lib/resolver/specmap/lib/index.js b/lib/resolver/specmap/lib/index.js
+index 45e54bbd878f2ff1168a7b6e9baf7f05577cb99d..8343aaad7fda6d7cde6375f10a1fb02c39d77517 100644
+--- a/lib/resolver/specmap/lib/index.js
++++ b/lib/resolver/specmap/lib/index.js
+@@ -5,7 +5,40 @@ var _interopRequireWildcard = require("@babel/runtime-corejs3/helpers/interopReq
+ exports.__esModule = true;
+ exports.default = void 0;
+ var jsonPatch = _interopRequireWildcard(require("fast-json-patch"));
+-var _deepmerge = _interopRequireDefault(require("deepmerge"));
++// deepmerge 4's merge, kept here so no key of a merged document can reach a prototype: `__proto__`
++// is skipped, as are keys inherited by the target or not enumerable on it.
++const isMergeableObject = value => value !== null && typeof value === 'object' && !['[object RegExp]', '[object Date]'].includes(Object.prototype.toString.call(value)) && value.$$typeof !== Symbol.for('react.element');
++const keysOf = value => [...Object.keys(value), ...Object.getOwnPropertySymbols(value).filter(symbol => Object.prototype.propertyIsEnumerable.call(value, symbol))];
++const isOnObject = (object, key) => {
++  try {
++    return key in object;
++  } catch {
++    return false;
++  }
++};
++const isUnsafe = (target, key) => isOnObject(target, key) && !(Object.prototype.hasOwnProperty.call(target, key) && Object.prototype.propertyIsEnumerable.call(target, key));
++const cloneValue = (value, options) => isMergeableObject(value) ? deepmerge(Array.isArray(value) ? [] : {}, value, options) : value;
++function deepmerge(target, source, options = {}) {
++  const sourceIsArray = Array.isArray(source);
++  if (sourceIsArray !== Array.isArray(target)) return cloneValue(source, options);
++  if (sourceIsArray) return target.concat(source).map(element => cloneValue(element, options));
++  const destination = {};
++  if (isMergeableObject(target)) {
++    keysOf(target).forEach(key => {
++      if (key !== '__proto__') destination[key] = cloneValue(target[key], options);
++    });
++  }
++  keysOf(source).forEach(key => {
++    if (key === '__proto__' || isUnsafe(target, key)) return;
++    if (isOnObject(target, key) && isMergeableObject(source[key])) {
++      const merge = options.customMerge?.(key, options) ?? deepmerge;
++      destination[key] = merge(target[key], source[key], options);
++    } else {
++      destination[key] = cloneValue(source[key], options);
++    }
++  });
++  return destination;
++}
+ var _default = exports.default = {
+   add,
+   replace,
+@@ -44,14 +77,14 @@ function applyPatch(obj, patch, opts) {
+     jsonPatch.applyPatch(obj, [replace(patch.path, newValue)]);
+   } else if (patch.op === 'mergeDeep') {
+     const currentValue = getInByJsonPath(obj, patch.path);
+-    const newValue = (0, _deepmerge.default)(currentValue, patch.value, {
++    const newValue = deepmerge(currentValue, patch.value, {
+       customMerge: key => {
+         if (key === 'enum') {
+           return (targetElement, sourceElement) => {
+             if (Array.isArray(targetElement) && Array.isArray(sourceElement)) {
+               return [...new Set([...targetElement, ...sourceElement])];
+             }
+-            return (0, _deepmerge.default)(targetElement, sourceElement);
++            return deepmerge(targetElement, sourceElement);
+           };
+         }
+         return undefined;
+diff --git a/package.json b/package.json
+index 32aeadfc4973fedbbfc25743677cc3453db5f1ab..548577c5c78906a18aa2632e904d87355b008f8f 100644
+--- a/package.json
++++ b/package.json
+@@ -81,7 +81,6 @@
+     "@swagger-api/apidom-ns-openapi-3-2": "1.11.6",
+     "@swagger-api/apidom-reference": "1.11.6",
+     "@swaggerexpert/cookie": "^2.0.2",
+-    "deepmerge": "~4.3.0",
+     "fast-json-patch": "^3.0.0-1",
+     "js-yaml": "^4.3.2",
+     "neotraverse": "=1.0.1",
