@@ -18,3 +18,7 @@ GHSA-8988-4f7v-96qf
 GHSA-q7rr-3cgh-j5r3
 GHSA-45rx-2jwx-cxfr
 GHSA-5v7r-6r5c-r473
+
+# effect 4.0.0-beta.59 (catalog). Fixed in 4.0.0-beta.103, a breaking jump;
+# this tree is retired the week of 2026-11-10 (maintainer decision).
+GHSA-chp3-j5qr-2vfr

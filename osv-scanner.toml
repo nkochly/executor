@@ -1,0 +1,43 @@
+# Accepted known vulnerabilities. Each entry is one advisory, with the reason it
+# is accepted and the date it lapses (the deploy gate fails again after it).
+
+[[IgnoredVulns]]
+id = "GHSA-45rx-2jwx-cxfr"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-5v7r-6r5c-r473"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-8988-4f7v-96qf"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-chp3-j5qr-2vfr"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-p8p7-x288-28g6"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-q7rr-3cgh-j5r3"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-w5hq-g745-h8pq"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
+[[IgnoredVulns]]
+id = "GHSA-xcx6-jx8p-x3h5"
+ignoreUntil = 2026-11-18T00:00:00Z
+reason = "Executor v1 retiring week of 2026-11-10 (maintainer decision)"
+
