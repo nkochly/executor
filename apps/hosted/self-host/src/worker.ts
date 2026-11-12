@@ -1,10 +1,12 @@
 /** Product Worker. One durable actor owns the database, auth, sessions and background work. */
-import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
+import { Digest } from "effect/crypto";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import { PGlite } from "@electric-sql/pglite";
 import { PgliteClient } from "@effect/sql-pglite";
 import { sqliteLayer } from "fumadb-effect/sqlite";
+import type { SqlClient } from "effect/sql";
+import type { SqlError } from "effect/sql/SqlError";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import { bindingWorkerdApps } from "@executor-js/sdk/workerd";
 import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
@@ -107,6 +109,9 @@ const configuration = (native: HttpBinding) =>
  * The product database: the Durable Object's own SQLite storage with `EXECUTOR_DATABASE=sqlite`,
  * else PGlite persisted in it. SQLite needs no import, initdb or WebAssembly engine.
  */
+/** Either engine reaches the product as one SQL client. */
+type ProductDatabaseLayer = Layer.Layer<SqlClient.SqlClient, SqlError>;
+
 const productDatabase = (state: DurableObjectState, env: Environment) =>
   Effect.gen(function* () {
     const engine = yield* Config.Literals(["pglite", "sqlite"], "EXECUTOR_DATABASE").pipe(
@@ -114,12 +119,15 @@ const productDatabase = (state: DurableObjectState, env: Environment) =>
     );
     if (engine === "sqlite")
       return {
-        layer: sqliteLayer(state.storage),
+        layer: sqliteLayer(state.storage) as ProductDatabaseLayer,
         exportDatabase: async () => new Response(null, { status: 501 }),
       };
     const pg = yield* pgliteDatabase(state, env);
     return {
-      layer: Layer.merge(PgliteClient.layer({ liveClient: pg }), pgliteStatementBatch),
+      layer: Layer.merge(
+        PgliteClient.layer({ liveClient: pg }),
+        pgliteStatementBatch,
+      ) as ProductDatabaseLayer,
       exportDatabase: async () =>
         new Response(await pg.dumpDataDir("none"), {
           headers: { "content-type": "application/x-tar" },
@@ -174,7 +182,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
             )
           : telemetryLayer(telemetry),
         HttpServer.layerServices,
-        BrowserCrypto.layer,
+        Digest.layerWebCrypto,
         Layer.succeed(ScheduleHostReady, Effect.void),
       ),
     );

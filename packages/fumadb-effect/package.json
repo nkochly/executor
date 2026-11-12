@@ -40,21 +40,21 @@
     "typecheck": "tsc --noEmit -p tsconfig.json"
   },
   "dependencies": {
-    "@effect/sql-sqlite-do": "4.0.1",
+    "@effect/sql-sqlite-do": "4.1.4",
     "@paralleldrive/cuid2": "3.3.0",
-    "effect": "4.0.1"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "5.20261104.1",
-    "@effect/platform-node": "4.0.1",
-    "@effect/sql-mssql": "4.0.1",
-    "@effect/sql-mysql2": "4.0.1",
-    "@effect/sql-pg": "4.0.1",
-    "@effect/sql-pglite": "4.0.1",
-    "@effect/sql-sqlite-node": "4.0.1"
+    "@effect/platform-node": "4.1.4",
+    "@effect/sql-mssql": "4.1.4",
+    "@effect/sql-mysql2": "4.1.4",
+    "@effect/sql-pg": "4.1.4",
+    "@effect/sql-pglite": "4.1.4",
+    "@effect/sql-sqlite-node": "4.1.4"
   },
   "peerDependencies": {
-    "@effect/sql-pglite": "4.0.1"
+    "@effect/sql-pglite": "4.1.4"
   },
   "peerDependenciesMeta": {
     "@effect/sql-pglite": {

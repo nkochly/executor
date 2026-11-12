@@ -2,6 +2,8 @@
 import { Config, Effect, FileSystem, Layer, Option, Path } from "effect";
 import { pgliteLayer } from "fumadb-effect/pglite";
 import { sqliteLayer } from "fumadb-effect/sqlite";
+import type { SqlClient } from "effect/sql";
+import type { SqlError } from "effect/sql/SqlError";
 import { nativeSqliteStorage } from "fumadb-effect/sqlite-native";
 import { lock } from "proper-lockfile";
 import { dataDirectory } from "./contracts/config.ts";
@@ -61,14 +63,23 @@ const databaseEngine = Config.Literals(["pglite", "sqlite"], "EXECUTOR_DATABASE"
 export const selfHostDatabase = selfHostDatabaseSchema.pipe(
   Layer.provideMerge(
     Layer.unwrap(
-      Effect.map(databaseEngine, (engine) =>
-        engine === "sqlite"
-          ? sqliteDatabase
-          : Layer.unwrap(
-              Effect.map(databaseDirectory("hosted.pglite"), (dataDir) =>
-                Layer.merge(pgliteLayer({ dataDir }), pgliteStatementBatch),
+      Effect.map(
+        databaseEngine,
+        // Either engine reaches the product as one SQL client.
+        (
+          engine,
+        ): Layer.Layer<
+          SqlClient.SqlClient,
+          Config.ConfigError | DatabaseUnavailable | SqlError,
+          FileSystem.FileSystem | Path.Path
+        > =>
+          engine === "sqlite"
+            ? sqliteDatabase
+            : Layer.unwrap(
+                Effect.map(databaseDirectory("hosted.pglite"), (dataDir) =>
+                  Layer.merge(pgliteLayer({ dataDir }), pgliteStatementBatch),
+                ),
               ),
-            ),
       ),
     ),
   ),

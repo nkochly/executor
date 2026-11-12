@@ -2,7 +2,7 @@
  * Tool search rows and their BM25 ranking in the executor's own Postgres database. The SQL client
  * stays inside this module; callers see only these operations.
  */
-import { Clock, Effect, Schema } from "effect";
+import { Array as Arr, Clock, Effect, Schema } from "effect";
 import type { SqlClient } from "effect/sql";
 import { isSqlite, maxParameters, sqliteMaxParameters, SqlJson } from "fumadb-effect/dialect";
 import type { SqlError } from "effect/sql/SqlError";
@@ -140,7 +140,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
   const insertBatched = <A, R extends Record<string, unknown>>(
     items: ReadonlyArray<A>,
     encode: (item: A, index: number) => { readonly row: R; readonly chars: number },
-    insert: (rows: ReadonlyArray<R>) => Effect.Effect<unknown, SqlError>,
+    insert: (rows: Arr.NonEmptyReadonlyArray<R>) => Effect.Effect<unknown, SqlError>,
   ) =>
     Effect.gen(function* () {
       const parameters = maxParameters(sql);
@@ -151,7 +151,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
         // Every column of every row is one bound parameter.
         const rows = Math.max(1, Math.floor(parameters / Object.keys(encoded.row).length));
         if (
-          batch.length > 0 &&
+          Arr.isArrayNonEmpty(batch) &&
           (batch.length >= Math.min(batchRows, rows) || chars + encoded.chars > batchChars)
         ) {
           yield* insert(batch);
@@ -161,7 +161,7 @@ export const makeToolSearchStore = (sql: SqlClient.SqlClient) => {
         batch.push(encoded.row);
         chars += encoded.chars;
       }
-      if (batch.length > 0) yield* insert(batch);
+      if (Arr.isArrayNonEmpty(batch)) yield* insert(batch);
     });
   /** Delete the tool and definition rows of the listings, in groups SQLite can bind. */
   const removeRows = (listings: ReadonlyArray<ToolSearchListing>) =>
