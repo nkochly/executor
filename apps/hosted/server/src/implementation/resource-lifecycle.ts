@@ -113,6 +113,87 @@ const appUse = (
           join hosted_group_members gm on gm.group_id = g.group_id
           where g.app_id = p.id and gm.member_id = m.id)))`;
 
+const UserRequirementRow = Schema.Struct({
+  app: Schema.String,
+  accounts: Schema.NullOr(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({
+        scope: Schema.optional(Schema.String),
+        provider: Schema.optional(Schema.String),
+        cardinality: Schema.optional(Schema.String),
+      }),
+    ),
+  ),
+});
+
+/**
+ * Link an account a member just connected for one app to every other app of the organization they
+ * may use whose active version has a plain user requirement of the account's provider that they
+ * have not linked yet. One sign-in then serves every app that asks for that provider; nothing is
+ * replaced, many() requirements are left alone, and an app whose link lock another transaction
+ * holds is skipped. Runs in the connection's transaction, so it commits or rolls back with it.
+ */
+const linkWhereMissing = (
+  sql: SqlClient.SqlClient,
+  sources: Parameters<typeof addLink>[1],
+  input: {
+    readonly organization: OrganizationId;
+    readonly owner: OwnerId;
+    readonly account: Account;
+    readonly except: AppId;
+    readonly user: string;
+  },
+) =>
+  Effect.gen(function* () {
+    const rows = yield* sql`select app.id as app, d.requirements::jsonb -> 'accounts' as accounts
+      from executor_apps app
+      join executor_deployments d on d.id = app.active_deployment
+      where app.owner = ${input.owner} and app.id <> ${input.except}
+      order by app.id`;
+    const apps = yield* Schema.decodeUnknownEffect(Schema.Array(UserRequirementRow))(
+      jsonColumns(sql, rows, "accounts"),
+    );
+    for (const row of apps) {
+      const app = row.app as AppId;
+      const requirements = Object.entries(row.accounts ?? {}).filter(
+        ([, required]) =>
+          (required.scope ?? "user") === "user" &&
+          required.provider === input.account.provider &&
+          required.cardinality !== "many",
+      );
+      if (requirements.length === 0) continue;
+      const locked = yield* sql`select id from executor_apps where id = ${app}
+        for no key update skip locked`;
+      if (locked.length === 0) continue;
+      if (
+        (yield* appUse(sql, {
+          id: app,
+          organization: input.organization,
+          actor: input.user,
+        })).length !== 1
+      )
+        continue;
+      for (const [requirement] of requirements) {
+        const linked = yield* sql`select 1 from hosted_app_account_links
+          where app = ${app} and requirement = ${requirement} and subject = ${input.user}`;
+        if (linked.length > 0) continue;
+        yield* addLink(sql, sources, {
+          app,
+          requirement,
+          account: input.account.id,
+          subject: input.user,
+          linkedBy: input.user,
+        }).pipe(Effect.mapError(() => new StorageError()));
+      }
+    }
+  }).pipe(
+    Effect.catchTags({
+      SqlError: () => new StorageError(),
+      SchemaError: () => new StorageError(),
+    }),
+  );
+
 /** Whether a subject is a member who may use the app now, as any of its operations requires. */
 export const actorUsesApp = (
   sql: SqlClient.SqlClient,
@@ -644,6 +725,14 @@ export const hostedResourceLifecycle = Effect.gen(function* () {
             subject: input.scope === "app" ? null : user,
             linkedBy: user,
           }).pipe(Effect.mapError(() => new StorageError()));
+          if (input.scope === "user")
+            yield* linkWhereMissing(sql, sources, {
+              organization,
+              owner: input.account.owner,
+              account: input.account,
+              except: input.app,
+              user,
+            });
         }).pipe(
           Effect.catchTags({
             SqlError: () => new StorageError(),
