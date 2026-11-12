@@ -98,11 +98,16 @@ export const fromWire = (value: unknown): unknown => {
   return out;
 };
 
-/** An operation's outcome as it crosses: its value, its expected error, or that it died. */
-export type WireExit =
+/**
+ * An operation's outcome as it crosses: its value, its expected error, or that it died, with the
+ * tool call log's reference for a call the product recorded (`ToolCallRecorded`). A side that
+ * predates the reference neither sends nor reads it.
+ */
+export type WireExit = (
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: unknown }
-  | { readonly ok: false; readonly defect: string };
+  | { readonly ok: false; readonly defect: string }
+) & { readonly reference?: string };
 
 export type McpBackendMethod = keyof McpBackend<Error>;
 
@@ -110,6 +115,8 @@ export type McpBackendMethod = keyof McpBackend<Error>;
 export interface McpBackendCall {
   readonly method: McpBackendMethod;
   readonly args: ReadonlyArray<unknown>;
+  /** The execution the operation runs for (`CurrentMcpExecution`), which the call log records. */
+  readonly execution?: string;
 }
 
 /** An elicitation handler as it crosses: a plain async function answering with a reply. */
@@ -163,28 +170,43 @@ const receiveOptions = (options: unknown): unknown => {
   return { ...decoded, elicitation: handler };
 };
 
-/** Run one operation the session object sent with the product's own backend for its request. */
+/**
+ * Run one operation the session object sent with the product's own backend for its request. The
+ * operation runs for the execution the call names, else the caller's own; the reference of a tool
+ * call it recorded goes back beside its outcome.
+ */
 export const serveMcpBackendCall = <E extends Error>(
   backend: McpBackend<E>,
   call: McpBackendCall,
 ): Effect.Effect<WireExit> =>
   Effect.suspend(() => {
+    let reference: string | undefined;
     const operation = backend[call.method] as (
       ...args: ReadonlyArray<unknown>
     ) => Effect.Effect<unknown, unknown>;
     const args = call.args.map((arg, index) =>
       isOptions(call.method, index) ? receiveOptions(arg) : fromWire(arg),
     );
-    return operation(...args);
-  }).pipe(
-    Effect.exit,
-    Effect.map((exit): WireExit => {
-      if (Exit.isSuccess(exit)) return { ok: true, value: toWire(exit.value) };
-      const error = Cause.findErrorOption(exit.cause);
-      if (Option.isSome(error)) return { ok: false, error: toWire(error.value) };
-      return { ok: false, defect: Cause.pretty(exit.cause) };
-    }),
-  );
+    const served = operation(...args).pipe(
+      Effect.provideService(Mcp.ToolCallRecorded, (recorded) => {
+        reference = recorded;
+      }),
+    );
+    return (
+      call.execution === undefined
+        ? served
+        : served.pipe(Effect.provideService(Mcp.CurrentMcpExecution, call.execution))
+    ).pipe(
+      Effect.exit,
+      Effect.map((exit): WireExit => {
+        const recorded = reference === undefined ? {} : { reference };
+        if (Exit.isSuccess(exit)) return { ok: true, value: toWire(exit.value), ...recorded };
+        const error = Cause.findErrorOption(exit.cause);
+        if (Option.isSome(error)) return { ok: false, error: toWire(error.value), ...recorded };
+        return { ok: false, defect: Cause.pretty(exit.cause), ...recorded };
+      }),
+    );
+  });
 
 /** A product operation could not be reached or died there; the agent sees an unavailable backend. */
 export class RemoteBackendUnavailable extends Schema.TaggedError<RemoteBackendUnavailable>()(
@@ -202,24 +224,27 @@ export const remoteMcpBackend = (
   const run =
     (method: McpBackendMethod) =>
     (...args: ReadonlyArray<unknown>) =>
-      Effect.tryPromise({
-        try: () =>
-          send({
-            method,
-            args: args.map((arg, index) =>
-              isOptions(method, index) ? sendOptions(arg) : toWire(arg),
-            ),
-          }),
-        catch: () => new RemoteBackendUnavailable(),
-      }).pipe(
-        Effect.flatMap((exit) =>
-          exit.ok
-            ? Effect.succeed(fromWire(exit.value))
-            : "error" in exit
-              ? Effect.fail(fromWire(exit.error) as Error)
-              : Effect.die(new RemoteBackendUnavailable()),
-        ),
-      );
+      Effect.gen(function* () {
+        const execution = yield* Mcp.CurrentMcpExecution;
+        const recorded = yield* Mcp.ToolCallRecorded;
+        const exit = yield* Effect.tryPromise({
+          try: () =>
+            send({
+              method,
+              args: args.map((arg, index) =>
+                isOptions(method, index) ? sendOptions(arg) : toWire(arg),
+              ),
+              ...(execution === undefined ? {} : { execution }),
+            }),
+          catch: () => new RemoteBackendUnavailable(),
+        });
+        if (exit.reference !== undefined) recorded?.(exit.reference);
+        return yield* exit.ok
+          ? Effect.succeed(fromWire(exit.value))
+          : "error" in exit
+            ? Effect.fail(fromWire(exit.error) as Error)
+            : Effect.die(new RemoteBackendUnavailable());
+      });
   return {
     listSkills: run("listSkills"),
     readSkill: run("readSkill"),

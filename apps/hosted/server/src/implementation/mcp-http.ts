@@ -36,6 +36,7 @@ import {
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import {
   CurrentMcpGrant,
+  CurrentMcpSession,
   McpAuthentication,
   McpUnauthorized,
   type McpAccess,
@@ -44,6 +45,7 @@ import { CurrentOrganization, OrganizationReference } from "../contracts/organiz
 import {
   CallStateCache,
   ConcurrentStatements,
+  HostedBackground,
   HostedExecutor,
   StatementBatch,
   statementGroup,
@@ -189,6 +191,8 @@ export const hostedMcpRequestBackend = (access: McpAccess, address: McpAddress) 
   Effect.gen(function* () {
     const authentication = yield* McpAuthentication;
     const request = yield* HttpServerRequest.HttpServerRequest;
+    // Effect's protocol server issued it at `initialize` and refuses a request naming any other.
+    const session = request.headers["mcp-session-id"];
     const scoped = (fresh: McpAccess) =>
       Effect.gen(function* () {
         // A grant serves only the MCP URL it was issued for, and says why it cannot serve this one.
@@ -199,6 +203,7 @@ export const hostedMcpRequestBackend = (access: McpAccess, address: McpAddress) 
           Effect.provideService(CurrentAuthorization, grantAuthorization(fresh.grant.policy)),
           Effect.provideService(CurrentUserId, fresh.userId),
           Effect.provideService(CurrentMcpGrant, fresh.grant.id),
+          Effect.provideService(CurrentMcpSession, session),
         );
         return restrictMcpBackend<HostedMcpRequestError, never>(
           backend,
@@ -212,6 +217,7 @@ export const hostedMcpRequestBackend = (access: McpAccess, address: McpAddress) 
     const backend = scope.success;
     const services = yield* Effect.context<HostedExecutor | GroupDatabase>().pipe(
       Effect.map(Context.pick(HostedExecutor, GroupDatabase)),
+      Effect.map(Context.add(HostedBackground, yield* HostedBackground)),
     );
     // Discovery uses this HTTP request's authenticated identity. Resource policies
     // are still checked by the hosted backend. Never retain this adapter in the session.

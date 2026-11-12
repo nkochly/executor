@@ -16,6 +16,7 @@ import { queueExecutorAppUpgrades } from "./executor-app-upgrades.ts";
 import { migrateAppAccountLinks } from "./app-account-schema.ts";
 import { migrateSqliteBaseline } from "./sqlite-schema.ts";
 import { migrateBundleAppShares, migrateConnectionBundles } from "./connection-bundle-schema.ts";
+import { migrateToolCallLog, migrateToolCallLogSqlite } from "./tool-call-log.ts";
 import { isSqlite } from "fumadb-effect/dialect";
 
 /** The SQL dialects the hosted product stores its data in. */
@@ -135,6 +136,8 @@ const hostedPostgresMigrations = migrateProductSteps("private_hosted_migrations"
   "10_connection_bundles": migrateConnectionBundles,
   // Additive: which app shares bundles made; older servers never read it.
   "11_bundle_app_shares": migrateBundleAppShares,
+  // Additive: the tool call log, two new tables with no backfill; older servers never read them.
+  "12_tool_call_log": migrateToolCallLog,
 });
 
 /**
@@ -154,6 +157,8 @@ const hostedSqliteMigrations = migrateProductSteps("private_hosted_migrations", 
   "10_connection_bundles": migrateConnectionBundles,
   // Additive: which app shares bundles made; older servers never read it.
   "11_bundle_app_shares": migrateBundleAppShares,
+  // Additive: the tool call log, two new tables with no backfill; older servers never read them.
+  "12_tool_call_log": migrateToolCallLogSqlite,
 });
 
 /**
