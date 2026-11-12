@@ -7868,6 +7868,17 @@ export const scenarios = plan({
       cloud: scheduled,
     },
   },
+  hostedOneSignIn: {
+    fixtures: "actors",
+    file: "hosted-one-sign-in.spec.ts",
+    title:
+      "an account a member connects for one app is linked to every other app they may use that asks for its provider and has none linked",
+    targets: {
+      local: na("Hosted membership only."),
+      "self-host": scheduled,
+      cloud: scheduled,
+    },
+  },
   hostedAppAccountRoutes: {
     fixtures: "actors",
     file: "hosted-app-accounts.spec.ts",
