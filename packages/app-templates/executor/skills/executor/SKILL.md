@@ -27,7 +27,10 @@ is always an array and runs concurrently. Results come back as an array in the
 same order, each with `ok` and its `value` or `error`. Pass a large input,
 such as a whole page or document, through `call` as it is: an `execute`
 program, every string in it included, stops at 65,536 characters, and `call`
-has no such limit. Never shrink, split or hash a value to fit a program.
+has no such limit. When the input is a file and the tool offers its own
+upload step, such as an upload URL, use that instead, sending the file from
+your own code; `execute` cannot reach the network. Never shrink, split or hash
+a value to fit a program.
 
 Write a JavaScript program for `execute` when one call's result feeds another,
 or a large result should be filtered before it reaches you. Inside it, the same
