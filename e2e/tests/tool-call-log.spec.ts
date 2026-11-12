@@ -158,12 +158,15 @@ const FailedCall = Schema.Struct({
   status: Schema.Literal("completed"),
   execution: Schema.Struct({
     ok: Schema.Literal(true),
-    value: Schema.Struct({
-      path: Schema.String,
-      ok: Schema.Literal(false),
-      error: Schema.Struct({ kind: Schema.String, message: Schema.String }),
-      callLog: CallLog,
-    }),
+    // `call` takes and returns a list; these batches hold one call.
+    value: Schema.Tuple([
+      Schema.Struct({
+        path: Schema.String,
+        ok: Schema.Literal(false),
+        error: Schema.Struct({ kind: Schema.String, message: Schema.String }),
+        callLog: CallLog,
+      }),
+    ]),
     toolCalls: ToolCalls,
   }),
 });
@@ -565,10 +568,10 @@ layer(HostedLive, { excludeTestServices: true })("Tool call log", (it) => {
         // A failed `call` keeps the service's error and adds the reference beside it.
         const called = yield* Schema.decodeUnknownEffect(FailedCall)(
           yield* mcpTool(client, "Call a failing tool", "call", {
-            calls: { path: tool("explode"), input: { text: marker } },
+            calls: [{ path: tool("explode"), input: { text: marker } }],
           }),
         );
-        const outcome = called.execution.value;
+        const [outcome] = called.execution.value;
         expect(outcome.callLog.reference).toMatch(reference);
         expect(outcome.callLog.note).toBe(callLogNote);
         expect(outcome.error.message).toContain(`The service refused ${marker}`);
@@ -672,10 +675,10 @@ return await ${tool("explode")}({ text: ${JSON.stringify(marker)} });`,
         });
         const again = yield* Schema.decodeUnknownEffect(FailedCall)(
           yield* mcpTool(other, "Call a failing tool on another connection", "call", {
-            calls: { path: tool("explode"), input: { text: "other" } },
+            calls: [{ path: tool("explode"), input: { text: "other" } }],
           }),
         );
-        const otherRow = yield* findCall(actors.admin, again.execution.value.callLog.reference);
+        const otherRow = yield* findCall(actors.admin, again.execution.value[0].callLog.reference);
         expect(otherRow.session).toEqual(expect.any(String));
         expect(otherRow.session).not.toBe(session);
       }).pipe(Effect.provide(McpClient.layer)),
@@ -846,7 +849,7 @@ catch { return "refused"; }`,
         });
         const paused = yield* Schema.decodeUnknownEffect(Pending)(
           yield* mcpTool(client, "Call a tool that needs approval", "call", {
-            calls: { path: `tools[${JSON.stringify(app.slug)}].review`, input: { text: "mcp" } },
+            calls: [{ path: `tools[${JSON.stringify(app.slug)}].review`, input: { text: "mcp" } }],
           }),
         );
         const mcpWaiting = yield* readLog(actors.admin, { tool: "review", agent: key.id });
@@ -1415,11 +1418,11 @@ catch (error) { return { caught: { message: error.message, reference: typeof err
           "Call a failing tool while the log is failing",
           "call",
           {
-            calls: { path: tool("explode"), input: { text: "z" } },
+            calls: [{ path: tool("explode"), input: { text: "z" } }],
           },
         );
         expect(direct).toMatchObject({
-          execution: { ok: true, value: { ok: false, error: { kind: expect.any(String) } } },
+          execution: { ok: true, value: [{ ok: false, error: { kind: expect.any(String) } }] },
         });
         expect(JSON.stringify(direct)).not.toContain("callLog");
         expect((yield* readLog(actors.owner, { range: "30d" })).page.total).toBe(0);

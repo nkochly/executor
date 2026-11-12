@@ -461,7 +461,8 @@ const insertCall = (row: CallRow) =>
 
 /**
  * `insertCall` on SQLite, which has no data-modifying `with`: the row, then its accounts, in one
- * transaction. The row's select reads exactly what PostgreSQL's does.
+ * transaction; a call with no accounts is the row's statement alone. The row's select reads
+ * exactly what PostgreSQL's does.
  */
 const insertCallSqlite = (
   sql: SqlClient.SqlClient,
@@ -497,13 +498,15 @@ const insertCallSqlite = (
           ${row.approval?.expiresAt ?? null}, ${row.startedAt}, ${row.durationMs}, ${row.traceId ?? null}
         from executor_apps app where app.id = ${row.app} and app.owner = ${organization.owner}
         returning id`;
-      if (rows.length === 0) return undefined;
+      const accounts = accountIds(row.details.accounts);
+      // A call with no accounts writes its row alone, in one statement as on PostgreSQL.
+      if (rows.length === 0 || accounts === "[]") return rows.length === 0 ? undefined : row.id;
       yield* sql`insert into hosted_tool_call_accounts (call_id, account_id, account_name, shared, owner_id)
         select ${row.id}, a.id, ${name("a.label")}, h.kind = 'shared',
           case when h.kind = 'personal' then h.personal_user_id end
         from executor_accounts a
         join hosted_account_access h on h.account_id = a.id and h.organization_id = ${organization.organization}
-        where a.id in (${jsonStrings(sql, accountIds(row.details.accounts))})`;
+        where a.id in (${jsonStrings(sql, accounts)})`;
       return row.id;
     }),
   );
