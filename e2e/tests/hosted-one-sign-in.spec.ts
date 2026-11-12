@@ -1,9 +1,9 @@
 /**
  * One sign-in serves every app that asks for the same provider: connecting an account for one
- * app's plain user requirement also links it, for the connecting member, to every other app they
- * may use whose active version has a plain user requirement of that provider with no link of
- * theirs. A link the member already made is never replaced, many() requirements are left alone,
- * and apps the member may not use get nothing.
+ * app's user requirement also links it, for the connecting member, to every user requirement of
+ * that provider, one() or many(), with no link of theirs in every other app they may use. A link
+ * the member already made is never replaced or added to, and apps the member may not use get
+ * nothing.
  */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
@@ -115,10 +115,13 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         const alice = yield* connect(actors.member, first, "Alice");
         expect(yield* accountLinks(actors.member, first)).toEqual([["service", alice]]);
         expect(yield* accountLinks(actors.member, second)).toEqual([["service", alice]]);
-        expect(yield* accountLinks(actors.member, both)).toEqual([["service", alice]]);
-        expect(yield* accountLinks(actors.member, manyOnly)).toEqual([]);
+        expect(yield* accountLinks(actors.member, both)).toEqual([
+          ["extra", alice],
+          ["service", alice],
+        ]);
+        expect(yield* accountLinks(actors.member, manyOnly)).toEqual([["extra", alice]]);
         expect((yield* who(yield* call(actors.member, second))).account).toBe(alice);
-        expect((yield* who(yield* call(actors.member, both))).extra).toEqual([]);
+        expect((yield* who(yield* call(actors.member, both))).extra).toEqual([alice]);
         // An app the member could not use when they connected got no link of theirs: once it is
         // shared with them, it still has none.
         const access = yield* body(
@@ -132,14 +135,21 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         expect(opened.status, JSON.stringify(opened.body)).toBe(200);
         expect(yield* accountLinks(actors.member, ownerOnly)).toEqual([]);
 
-        // The admin's earlier sign-in, from `second`, filled `first` and `both` too. Connecting
-        // another account from `first` replaces the link there only: the apps they already linked
-        // keep the account they had.
-        expect(yield* accountLinks(actors.admin, both)).toEqual([["service", kept]]);
+        // The admin's earlier sign-in, from `second`, filled `first`, `both` and `manyOnly` too.
+        // Connecting another account from `first` replaces the link there only: the apps they
+        // already linked keep the account they had, and a many() requirement gets nothing beside it.
+        expect(yield* accountLinks(actors.admin, both)).toEqual([
+          ["extra", kept],
+          ["service", kept],
+        ]);
         const bob = yield* connect(actors.admin, first, "Bob");
         expect(yield* accountLinks(actors.admin, first)).toEqual([["service", bob]]);
         expect(yield* accountLinks(actors.admin, second)).toEqual([["service", kept]]);
-        expect(yield* accountLinks(actors.admin, both)).toEqual([["service", kept]]);
+        expect(yield* accountLinks(actors.admin, both)).toEqual([
+          ["extra", kept],
+          ["service", kept],
+        ]);
+        expect(yield* accountLinks(actors.admin, manyOnly)).toEqual([["extra", kept]]);
         expect((yield* who(yield* call(actors.admin, second))).account).toBe(kept);
 
         // Nobody else's links change: the owner connected nothing and still has none.
@@ -149,7 +159,7 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
 
         // Linking by hand is unchanged: it links one app only.
         yield* linkAccount(actors.member, second, "service", alice);
-        expect(yield* accountLinks(actors.member, manyOnly)).toEqual([]);
+        expect(yield* accountLinks(actors.member, manyOnly)).toEqual([["extra", alice]]);
       }),
     ),
   );

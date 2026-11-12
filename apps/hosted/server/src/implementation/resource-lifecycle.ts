@@ -121,7 +121,6 @@ const UserRequirementRow = Schema.Struct({
       Schema.Struct({
         scope: Schema.optional(Schema.String),
         provider: Schema.optional(Schema.String),
-        cardinality: Schema.optional(Schema.String),
       }),
     ),
   ),
@@ -130,9 +129,9 @@ const UserRequirementRow = Schema.Struct({
 /**
  * Link an account a member just connected for one app to every other app of the organization they
  * may use whose active version has a plain user requirement of the account's provider that they
- * have not linked yet. One sign-in then serves every app that asks for that provider; nothing is
- * replaced, many() requirements are left alone, and an app whose link lock another transaction
- * holds is skipped. Runs in the connection's transaction, so it commits or rolls back with it.
+ * have not linked any account to yet, one() or many(). One sign-in then serves every app that asks
+ * for that provider; nothing is replaced or added beside an existing link, and an app whose link
+ * lock another transaction holds is skipped. Runs in the connection's transaction, so it commits or rolls back with it.
  */
 const linkWhereMissing = (
   sql: SqlClient.SqlClient,
@@ -158,9 +157,7 @@ const linkWhereMissing = (
       const app = row.app as AppId;
       const requirements = Object.entries(row.accounts ?? {}).filter(
         ([, required]) =>
-          (required.scope ?? "user") === "user" &&
-          required.provider === input.account.provider &&
-          required.cardinality !== "many",
+          (required.scope ?? "user") === "user" && required.provider === input.account.provider,
       );
       if (requirements.length === 0) continue;
       const locked = yield* sql`select id from executor_apps where id = ${app}
