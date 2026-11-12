@@ -470,13 +470,13 @@ const insertCallSqlite = (
   organization: { readonly organization: string; readonly owner: string },
   user: string | undefined,
   grant: string | null,
-) =>
-  sql.withTransaction(
-    Effect.gen(function* () {
-      const source: ToolCallSource = row.caller.source;
-      const sourceId = row.caller.sourceId ?? null;
-      const name = (expression: string) => prefix(sql, sql.literal(expression), nameLength);
-      const rows = yield* sql`insert into hosted_tool_calls (id, organization_id, user_id,
+) => {
+  const accounts = accountIds(row.details.accounts);
+  const write = Effect.gen(function* () {
+    const source: ToolCallSource = row.caller.source;
+    const sourceId = row.caller.sourceId ?? null;
+    const name = (expression: string) => prefix(sql, sql.literal(expression), nameLength);
+    const rows = yield* sql`insert into hosted_tool_calls (id, organization_id, user_id,
           user_name, source, source_id, source_name, connection_id, connection_name, session_id,
           run_id, app_id, app_name, version_id, tool, kind, status, error_type, status_code,
           approval_id, approval_expires_at, started_at, duration_ms, trace_id)
@@ -498,18 +498,19 @@ const insertCallSqlite = (
           ${row.approval?.expiresAt ?? null}, ${row.startedAt}, ${row.durationMs}, ${row.traceId ?? null}
         from executor_apps app where app.id = ${row.app} and app.owner = ${organization.owner}
         returning id`;
-      const accounts = accountIds(row.details.accounts);
-      // A call with no accounts writes its row alone, in one statement as on PostgreSQL.
-      if (rows.length === 0 || accounts === "[]") return rows.length === 0 ? undefined : row.id;
-      yield* sql`insert into hosted_tool_call_accounts (call_id, account_id, account_name, shared, owner_id)
+    if (rows.length === 0) return undefined;
+    if (accounts === "[]") return row.id;
+    yield* sql`insert into hosted_tool_call_accounts (call_id, account_id, account_name, shared, owner_id)
         select ${row.id}, a.id, ${name("a.label")}, h.kind = 'shared',
           case when h.kind = 'personal' then h.personal_user_id end
         from executor_accounts a
         join hosted_account_access h on h.account_id = a.id and h.organization_id = ${organization.organization}
         where a.id in (${jsonStrings(sql, accounts)})`;
-      return row.id;
-    }),
-  );
+    return row.id;
+  });
+  // A call with no accounts writes its row alone, in one statement as on PostgreSQL.
+  return accounts === "[]" ? write : sql.withTransaction(write);
+};
 
 /**
  * A logged call's outcome and its reference. The reference is set only once the call's row is

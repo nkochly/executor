@@ -24,6 +24,9 @@ import { McpClient } from "../support/mcp-client.ts";
 import { oauthSetupIssuer } from "../support/oauth-setup-issuer.ts";
 import { scenarios } from "../test-plan.ts";
 
+/** `EXECUTOR_E2E_DATABASE=sqlite` runs the self-host product on SQLite, as Cloudflare does. */
+const sqlite = process.env.EXECUTOR_E2E_DATABASE === "sqlite";
+
 const keySource = `import { defineApp, defineProvider, secrets, object, string, query, router } from "apps";
 const service = defineProvider({ name: "Statement fixture", auth: {
   key: secrets({ label: "API key", fields: object({ token: string() }) })
@@ -306,7 +309,17 @@ layer(HostedLive, { excludeTestServices: true })("Tool call statements", (it) =>
           ["empty", emptyCall],
           ["app", appCall],
         ] as const) {
-          expect(call.logWrites.length, `${label}: the tool call log's one insert`).toBe(1);
+          if (sqlite) {
+            // SQLite has no data-modifying `with`: a call's accounts are a second insert.
+            expect(call.logWrites[0], `${label}: the call's row`).toMatch(
+              /^insert into hosted_tool_calls /u,
+            );
+            expect(call.logWrites.slice(1), `${label}: at most its accounts besides`).toEqual(
+              call.logWrites.length > 1
+                ? [expect.stringMatching(/^insert into hosted_tool_call_accounts /u)]
+                : [],
+            );
+          } else expect(call.logWrites.length, `${label}: the tool call log's one insert`).toBe(1);
           expect(call.writeEndsAfterCall, `${label}: the log's write ends after the call`).toBe(
             true,
           );
