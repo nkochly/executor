@@ -165,8 +165,11 @@ says so.
 
 These are the defaults. The source limit is fixed; a host can change the others.
 
-- Program source: 65,536 characters, including app source passed as data. With
-  a shell, deploy large apps with the `executor apps` CLI instead.
+- Program source: 65,536 characters, including every string the program
+  carries as data. To hand one tool a large input, such as a whole page or
+  document, use the `call` tool with that input as it is; never shrink, split
+  or hash it to fit a program. With a shell, deploy large apps with the
+  `executor apps` CLI instead.
 - Output: none. The returned value and logs come back whole, however large, but
   they fill your context, so return only the fields, count or page you need.
   The runtime limits one value crossing between an app and Executor, such as a

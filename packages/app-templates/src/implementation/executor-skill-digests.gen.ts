@@ -15,7 +15,7 @@ export const executorSkillDigests: Readonly<Record<string, string>> = {
   "app-authoring/upgrades/0.0.1-beta.90.md": "38c727888b2773efa1d83795e8704f7c38ad9ec27c62fcdd89b5177ec5e338c3",
   "app-authoring/webhooks.md": "8b6e4fa3fbc1641bfa741bc449d8ff1b1db7c7923c2ddec0a134be7a2f7de5d8",
   "app-authoring/workflows.md": "96f6e59d62314916d8a06f7063e5966ba506340cfff82c2648166006d0058669",
-  "code-mode/SKILL.md": "683999bd21e33e53a0cc63fef2caace026e12e3f7c7544d5cf30da7d3cc45586",
-  "executor/SKILL.md": "9fdb2061335e4ae5a5f07cbbf2a4dc775dff578ab61da98555fa9947d899ec95",
+  "code-mode/SKILL.md": "2cd09728c6f8d5b32a5f556e2b529a8518bd879f1895640dda6c5fef402f54af",
+  "executor/SKILL.md": "f2d8ea0467eafaedfd40236ad0393f39a256d91f7e2c48a33fa83e738131c76f",
   "executor/feedback.md": "11397bd260917e5a21e92897a19368d0426bf5944a7c081adc2c061d1ea797cd"
 };
