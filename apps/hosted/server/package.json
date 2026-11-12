@@ -29,7 +29,8 @@
     "./browser/contracts": "./src/contracts/browser.ts",
     "./app-management": "./src/app-management.ts",
     "./document": "./src/implementation/document.ts",
-    "./mcp-isolated": "./src/implementation/mcp-isolated.ts"
+    "./mcp-isolated": "./src/implementation/mcp-isolated.ts",
+    "./mcp-remote": "./src/implementation/mcp-remote.ts"
   },
   "dependencies": {
     "@better-auth/api-key": "1.7.16",
