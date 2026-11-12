@@ -1115,6 +1115,109 @@ layer(HostedLive, { excludeTestServices: true })("Credential placement", (it) =>
     ),
   );
 
+  it.effect(scenarios.credentialManagedWebex.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const { api, actors, prefix, deploy, connection } = yield* harness;
+        const clientId = "synthetic-webex-integration";
+        // Where Webex's MCP servers (mcp.webexapis.com) send every sign-in.
+        const webex = {
+          authorizationUrl: "https://webexapis.com/v1/authorize",
+          tokenUrl: "https://webexapis.com/v1/access_token",
+        };
+        // What Webex's messaging MCP server requires.
+        const messaging = [
+          "spark:mcp",
+          "spark:messages_write",
+          "spark:messages_read",
+          "spark:rooms_write",
+          "spark:rooms_read",
+          "spark:memberships_write",
+          "spark:memberships_read",
+          "spark:webhooks_write",
+          "spark:webhooks_read",
+        ];
+        // What Webex's meetings MCP server requires.
+        const meetings = [
+          "spark:mcp",
+          "meeting:schedules_read",
+          "meeting:schedules_write",
+          "meeting:participants_read",
+          "meeting:summaries_read",
+          "meeting:recordings_read",
+          "meeting:transcripts_read",
+        ];
+        /** Deploy a Webex service asking for `scopes`, then start signing in and read setup. */
+        const signIn = (key: string, scopes: readonly string[]) =>
+          Effect.gen(function* () {
+            const name = `Webex ${key} ${randomUUID().slice(0, 8)}`;
+            const { path, app } = yield* deploy(
+              name,
+              endpointsApp(name, ["mcp.webexapis.com"], webex, scopes),
+            );
+            const id = yield* connection(path, "mail");
+            const started = yield* api.request(
+              actors.owner,
+              "POST",
+              `${prefix}/connections/${id}/oauth/start`,
+              { method: "oauth", label: "Webex" },
+            );
+            const provider = app.requirements.accounts.mail!.provider;
+            const answered = yield* api.request(
+              actors.owner,
+              "GET",
+              `${prefix}/providers/${provider}/oauth/oauth/setup`,
+            );
+            return { started, setup: yield* body(Setup, answered) };
+          });
+        const cleared = {
+          EXECUTOR_OAUTH_WEBEX_CLIENT_ID: "",
+          EXECUTOR_OAUTH_WEBEX_CLIENT_SECRET: "",
+        };
+        yield* Effect.addFinalizer(() => restartWith(cleared).pipe(Effect.orDie));
+
+        // Without its credentials every person would have to bring a Webex integration.
+        yield* restartWith(cleared);
+        const unset = yield* signIn("unset", messaging);
+        expect(unset.setup.firstParty).toBeUndefined();
+        expect(unset.setup.mode).toBe("client-required");
+
+        // The operator's integration, set once, signs everyone in with no client to enter.
+        yield* restartWith({
+          EXECUTOR_OAUTH_WEBEX_CLIENT_ID: clientId,
+          EXECUTOR_OAUTH_WEBEX_CLIENT_SECRET: "synthetic-webex-secret",
+        });
+        const [messages, meeting, admin] = yield* Effect.all(
+          [
+            signIn("messaging", messaging),
+            signIn("meetings", meetings),
+            // An administrative scope the integration was not registered for.
+            signIn("admin", ["spark:mcp", "spark-admin:people_read"]),
+          ],
+          { concurrency: "unbounded" },
+        );
+        for (const [key, answer, scopes] of [
+          ["messaging", messages, messaging],
+          ["meetings", meeting, meetings],
+        ] as const) {
+          expect(answer.setup, key).toMatchObject({
+            mode: "automatic",
+            firstParty: { label: "Executor for Webex" },
+            scopes,
+          });
+          expect(answer.started.status, JSON.stringify(answer.started.body)).toBe(200);
+          const sent = new URL((yield* body(Redirect, answer.started)).authorizationUrl);
+          expect(`${sent.origin}${sent.pathname}`, key).toBe(webex.authorizationUrl);
+          expect(sent.searchParams.get("client_id"), key).toBe(clientId);
+          expect(sent.searchParams.get("scope")?.split(" "), key).toEqual(scopes);
+        }
+        expect(admin.setup.firstParty).toBeUndefined();
+        expect(admin.started.body).toMatchObject({ _tag: "OAuthClientUnavailable" });
+      }),
+    ),
+  );
+
   /** An app on the operator client's issuer, and an account connected through its client. */
   const managedAccount = (rawToken: boolean, configured = operator) =>
     Effect.gen(function* () {

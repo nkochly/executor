@@ -7,6 +7,7 @@
 import { FirstPartyOAuthClient } from "@executor-js/sdk/core";
 import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
 import { FirstPartyOAuthClientsInvalid } from "../contracts/oauth-client-metadata.ts";
+import { forkOAuthClientDefinitions } from "./fork-oauth-clients.ts";
 
 /** A first-party client without its credentials: everything about it that code reviews. */
 export const FirstPartyOAuthClientDefinition = FirstPartyOAuthClient.mapFields(
@@ -182,6 +183,8 @@ export const firstPartyOAuthClientDefinitions: readonly FirstPartyOAuthClientDef
     placement: { hosts: ["mcp.slack.com"] },
     unlisted: true,
   },
+  // This fork's own clients, kept apart so this file stays as upstream has it.
+  ...forkOAuthClientDefinitions,
 ];
 
 /** The two settings that hold the credentials of the client `id`. */

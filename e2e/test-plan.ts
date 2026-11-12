@@ -3598,6 +3598,19 @@ export const scenarios = plan({
       local: na("Local products have no operator OAuth clients."),
     },
   },
+  credentialManagedWebex: {
+    fixtures: "actors",
+    file: "credential-placement.spec.ts",
+    title:
+      "Executor for Webex signs members in to Webex's MCP servers with the operator's integration, once its credentials are set",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Restarts a runner-owned product with the client's credentials; Cloud composes the same reviewed definitions.",
+      ),
+      local: na("Local products have no operator OAuth clients."),
+    },
+  },
   credentialManagedPlaced: {
     fixtures: "actors",
     file: "credential-placement.spec.ts",
