@@ -7,6 +7,7 @@
 import { FirstPartyOAuthClient } from "@executor-js/sdk/core";
 import { Config, Effect, Option, Redacted, Schema, Struct } from "effect";
 import { FirstPartyOAuthClientsInvalid } from "../contracts/oauth-client-metadata.ts";
+import { forkOAuthClientDefinitions } from "./fork-oauth-clients.ts";
 
 /** A first-party client without its credentials: everything about it that code reviews. */
 export const FirstPartyOAuthClientDefinition = FirstPartyOAuthClient.mapFields(
@@ -113,31 +114,6 @@ const slackMcpUserScopes = [
 ];
 
 /**
- * The scopes Executor for Webex may ask for and a grant may hold: every scope Webex's hosted MCP
- * servers for meetings (`/mcp/webex-meeting`) and messaging (`/mcp/webex-messaging`) require, as
- * their protected-resource metadata lists them, and `spark:kms`, which Webex adds to every grant of
- * an integration and may report granting.
- */
-const webexMcpScopes = [
-  "spark:mcp",
-  "spark:kms",
-  "meeting:schedules_read",
-  "meeting:schedules_write",
-  "meeting:participants_read",
-  "meeting:summaries_read",
-  "meeting:recordings_read",
-  "meeting:transcripts_read",
-  "spark:messages_read",
-  "spark:messages_write",
-  "spark:rooms_read",
-  "spark:rooms_write",
-  "spark:memberships_read",
-  "spark:memberships_write",
-  "spark:webhooks_read",
-  "spark:webhooks_write",
-];
-
-/**
  * The clients an operator can turn on by setting their credentials.
  *
  * - `github` is v1's Executor.sh GitHub App. A GitHub App has no scopes, so it is offered only to
@@ -157,12 +133,6 @@ const webexMcpScopes = [
  *   It is unlisted, as in v1: Slack lets an app use MCP outside its own workspace only once it is
  *   published in the Slack Marketplace, so it signs in no new accounts, but reconnects and renews
  *   those it already holds. Its tokens go only to Slack's MCP server.
- * - `webex` is an operator's Webex integration (developer.webex.com), registered once with this
- *   host's OAuth callback and the scopes above. Webex's MCP servers (`mcp.webexapis.com`) name
- *   `webexapis.com` as their authorization server, which neither registers clients nor reads a
- *   client metadata document, so without this client every person would have to create a Webex
- *   integration of their own. A Webex token acts as the person who signed in. Its tokens go only
- *   to Webex's MCP servers.
  */
 export const firstPartyOAuthClientDefinitions: readonly FirstPartyOAuthClientDefinition[] = [
   {
@@ -213,18 +183,8 @@ export const firstPartyOAuthClientDefinitions: readonly FirstPartyOAuthClientDef
     placement: { hosts: ["mcp.slack.com"] },
     unlisted: true,
   },
-  {
-    id: "webex",
-    label: "Executor for Webex",
-    server: {
-      authorizationUrl: "https://webexapis.com/v1/authorize",
-      tokenUrl: "https://webexapis.com/v1/access_token",
-    },
-    tokenEndpointAuthMethod: "client_secret_post",
-    defaultScopes: ["spark:mcp"],
-    allowedScopes: webexMcpScopes,
-    placement: { hosts: ["mcp.webexapis.com"] },
-  },
+  // This fork's own clients, kept apart so this file stays as upstream has it.
+  ...forkOAuthClientDefinitions,
 ];
 
 /** The two settings that hold the credentials of the client `id`. */
