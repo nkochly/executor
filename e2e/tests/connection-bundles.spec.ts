@@ -9,6 +9,7 @@ import { randomUUID } from "node:crypto";
 import { scenarios } from "../test-plan.ts";
 import { Api, body } from "../support/api.ts";
 import { Actors } from "../support/actors.ts";
+import { Browser } from "../support/browser.ts";
 import { Evidence } from "../support/evidence.ts";
 import { HostedLive, withHostedCase } from "../support/case.ts";
 import { App, Resource } from "../support/contracts.ts";
@@ -74,6 +75,7 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
       Effect.gen(function* () {
         const api = yield* Api,
           actors = yield* Actors,
+          browser = yield* Browser,
           evidence = yield* Evidence;
         const anonymous = yield* api.session();
         const suffix = randomUUID().slice(0, 8);
@@ -196,6 +198,18 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             ]);
             // Runs as whatever accounts the member links, never a fixed list.
             expect(copy.policy.apps[0]?.runsAs).toBeUndefined();
+            // The group's page names the bundle that gives its members their connections.
+            yield* browser.login(actors.owner);
+            yield* browser.use("Open the bundle's group", (page) =>
+              page.goto(`/org/${organization.slug}/groups/${group.id}`),
+            );
+            yield* browser.use("The group names its bundle and one connection", (page) =>
+              page
+                .getByRole("link")
+                .filter({ hasText: bundle.name })
+                .filter({ hasText: "1 connection" })
+                .waitFor(),
+            );
             const edited = yield* api.request(
               actors.member,
               "PUT",

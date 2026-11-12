@@ -30,14 +30,17 @@ import { type OrganizationPageReads, useOrganizationRoute } from "../components/
 import { GroupsFrame, GroupsLoading, groupsTitle } from "../components/page-pending.tsx";
 import { HostedFailure } from "../components/dashboard-bindings.tsx";
 import { groupsAtom, saveGroupAtom, removeGroupAtom } from "../../contracts/groups.ts";
+import { bundlesAtom } from "../../contracts/connection-bundles.ts";
 import { appError, type HostedError } from "../../contracts/errors.ts";
 import { GroupConflict } from "@executor-js/hosted-server/groups";
 import { Alert, AlertTitle, AlertDescription } from "@executor-js/ui/components/alert";
 
-/** The groups, keyed by the URL; a group's page also lists the apps shared with it. */
+/** The groups, keyed by the URL; a group's page also lists its bundles and the apps shared with it. */
 export const groupsPageReads: OrganizationPageReads = (organization, params) => [
   groupsAtom(organization),
-  ...(typeof params.groupId === "string" ? [resourceDirectoryAtom(organization)] : []),
+  ...(typeof params.groupId === "string"
+    ? [resourceDirectoryAtom(organization), bundlesAtom(organization)]
+    : []),
 ];
 
 /** Shared hosted groups page. A reload reads persisted membership, never fixture data. */
@@ -122,6 +125,7 @@ function GroupContent({
                 </Button>
               }
             />
+            {admin && <GroupBundles group={selected} />}
             <GroupApps group={selected.id} />
             <div className="mt-8 border-t pt-5">
               <h3 className="text-sm font-medium text-destructive">Delete group</h3>
@@ -576,6 +580,63 @@ function GroupEditor({
         </form>
       </DialogContent>
     </Dialog>
+  );
+}
+
+/**
+ * The bundles assigned to a group. A bundle makes one connection per member, so a group with
+ * bundles and no members holds no connections; the section says so rather than looking empty.
+ */
+function GroupBundles({ group }: { readonly group: Group }) {
+  const { organization, slug: organizationSlug } = useOrganizationRoute();
+  const members = group.memberIds.length;
+  return (
+    <section className="mt-7 space-y-3">
+      <h3 className="text-sm font-medium">Connections</h3>
+      <QueryView query={bundlesAtom(organization)} Failure={HostedFailure}>
+        {(data) => {
+          const bundles = data.bundles.filter((bundle) => bundle.groups.includes(group.id));
+          const manage = (
+            <Button asChild variant="outline" size="sm">
+              <Link to="/org/$organizationSlug/bundles" params={{ organizationSlug }}>
+                Manage bundles
+              </Link>
+            </Button>
+          );
+          if (bundles.length === 0)
+            return (
+              <EmptyState size="compact" title="No bundle assigned" action={manage}>
+                Assign a bundle to this group to give each member a connection.
+              </EmptyState>
+            );
+          return (
+            <>
+              <div className="divide-y rounded-lg border">
+                {bundles.map((bundle) => (
+                  <Link
+                    className="flex items-center justify-between gap-3 p-4 text-sm hover:bg-muted"
+                    key={bundle.id}
+                    to="/org/$organizationSlug/bundles"
+                    params={{ organizationSlug }}
+                  >
+                    <span className="font-medium">{bundle.name}</span>
+                    <span className="text-muted-foreground">
+                      {bundle.apps.length} {bundle.apps.length === 1 ? "app" : "apps"} · {members}{" "}
+                      {members === 1 ? "connection" : "connections"}
+                    </span>
+                  </Link>
+                ))}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {members === 0
+                  ? "Each member gets a connection from these bundles. Add members to give them one."
+                  : "Each member holds their own connection from these bundles."}
+              </p>
+            </>
+          );
+        }}
+      </QueryView>
+    </section>
   );
 }
 
