@@ -1218,7 +1218,7 @@ return "done";`,
           yield* legacyStorage([
             {
               sql: "select status from hosted_tool_calls where id = $1",
-              sqlite: "select status from hosted_tool_calls where id = $1",
+              sqlite: "select status from hosted_tool_calls where id = ?1",
               params: [lapsed],
             },
           ]),
@@ -1257,7 +1257,7 @@ return "done";`,
               sql: "select id from hosted_tool_calls where id = any($1::text[]) order by id",
               // SQLite has no arrays: the same `{a,b}` text, matched by its elements.
               sqlite:
-                "select id from hosted_tool_calls where instr(',' || substr($1, 2, length($1) - 2) || ',', ',' || id || ',') > 0 order by id",
+                "select id from hosted_tool_calls where instr(',' || substr(?1, 2, length(?1) - 2) || ',', ',' || id || ',') > 0 order by id",
               params: [`{${[lapsed, old ?? "", recent ?? ""].join(",")}}`],
             },
           ]);
@@ -1313,7 +1313,7 @@ return "done";`,
             sql: `update hosted_tool_calls set status = 'expired', decided_at = approval_expires_at
               where status = 'awaiting-approval' and id = any($1::text[]) returning id`,
             sqlite: `update hosted_tool_calls set status = 'expired', decided_at = approval_expires_at
-              where status = 'awaiting-approval' and instr(',' || substr($1, 2, length($1) - 2) || ',', ',' || id || ',') > 0 returning id`,
+              where status = 'awaiting-approval' and instr(',' || substr(?1, 2, length(?1) - 2) || ',', ',' || id || ',') > 0 returning id`,
             params: [`{${approved.id},${declined.id}}`],
           },
         ]);
