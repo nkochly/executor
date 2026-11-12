@@ -39,6 +39,7 @@ import {
   Schema,
 } from "effect";
 import { SqlClient, SqlError } from "effect/sql";
+import { isSqlite } from "fumadb-effect/dialect";
 import { CurrentUserId } from "../contracts/auth.ts";
 import { HostedBackground } from "../contracts/executor.ts";
 import { GroupDatabase } from "../contracts/groups.ts";
@@ -48,6 +49,15 @@ import {
   type ToolCallCaller,
   type ToolCallSource,
 } from "../contracts/tool-call-log.ts";
+import {
+  current,
+  daysAgo,
+  instant,
+  integer,
+  jsonStrings,
+  prefix,
+  text,
+} from "./tool-call-log-dialect.ts";
 
 /** How long rows are kept, for every organization. */
 export const toolCallRetentionDays = 30;
@@ -137,6 +147,67 @@ export const migrateToolCallLog = Effect.gen(function* () {
     account_id text not null,
     account_name text not null,
     shared boolean not null,
+    owner_id text,
+    primary key (call_id, account_id),
+    check (shared = (owner_id is null))
+  )`;
+});
+
+/**
+ * The same two tables on SQLite, instants as epoch milliseconds. Additive; older servers never
+ * read them.
+ */
+export const migrateToolCallLogSqlite = Effect.gen(function* () {
+  const sql = yield* SqlClient.SqlClient;
+  yield* sql`create table if not exists hosted_tool_calls (
+    id text primary key,
+    organization_id text not null references organization(id) on delete cascade,
+    user_id text references "user"(id) on delete set null,
+    user_name text,
+    source text not null check (source in ('agent', 'api-key', 'dashboard', 'schedule', 'webhook', 'workflow')),
+    source_id text,
+    source_name text,
+    connection_id text,
+    connection_name text,
+    session_id text,
+    run_id text,
+    app_id text not null,
+    app_name text not null,
+    version_id text,
+    tool text,
+    kind text check (kind in ('query', 'mutation')),
+    status text not null check (status in ('awaiting-approval', 'succeeded', 'failed', 'denied', 'expired')),
+    error_type text,
+    status_code integer,
+    approval_id text,
+    approval_expires_at integer,
+    decided_by text references "user"(id) on delete set null,
+    decided_by_name text,
+    decided_at integer,
+    started_at integer not null,
+    duration_ms integer,
+    trace_id text,
+    check ((approval_id is null) = (approval_expires_at is null))
+  )`;
+  for (const index of [
+    "hosted_tool_calls_organization_started on hosted_tool_calls (organization_id, started_at desc)",
+    "hosted_tool_calls_user_started on hosted_tool_calls (user_id, started_at desc) where user_id is not null",
+    "hosted_tool_calls_tool_started on hosted_tool_calls (organization_id, app_id, tool, started_at desc)",
+    "hosted_tool_calls_source_started on hosted_tool_calls (organization_id, source_id, started_at desc) where source_id is not null",
+    "hosted_tool_calls_connection_started on hosted_tool_calls (organization_id, connection_id, started_at desc) where connection_id is not null",
+    "hosted_tool_calls_run on hosted_tool_calls (organization_id, run_id) where run_id is not null",
+    "hosted_tool_calls_session_started on hosted_tool_calls (organization_id, session_id, started_at desc) where session_id is not null",
+    "hosted_tool_calls_approval on hosted_tool_calls (organization_id, approval_id) where approval_id is not null",
+    "hosted_tool_calls_awaiting on hosted_tool_calls (approval_expires_at) where status = 'awaiting-approval'",
+    "hosted_tool_calls_decided_by on hosted_tool_calls (decided_by) where decided_by is not null",
+    "hosted_tool_calls_started on hosted_tool_calls (started_at)",
+  ])
+    yield* sql.unsafe(`create index if not exists ${index}`);
+  yield* sql`create table if not exists hosted_tool_call_accounts (
+    call_id text not null references hosted_tool_calls(id) on delete cascade,
+    account_id text not null,
+    account_name text not null,
+    shared integer not null check (shared in (0, 1)),
     owner_id text,
     primary key (call_id, account_id),
     check (shared = (owner_id is null))
@@ -345,6 +416,7 @@ const insertCall = (row: CallRow) =>
     const source: ToolCallSource = row.caller.source;
     const sourceId = row.caller.sourceId ?? null;
     const grant = source === "agent" ? sourceId : null;
+    if (isSqlite(sql)) return yield* insertCallSqlite(sql, row, organization, user, grant);
     const rows = yield* sql`with app as (
         select id, name from executor_apps where id = ${row.app} and owner = ${organization.owner}
       ), inserted as (
@@ -386,6 +458,55 @@ const insertCall = (row: CallRow) =>
       select id from inserted`;
     return rows.length > 0 ? row.id : undefined;
   });
+
+/**
+ * `insertCall` on SQLite, which has no data-modifying `with`: the row, then its accounts, in one
+ * transaction. The row's select reads exactly what PostgreSQL's does.
+ */
+const insertCallSqlite = (
+  sql: SqlClient.SqlClient,
+  row: CallRow,
+  organization: { readonly organization: string; readonly owner: string },
+  user: string | undefined,
+  grant: string | null,
+) =>
+  sql.withTransaction(
+    Effect.gen(function* () {
+      const source: ToolCallSource = row.caller.source;
+      const sourceId = row.caller.sourceId ?? null;
+      const name = (expression: string) => prefix(sql, sql.literal(expression), nameLength);
+      const rows = yield* sql`insert into hosted_tool_calls (id, organization_id, user_id,
+          user_name, source, source_id, source_name, connection_id, connection_name, session_id,
+          run_id, app_id, app_name, version_id, tool, kind, status, error_type, status_code,
+          approval_id, approval_expires_at, started_at, duration_ms, trace_id)
+        select ${row.id}, ${organization.organization}, ${user ?? null},
+          (select ${name("u.name")} from "user" u where u.id = ${user ?? null}),
+          ${source}, ${sourceId},
+          case ${source}
+            when 'agent' then (select ${name("c.name")} from "mcpGrant" g
+              join "oauthClient" c on c."clientId" = g."clientId" where g.id = ${grant})
+            when 'api-key' then (select ${name("k.name")} from apikey k where k.id = ${sourceId})
+          end,
+          (select g.connection from "mcpGrant" g where g.id = ${grant}),
+          (select ${name("mc.name")} from "mcpGrant" g
+            join "mcpConnection" mc on mc.id = g.connection where g.id = ${grant}),
+          ${row.caller.session ?? null}, ${row.caller.execution ?? null},
+          app.id, ${name("app.name")}, ${row.details.version ?? null}, ${recordedTool(row)},
+          ${row.details.kind ?? null}, ${row.ending.status}, ${row.ending.errorType ?? null},
+          ${row.ending.statusCode ?? null}, ${row.approval?.id ?? null},
+          ${row.approval?.expiresAt ?? null}, ${row.startedAt}, ${row.durationMs}, ${row.traceId ?? null}
+        from executor_apps app where app.id = ${row.app} and app.owner = ${organization.owner}
+        returning id`;
+      if (rows.length === 0) return undefined;
+      yield* sql`insert into hosted_tool_call_accounts (call_id, account_id, account_name, shared, owner_id)
+        select ${row.id}, a.id, ${name("a.label")}, h.kind = 'shared',
+          case when h.kind = 'personal' then h.personal_user_id end
+        from executor_accounts a
+        join hosted_account_access h on h.account_id = a.id and h.organization_id = ${organization.organization}
+        where a.id in (${jsonStrings(sql, accountIds(row.details.accounts))})`;
+      return row.id;
+    }),
+  );
 
 /**
  * A logged call's outcome and its reference. The reference is set only once the call's row is
@@ -517,7 +638,7 @@ export const dashboardRunReference = (requestId: ApprovalRequestId) =>
     const sql = yield* logDatabase;
     const rows = yield* sql`select id from hosted_tool_calls
       where organization_id = ${organization.organization} and approval_id = ${requestId}
-        and source = 'dashboard' and user_id = ${user}::text and status <> 'succeeded'`;
+        and source = 'dashboard' and user_id = ${text(sql, user)} and status <> 'succeeded'`;
     return Option.getOrUndefined(
       Schema.decodeUnknownOption(Schema.Struct({ id: ToolCallId }))(rows[0]),
     )?.id;
@@ -541,17 +662,18 @@ const updateResumed = (requestId: ApprovalRequestId, ending: Ending, startedAt: 
     const answered = ending.status !== "expired";
     // Only an approved call runs again; a refusal or a lapse adds no running time.
     const ran = ending.status === "succeeded" || ending.status === "failed";
+    const decider = answered ? (user ?? null) : null;
     const rows = yield* sql`update hosted_tool_calls set
-        status = ${ending.status}, error_type = ${ending.errorType ?? null}::text,
-        status_code = ${ending.statusCode ?? null}::integer,
-        decided_by = ${answered ? (user ?? null) : null}::text,
-        decided_by_name = (select left(u.name, ${nameLength}) from "user" u
-          where u.id = ${answered ? (user ?? null) : null}::text),
-        decided_at = ${answered ? timestamp(startedAt) : null}::timestamptz,
-        duration_ms = coalesce(duration_ms, 0) + ${ran ? Math.max(0, now - startedAt) : 0}::integer
+        status = ${ending.status}, error_type = ${text(sql, ending.errorType ?? null)},
+        status_code = ${integer(sql, ending.statusCode ?? null)},
+        decided_by = ${text(sql, decider)},
+        decided_by_name = (select ${prefix(sql, sql.literal("u.name"), nameLength)} from "user" u
+          where u.id = ${text(sql, decider)}),
+        decided_at = ${instant(sql, answered ? startedAt : null)},
+        duration_ms = coalesce(duration_ms, 0) + ${integer(sql, ran ? Math.max(0, now - startedAt) : 0)}
       where organization_id = ${organization.organization} and approval_id = ${requestId}
         and (status = 'awaiting-approval'
-          or (status = 'expired' and ${ending.status}::text <> 'expired'))
+          or (status = 'expired' and ${text(sql, ending.status)} <> 'expired'))
       returning id`;
     return Option.getOrUndefined(
       Schema.decodeUnknownOption(Schema.Struct({ id: ToolCallId }))(rows[0]),
@@ -601,8 +723,17 @@ export const loggedToolResume = <E, R>(
 export const pruneToolCallLog = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql`update hosted_tool_calls set status = 'expired', decided_at = approval_expires_at
-    where status = 'awaiting-approval' and approval_expires_at <= now()`;
+    where status = 'awaiting-approval' and approval_expires_at <= ${current(sql)}`;
   for (let batch = 0; batch < pruneBatches; batch++) {
+    // SQLite has no data-modifying `with`; its delete returns the deleted rows themselves.
+    if (isSqlite(sql)) {
+      const gone = yield* sql`delete from hosted_tool_calls where id in (
+          select id from hosted_tool_calls where started_at < ${daysAgo(sql, toolCallRetentionDays)}
+          limit ${pruneBatch})
+        returning 1`;
+      if (gone.length < pruneBatch) break;
+      continue;
+    }
     const rows = yield* sql`with gone as (
         delete from hosted_tool_calls where id in (
           select id from hosted_tool_calls

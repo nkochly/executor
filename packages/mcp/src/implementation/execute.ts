@@ -1818,10 +1818,10 @@ function runProgram(
       if (unknown !== undefined && !result.ok) yield* prepared.recheck(result.error);
       const execution = executionDiagnostic({
         ...result,
-        ...(result.ok ? {} : { error: programFailure(result.error) }),
+        ...(result.ok ? {} : { error: reportedFailure(result.error) }),
         ...(unknown === undefined || result.ok
           ? {}
-          : { error: { ...programFailure(result.error), suggestions: [unknown] } }),
+          : { error: { ...reportedFailure(result.error), suggestions: [unknown] } }),
         ...(unavailable === undefined
           ? {}
           : {
@@ -1867,7 +1867,7 @@ function runProgram(
  * The program's uncaught failure as agents read it: a failed tool's properties are not passed on
  * whole; its reference becomes the failure's `callLog`, beside the unchanged message.
  */
-const programFailure = ({ properties, ...error }: CodeMode.Diagnostic) => ({
+const reportedFailure = ({ properties, ...error }: CodeMode.Diagnostic) => ({
   ...error,
   ...(error.kind === "ToolFailure" ? callLog(properties?.["reference"]) : {}),
 });

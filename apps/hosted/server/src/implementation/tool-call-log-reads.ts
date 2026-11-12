@@ -8,6 +8,7 @@ import { type App, AppId, Cursor, RequestInvalid, StorageError } from "@executor
 import { Clock, Effect, Option, Schema } from "effect";
 import { HttpApiBuilder } from "effect/http-api";
 import { SqlError, type Statement } from "effect/sql";
+import { isSqlite, SqlBoolean } from "fumadb-effect/dialect";
 import { HostedApi } from "../contracts/api.ts";
 import { CurrentUserId } from "../contracts/auth.ts";
 import { HostedExecutor } from "../contracts/executor.ts";
@@ -27,6 +28,18 @@ import {
 import { currentOwner } from "./access.ts";
 import { policyDatabase, visibleApps } from "./resource-policy.ts";
 import { toolCallRetentionDays } from "./tool-call-log.ts";
+import {
+  accountsJson,
+  countAll,
+  cursorInstant,
+  cursorParameter,
+  instant,
+  jsonStrings,
+  latest,
+  matches,
+  millis,
+  text,
+} from "./tool-call-log-dialect.ts";
 
 const rangeMillis: Record<ToolCallRange, number> = {
   "24h": 24 * 60 * 60_000,
@@ -74,6 +87,8 @@ const viewer = Effect.gen(function* () {
 const bounded = <A, R>(read: Effect.Effect<A, SqlError.SqlError | Schema.SchemaError, R>) =>
   Effect.gen(function* () {
     const sql = yield* policyDatabase;
+    // A SQLite transaction already excludes every writer, and its statements have no timer.
+    if (isSqlite(sql)) return yield* sql.withTransaction(read);
     return yield* sql.withTransaction(
       sql`set transaction isolation level repeatable read`.pipe(
         Effect.andThen(sql`set local statement_timeout = '${sql.literal(readTimeout)}'`),
@@ -120,7 +135,7 @@ const CallRow = Schema.Struct({
   user_name: NullableString,
   user_email: NullableString,
   user_image: NullableString,
-  user_member: Schema.Boolean,
+  user_member: SqlBoolean,
   source: ToolCallSource,
   source_id: NullableString,
   source_name: NullableString,
@@ -143,7 +158,7 @@ const CallRow = Schema.Struct({
   decided_by_name: NullableString,
   decided_email: NullableString,
   decided_image: NullableString,
-  decided_member: Schema.Boolean,
+  decided_member: SqlBoolean,
   decided_ms: Millis,
   duration_ms: Schema.NullOr(Schema.Number),
   accounts: Schema.fromJsonString(
@@ -244,7 +259,6 @@ const listCalls = (query: ToolCallQuery) =>
     const access = yield* viewer;
     const sql = yield* policyDatabase;
     const now = yield* Clock.currentTimeMillis;
-    const nowText = new Date(now).toISOString();
     const limit = query.limit ?? toolCallPage.default;
     const search = query.search?.trim() ?? "";
     // Text that is exactly a reference finds that call alone, whatever else the query names.
@@ -255,14 +269,14 @@ const listCalls = (query: ToolCallQuery) =>
       return yield* new RequestInvalid({ part: "query" });
     // An approval past its deadline is expired, though only the prune job marks the row.
     const status = sql`(case when c.status = 'awaiting-approval'
-      and c.approval_expires_at <= ${nowText}::timestamptz then 'expired' else c.status end)`;
-    const since = new Date(now - rangeMillis[query.range ?? "7d"]).toISOString();
+      and c.approval_expires_at <= ${instant(sql, now)} then 'expired' else c.status end)`;
+    const since = instant(sql, now - rangeMillis[query.range ?? "7d"]);
     // Calls past the retention are gone, whether or not the prune has deleted them yet.
-    const kept = new Date(now - retentionMillis).toISOString();
+    const kept = instant(sql, now - retentionMillis);
     const pattern = reference === null && search !== "" ? containing(search) : null;
     const scope: Statement.Fragment = sql`c.organization_id = ${access.organization}
-      and (${access.own}::text is null or c.user_id = ${access.own})
-      and c.started_at >= ${kept}::timestamptz`;
+      and (${text(sql, access.own)} is null or c.user_id = ${access.own})
+      and c.started_at >= ${kept}`;
     // A personal account is shown, and found, only for the member it belongs to.
     const shown = sql`(a.shared or a.owner_id = ${access.user})`;
     // A member is told an app's name only while they may use the app, so their search finds calls
@@ -272,8 +286,8 @@ const listCalls = (query: ToolCallQuery) =>
         ? null
         : yield* bounded(
             sql`select distinct c.app_id as id from hosted_tool_calls c
-              where ${scope} and c.started_at >= ${since}::timestamptz
-                and c.app_name ilike ${pattern}`.pipe(
+              where ${scope} and c.started_at >= ${since}
+                and ${matches(sql, sql`c.app_name`, pattern)}`.pipe(
               Effect.flatMap(
                 Schema.decodeUnknownEffect(Schema.Array(Schema.Struct({ id: AppId }))),
               ),
@@ -284,37 +298,38 @@ const listCalls = (query: ToolCallQuery) =>
           );
     const appNamed: Statement.Fragment =
       named === null
-        ? sql`c.app_name ilike ${pattern}`
-        : sql`(c.app_name ilike ${pattern}
-            and c.app_id in (select jsonb_array_elements_text(${named}::jsonb)))`;
+        ? matches(sql, sql`c.app_name`, pattern)
+        : sql`(${matches(sql, sql`c.app_name`, pattern)}
+            and c.app_id in (${jsonStrings(sql, named)}))`;
     const matching: Statement.Fragment =
       reference !== null
         ? sql`${scope} and c.id = ${reference}`
         : sql`${scope}
-          and c.started_at >= ${since}::timestamptz
-          and (${query.member ?? null}::text is null or c.user_id = ${query.member ?? null})
-          and (${query.app ?? null}::text is null or c.app_id = ${query.app ?? null})
-          and (${query.tool ?? null}::text is null or c.tool = ${query.tool ?? null})
-          and (${query.status ?? null}::text is null or ${status} = ${query.status ?? null})
-          and (${query.source ?? null}::text is null or c.source = ${query.source ?? null})
-          and (${query.agent ?? null}::text is null or c.source_id = ${query.agent ?? null})
-          and (${query.connection ?? null}::text is null
+          and c.started_at >= ${since}
+          and (${text(sql, query.member ?? null)} is null or c.user_id = ${query.member ?? null})
+          and (${text(sql, query.app ?? null)} is null or c.app_id = ${query.app ?? null})
+          and (${text(sql, query.tool ?? null)} is null or c.tool = ${query.tool ?? null})
+          and (${text(sql, query.status ?? null)} is null or ${status} = ${query.status ?? null})
+          and (${text(sql, query.source ?? null)} is null or c.source = ${query.source ?? null})
+          and (${text(sql, query.agent ?? null)} is null or c.source_id = ${query.agent ?? null})
+          and (${text(sql, query.connection ?? null)} is null
             or c.connection_id = ${query.connection ?? null})
-          and (${query.session ?? null}::text is null or c.session_id = ${query.session ?? null})
-          and (${query.run ?? null}::text is null or c.run_id = ${query.run ?? null})
-          and (${pattern}::text is null
-            or c.tool ilike ${pattern} or ${appNamed}
-            or c.user_name ilike ${pattern} or c.source_name ilike ${pattern}
+          and (${text(sql, query.session ?? null)} is null or c.session_id = ${query.session ?? null})
+          and (${text(sql, query.run ?? null)} is null or c.run_id = ${query.run ?? null})
+          and (${text(sql, pattern)} is null
+            or ${matches(sql, sql`c.tool`, pattern)} or ${appNamed}
+            or ${matches(sql, sql`c.user_name`, pattern)}
+            or ${matches(sql, sql`c.source_name`, pattern)}
             or exists (select 1 from hosted_tool_call_accounts a
-              where a.call_id = c.id and ${shown} and a.account_name ilike ${pattern}))`;
+              where a.call_id = c.id and ${shown} and ${matches(sql, sql`a.account_name`, pattern)}))`;
     const after: Statement.Fragment =
       cursor === undefined
         ? sql`true`
-        : sql`(c.started_at, c.id) < (${cursor.startedAt}::timestamptz, ${cursor.id})`;
+        : sql`(c.started_at, c.id) < (${cursorParameter(sql, cursor.startedAt)}, ${cursor.id})`;
     const read = Effect.gen(function* () {
       const rows = yield* sql`select c.id,
-          (extract(epoch from c.started_at) * 1000)::float8 as started_ms,
-          to_char(c.started_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as started_text,
+          ${millis(sql, sql`c.started_at`)} as started_ms,
+          ${cursorInstant(sql, "c.started_at")} as started_text,
           c.user_id, c.user_name, case when um.id is null then null else u.email end as user_email,
           case when um.id is null then null else u.image end as user_image,
           um.id is not null as user_member,
@@ -325,21 +340,19 @@ const listCalls = (query: ToolCallQuery) =>
           c.session_id, c.run_id,
           c.app_id, c.app_name, c.version_id, c.tool, c.kind, ${status} as status,
           c.error_type, c.status_code, c.approval_id,
-          (extract(epoch from c.approval_expires_at) * 1000)::float8 as expires_ms,
+          ${millis(sql, sql`c.approval_expires_at`)} as expires_ms,
           c.decided_by, c.decided_by_name,
           case when dm.id is null then null else d.email end as decided_email,
           case when dm.id is null then null else d.image end as decided_image,
           dm.id is not null as decided_member,
-          (extract(epoch from coalesce(c.decided_at,
-            case when ${status} = 'expired' then c.approval_expires_at end)) * 1000)::float8
+          ${millis(
+            sql,
+            sql`coalesce(c.decided_at,
+              case when ${status} = 'expired' then c.approval_expires_at end)`,
+          )}
             as decided_ms,
           c.duration_ms,
-          coalesce((select json_agg(json_build_object(
-                'id', case when ${shown} then a.account_id end,
-                'name', case when ${shown} then a.account_name end,
-                'shared', a.shared)
-              order by ${shown} desc, case when ${shown} then a.account_name end)
-            from hosted_tool_call_accounts a where a.call_id = c.id), '[]'::json)::text as accounts
+          ${accountsJson(sql, shown)} as accounts
         from hosted_tool_calls c
         left join "user" u on u.id = c.user_id
         left join member um on um."organizationId" = c.organization_id and um."userId" = c.user_id
@@ -355,10 +368,10 @@ const listCalls = (query: ToolCallQuery) =>
       const runs =
         runIds.length === 0
           ? []
-          : yield* sql`select run_id as id, count(*)::int as calls from hosted_tool_calls
+          : yield* sql`select run_id as id, ${countAll(sql)} as calls from hosted_tool_calls
               where organization_id = ${access.organization} and ${sql.in("run_id", runIds)}
-                and (${access.own}::text is null or user_id = ${access.own})
-                and started_at >= ${kept}::timestamptz
+                and (${text(sql, access.own)} is null or user_id = ${access.own})
+                and started_at >= ${kept}
               group by run_id`.pipe(
               Effect.flatMap(
                 Schema.decodeUnknownEffect(
@@ -367,7 +380,7 @@ const listCalls = (query: ToolCallQuery) =>
               ),
             );
       // The count reads at most one row past the limit, so its cost is bounded however many match.
-      const counted = yield* sql`select count(*)::int as count from (
+      const counted = yield* sql`select ${countAll(sql)} as count from (
           select 1 from hosted_tool_calls c where ${matching} limit ${toolCallCountLimit + 1}) t`;
       const { count } = yield* Schema.decodeUnknownEffect(Schema.Struct({ count: Schema.Number }))(
         counted[0],
@@ -399,14 +412,14 @@ const listFilters = (range: ToolCallRange | undefined) =>
     const access = yield* viewer;
     const sql = yield* policyDatabase;
     const now = yield* Clock.currentTimeMillis;
-    const since = new Date(now - rangeMillis[range ?? "7d"]).toISOString();
+    const since = instant(sql, now - rangeMillis[range ?? "7d"]);
     const visible: Statement.Fragment = sql`c.organization_id = ${access.organization}
-      and (${access.own}::text is null or c.user_id = ${access.own})
-      and c.started_at >= ${since}::timestamptz`;
+      and (${text(sql, access.own)} is null or c.user_id = ${access.own})
+      and c.started_at >= ${since}`;
     // Each choice is named as its latest call names it; each list holds the most recently called.
     const read = Effect.gen(function* () {
       const members = yield* sql`select c.user_id as id,
-          (array_agg(c.user_name order by c.started_at desc))[1] as name,
+          ${latest(sql, "c.user_name")} as name,
           max(case when m.id is null then null else u.email end) as email,
           max(case when m.id is null then null else u.image end) as image
         from hosted_tool_calls c left join "user" u on u.id = c.user_id
@@ -414,7 +427,7 @@ const listFilters = (range: ToolCallRange | undefined) =>
         where ${visible} and c.user_id is not null
         group by c.user_id order by max(c.started_at) desc limit ${toolCallFilterChoices}`;
       const apps = yield* sql`select c.app_id as id,
-          (array_agg(c.app_name order by c.started_at desc))[1] as name
+          ${latest(sql, "c.app_name")} as name
         from hosted_tool_calls c where ${visible}
         group by c.app_id order by max(c.started_at) desc limit ${toolCallFilterChoices}`;
       // The logo is the client's own, read now: the log copies only its name.
@@ -422,14 +435,14 @@ const listFilters = (range: ToolCallRange | undefined) =>
           (select oc.icon from "mcpGrant" g join "oauthClient" oc on oc."clientId" = g."clientId"
             where a.source = 'agent' and g.id = a.id) as icon
         from (select c.source, c.source_id as id,
-            (array_agg(c.source_name order by c.started_at desc))[1] as name,
+            ${latest(sql, "c.source_name")} as name,
             max(c.started_at) as latest
           from hosted_tool_calls c where ${visible} and c.source_id is not null
           group by c.source, c.source_id order by max(c.started_at) desc
           limit ${toolCallFilterChoices}) a
         order by a.latest desc`;
       const connections = yield* sql`select c.connection_id as id,
-          (array_agg(c.connection_name order by c.started_at desc))[1] as name
+          ${latest(sql, "c.connection_name")} as name
         from hosted_tool_calls c where ${visible} and c.connection_id is not null
         group by c.connection_id order by max(c.started_at) desc limit ${toolCallFilterChoices}`;
       return {
