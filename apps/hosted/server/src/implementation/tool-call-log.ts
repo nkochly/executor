@@ -49,15 +49,7 @@ import {
   type ToolCallCaller,
   type ToolCallSource,
 } from "../contracts/tool-call-log.ts";
-import {
-  current,
-  daysAgo,
-  instant,
-  integer,
-  jsonStrings,
-  prefix,
-  text,
-} from "./tool-call-log-dialect.ts";
+import { instant, integer, jsonStrings, prefix, text } from "./tool-call-log-dialect.ts";
 
 /** How long rows are kept, for every organization. */
 export const toolCallRetentionDays = 30;
@@ -726,13 +718,17 @@ export const loggedToolResume = <E, R>(
  */
 export const pruneToolCallLog = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
+  // On SQLite instants are the server's own milliseconds, so its clock decides, as for reads.
+  const now = yield* Clock.currentTimeMillis;
+  const current = isSqlite(sql) ? sql`${now}` : sql`now()`;
   yield* sql`update hosted_tool_calls set status = 'expired', decided_at = approval_expires_at
-    where status = 'awaiting-approval' and approval_expires_at <= ${current(sql)}`;
+    where status = 'awaiting-approval' and approval_expires_at <= ${current}`;
   for (let batch = 0; batch < pruneBatches; batch++) {
     // SQLite has no data-modifying `with`; its delete returns the deleted rows themselves.
     if (isSqlite(sql)) {
       const gone = yield* sql`delete from hosted_tool_calls where id in (
-          select id from hosted_tool_calls where started_at < ${daysAgo(sql, toolCallRetentionDays)}
+          select id from hosted_tool_calls
+          where started_at < ${now - toolCallRetentionDays * 24 * 60 * 60_000}
           limit ${pruneBatch})
         returning 1`;
       if (gone.length < pruneBatch) break;

@@ -6,7 +6,7 @@
  *
  * Upstream writes the log for PostgreSQL only; this module is the fork's SQLite half of it.
  */
-import { isSqlite, sqliteNow } from "fumadb-effect/dialect";
+import { isSqlite } from "fumadb-effect/dialect";
 import type { SqlClient, Statement } from "effect/sql";
 
 type Sql = SqlClient.SqlClient;
@@ -28,18 +28,6 @@ export const integer = (sql: Sql, value: number | null): Statement.Fragment =>
 /** An instant column as epoch milliseconds. */
 export const millis = (sql: Sql, column: Statement.Fragment): Statement.Fragment =>
   isSqlite(sql) ? sql`(${column})` : sql`(extract(epoch from ${column}) * 1000)::float8`;
-
-/** The current instant minus `days`. */
-export const daysAgo = (sql: Sql, days: number): Statement.Fragment =>
-  sql.literal(
-    isSqlite(sql)
-      ? `(${sqliteNow} - ${Math.trunc(days) * 86_400_000})`
-      : `(now() - make_interval(days => ${Math.trunc(days)}))`,
-  );
-
-/** The current instant. */
-export const current = (sql: Sql): Statement.Fragment =>
-  sql.literal(isSqlite(sql) ? sqliteNow : "now()");
 
 /** The first `length` characters of `expression`. */
 export const prefix = (sql: Sql, expression: Statement.Fragment, length: number) =>

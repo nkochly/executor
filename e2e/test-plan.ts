@@ -9932,6 +9932,7 @@ export const scenarios = plan({
   toolCallLogExpiry: {
     fixtures: "actors",
     legacyStorage: true,
+    legacyStorageSqlite: true,
     file: "tool-call-log.spec.ts",
     title:
       "A lapsed approval reads as expired, the prune marks it, and logged calls older than 30 days are not found before the prune deletes them",
@@ -9944,6 +9945,7 @@ export const scenarios = plan({
   toolCallLogApprovedAtDeadline: {
     fixtures: "actors",
     legacyStorage: true,
+    legacyStorageSqlite: true,
     file: "tool-call-log.spec.ts",
     title:
       "An approval answered in time replaces the expiry the prune marked on its call while the call was still running",
@@ -9956,6 +9958,7 @@ export const scenarios = plan({
   toolCallLogWriteFailure: {
     fixtures: "actors",
     legacyStorage: true,
+    legacyStorageSqlite: true,
     file: "tool-call-log.spec.ts",
     title: "Tool calls end normally, without a reference, when the tool call log cannot be written",
     targets: {
