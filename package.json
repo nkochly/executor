@@ -168,6 +168,7 @@
     "yaml": "2.9.1"
   },
   "overrides": {
+    "@astrojs/node": "11.1.12",
     "@azure/msal-node": "7.2.1",
     "@effect/platform-browser": "4.0.1",
     "@effect/platform-bun": "4.0.1",

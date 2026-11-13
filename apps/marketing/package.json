@@ -23,7 +23,7 @@
     "@executor-js/ui": "workspace:*",
     "@sentry/browser": "10.75.0",
     "@tailwindcss/vite": "4.3.3",
-    "astro": "7.3.3",
+    "astro": "7.4.11",
     "clsx": "2.1.1",
     "cookie": "2.0.1",
     "effect": "4.0.1",
