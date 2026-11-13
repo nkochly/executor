@@ -13,6 +13,7 @@
  * and the step's tool listings, released with the step.
  */
 import {
+  recordSecurityAudit,
   HostedExecutor,
   organizationOwner,
   type McpConnectionStore,
@@ -274,8 +275,8 @@ export type V1ImportStep<S> = <A, R>(
 
 /**
  * Storage and transport failures retry the step, as do builds that ran out of memory or whose
- * compiler did not answer, and source operations Git storage could not complete, which say nothing
- * about the source. Anything v2 refuses fails the item.
+ * compiler did not answer, setup help Executor could not check, and source operations Git storage
+ * could not complete, which say nothing about the source. Anything v2 refuses fails the item.
  */
 const transient = (error: unknown) =>
   Predicate.isTagged(error, "StorageError") ||
@@ -284,6 +285,7 @@ const transient = (error: unknown) =>
   Predicate.isTagged(error, "V1ImportUnavailable") ||
   Predicate.isTagged(error, "BuildMemoryExceeded") ||
   Predicate.isTagged(error, "BuildUnanswered") ||
+  Predicate.isTagged(error, "MarkdownUnavailable") ||
   // Git storage that could not complete an operation says nothing about the source either.
   (Predicate.isTagged(error, "SourceError") &&
     Predicate.hasProperty(error, "reason") &&
@@ -2377,6 +2379,14 @@ const verify = (
     for (const account of accounts)
       if (!(yield* context.executor[OAuthGrantImport].credentialsReadable(AccountId.make(account))))
         unreadable++;
+    // One record for the whole read: it decrypts every imported account's credentials at once.
+    yield* recordSecurityAudit({
+      action: "credential.read",
+      outcome: unreadable === 0 ? "success" : "failure",
+      target: { kind: "organization", id: context.target.id },
+      organization: context.target.id,
+      detail: { purpose: "import_verification", accounts: String(accounts.size) },
+    });
     if (unreadable > 0)
       problems.push(`${unreadable} imported accounts' credentials do not decrypt with v2's key.`);
 

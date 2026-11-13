@@ -1252,7 +1252,8 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
             Effect.gen(function* () {
               const row = yield* ownedConnection(ctx, ctx.body, ctx.body.id);
               yield* revokeConnection(ctx, row);
-              return { revoked: true };
+              // The stored connection's ID, for callers that record which one was revoked.
+              return { revoked: true, id: row.id };
             }),
           ),
       ),
@@ -1278,7 +1279,7 @@ export const grantOAuthPlugins = (settings: GrantOAuthOptions) => {
               if (row.userId !== ctx.body.userId || row.resource !== ctx.body.resource)
                 return yield* Effect.fail(new APIError("NOT_FOUND"));
               yield* revoke(ctx, row.id);
-              return { revoked: true };
+              return { revoked: true, id: row.id };
             }),
           ),
       ),

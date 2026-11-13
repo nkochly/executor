@@ -32,6 +32,7 @@ import {
   reconcileBundles,
   withBundles,
 } from "./connection-bundles.ts";
+import { audited } from "./security-audit.ts";
 
 const owner = Effect.gen(function* () {
   const organization = yield* CurrentOrganization;
@@ -213,13 +214,20 @@ export const hostedMcpConnectionHandlers = HttpApiBuilder.group(
           requireOwnConnection(params.connection).pipe(
             Effect.andThen(owner),
             Effect.flatMap((current) => auth.connections.revoke(current, params.connection)),
+            audited("mcp_connection.revoke", { kind: "mcp_connection", id: (revoked) => revoked }),
+            Effect.asVoid,
           ),
         )
         .handle("agents", () =>
           Effect.flatMap(owner, (current) => auth.connections.agents(current)),
         )
         .handle("revokeAgent", ({ params }) =>
-          Effect.flatMap(owner, (current) => auth.connections.revokeAgent(current, params.agent)),
+          Effect.flatMap(owner, (current) =>
+            auth.connections.revokeAgent(current, params.agent),
+          ).pipe(
+            audited("mcp_agent.revoke", { kind: "mcp_agent", id: (revoked) => revoked }),
+            Effect.asVoid,
+          ),
         );
     }),
 );

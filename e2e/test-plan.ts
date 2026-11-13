@@ -955,6 +955,16 @@ export const scenarios = plan({
       local: na("Hosted version API scenario"),
     },
   },
+  mcpNestedExecutorResult: {
+    fixtures: "actors",
+    file: "mcp-direct-calls.spec.ts",
+    title: "Executor behind Executor returns each nested result once",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Loopback MCP router; covered on self-host"),
+      local: na("Hosted version API scenario"),
+    },
+  },
   mcpNativeCallApproval: {
     fixtures: "actors",
     file: "mcp-direct-calls.spec.ts",
@@ -4638,6 +4648,59 @@ export const scenarios = plan({
       ),
     },
   },
+  setupHelpRefused: {
+    fixtures: "actors",
+    file: "setup-guides.spec.ts",
+    title:
+      "deploys refuse setup help with links other than https, raw HTML, images or too much text, naming the requirement, provider, method and field",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Runs the same SDK deploy and connection checks as self-host."),
+    },
+  },
+  setupHelpIdentity: {
+    fixtures: "actors",
+    file: "setup-guides.spec.ts",
+    title:
+      "apps that explain one provider differently share its ID and accounts, and editing an app's setup help keeps the provider ID, its links and tool calls",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Runs the same SDK deploy, identity and connection operations as self-host."),
+    },
+  },
+  setupHelpForm: {
+    fixtures: "actors",
+    file: "setup-guides.spec.ts",
+    title:
+      "the connect form shows the app's own guide and described fields, and OAuth client entry shows the app's client guide",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Uses a loopback OAuth issuer for client entry; self-host renders the same shared connect form.",
+      ),
+      local: na("Local connection links have their own scenario."),
+    },
+  },
+  localSetupHelp: {
+    file: "setup-guides.spec.ts",
+    title: "a local connection link shows the app's guide and field descriptions",
+    targets: {
+      local: scheduled,
+      "self-host": na("Hosted connection links have their own scenario."),
+      cloud: na("Hosted connection links have their own scenario."),
+    },
+  },
+  localToolMarkdownImages: {
+    file: "setup-guides.spec.ts",
+    title: "tool descriptions render images as their alt text and link only https addresses",
+    targets: {
+      local: scheduled,
+      "self-host": na("The hosted dashboards render tool descriptions with the same component."),
+      cloud: na("The hosted dashboards render tool descriptions with the same component."),
+    },
+  },
   localPastedCredentialsNamedAfterSaving: {
     file: "local-account-naming.spec.ts",
     title:
@@ -6236,6 +6299,17 @@ export const scenarios = plan({
       "self-host": scheduled,
       cloud: managedCloud,
       local: na("Local has no organizations, so its MCP spans name none."),
+    },
+  },
+  securityObservability: {
+    fixtures: "actors",
+    file: "security-observability.spec.ts",
+    title:
+      "Hosted request spans record the client, the credential and why a request was refused, and security actions leave audit records, never a credential",
+    targets: {
+      "self-host": scheduled,
+      cloud: managedCloud,
+      local: na("Local has no hosted sign-in, API keys or organizations to refuse."),
     },
   },
   organizationRequestSpans: {

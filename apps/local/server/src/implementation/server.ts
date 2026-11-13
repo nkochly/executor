@@ -47,6 +47,7 @@ import {
 } from "@executor-js/sdk/core";
 import { filesystemBlobStore, workerdApps } from "@executor-js/sdk/node";
 import { officialCatalogUrl } from "@executor-js/catalog";
+import { markdownRefusals } from "@executor-js/sdk/markdown";
 import {
   Config,
   Effect,
@@ -166,6 +167,7 @@ export const localApi = (
         secret: config.encryptionKey,
         origin: config.webhookOrigin ?? config.browserOrigin ?? `http://localhost:${config.port}`,
         git: repositories,
+        markdown: markdownRefusals,
         hooks: localResourceLifecycle(Deferred.await(ready), sql),
         blobs,
         runtime,

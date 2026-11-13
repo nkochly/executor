@@ -119,6 +119,11 @@ export const selfHostExecutorServices = <E, R>(
         secret: key,
         origin,
         git: repositories,
+        // The parser loads at the first read of setup help, so it costs a Worker's startup nothing.
+        markdown: (texts) =>
+          Effect.promise(() => import("@executor-js/sdk/markdown")).pipe(
+            Effect.flatMap(({ markdownRefusals }) => markdownRefusals(texts)),
+          ),
         blobs,
         runtime,
         workflows,
