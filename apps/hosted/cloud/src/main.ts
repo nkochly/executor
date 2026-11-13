@@ -134,8 +134,13 @@ import { hasSessionCookie } from "./contracts/browser.ts";
 import { clientMetadataBinding, cloudClientMetadata } from "./infrastructure/client-metadata.ts";
 import { appDataSupervisors } from "./infrastructure/app-data.ts";
 import { cloudDevelopment } from "./contracts/development.ts";
-import { requestServices } from "@executor-js/hosted-server";
-import { recordRequestRejections, requestTiming } from "@executor-js/telemetry/http";
+import { recordUnclassifiedRefusals, requestServices } from "@executor-js/hosted-server";
+import {
+  toRequestHttpEffect,
+  recordRequestRejections,
+  requestTiming,
+} from "@executor-js/telemetry/http";
+import { recordClientNetwork } from "./implementation/client-network.ts";
 
 import { appCatalogBinding } from "./infrastructure/app-catalog.ts";
 import { Api } from "./infrastructure/api-worker.ts";
@@ -496,7 +501,7 @@ export default Api.make(
     // for the isolate. Building is synchronous: no other request can see a partial build.
     const buildApi = api.pipe(
       Layer.provide(HttpServer.layerServices),
-      HttpRouter.toHttpEffect,
+      toRequestHttpEffect,
       Effect.provideService(Layer.CurrentMemoMap, memoMap),
     );
     const apiServices = yield* Effect.context<Effect.Services<typeof buildApi>>();
@@ -686,7 +691,7 @@ export default Api.make(
     // Routes are immutable per isolate; requestServices keeps live auth resources in each event.
     const handle = yield* routes.pipe(
       Layer.provide(HttpServer.layerServices),
-      HttpRouter.toHttpEffect,
+      toRequestHttpEffect,
       Effect.provideService(Layer.CurrentMemoMap, memoMap),
     );
     // Each role host has its own router, built from the same route layers, so it can serve no
@@ -698,7 +703,7 @@ export default Api.make(
       HttpRouter.add("GET", "/.well-known/openai-apps-challenge", openAiAppsChallenge),
     ).pipe(
       Layer.provide(HttpServer.layerServices),
-      HttpRouter.toHttpEffect,
+      toRequestHttpEffect,
       Effect.provideService(Layer.CurrentMemoMap, memoMap),
     );
     const apiHost = yield* Layer.mergeAll(
@@ -712,7 +717,7 @@ export default Api.make(
       withGitAccess(registryRoutes),
     ).pipe(
       Layer.provide(HttpServer.layerServices),
-      HttpRouter.toHttpEffect,
+      toRequestHttpEffect,
       Effect.provideService(Layer.CurrentMemoMap, memoMap),
     );
     // The paths v1's edge forwards from `executor.sh`. Issuer metadata is served here, never
@@ -737,7 +742,7 @@ export default Api.make(
       publishedSkillRoutes(authoring),
     ).pipe(
       Layer.provide(HttpServer.layerServices),
-      HttpRouter.toHttpEffect,
+      toRequestHttpEffect,
       Effect.provideService(Layer.CurrentMemoMap, memoMap),
     );
     const roleHosts = withRoleHosts(
@@ -763,6 +768,8 @@ export default Api.make(
         recordRequestRejections,
         reportErrors,
         requestTiming,
+        recordClientNetwork,
+        recordUnclassifiedRefusals,
         // Server-rendered pages read the API through this complete pipeline, in-process.
         withHostPipeline,
         lifetime.http,
