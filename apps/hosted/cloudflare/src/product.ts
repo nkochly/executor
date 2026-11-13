@@ -10,18 +10,7 @@ import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
 import { telemetryConfig, telemetryLayer } from "@executor-js/telemetry";
 import { urlPolicyConfig } from "@executor-js/utils/url-policy";
-import {
-  Cause,
-  Config,
-  ConfigProvider,
-  Context,
-  Effect,
-  Exit,
-  Layer,
-  Option,
-  Schema,
-  Scope,
-} from "effect";
+import { Cause, Config, ConfigProvider, Context, Effect, Exit, Layer, Schema, Scope } from "effect";
 import {
   FetchHttpClient,
   HttpEffect,
@@ -54,6 +43,7 @@ import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
 import { cloudflarePlatform } from "./platform.ts";
 import { mcpSessionAccessHeader } from "./mcp-session.ts";
+import { addressedRequest } from "./product-request.ts";
 import { productLocation } from "@executor-js/hosted-cloudflare/product-location";
 import type { Environment, ProductStub } from "./worker.ts";
 
@@ -160,17 +150,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
       );
       const workflow = Context.get(services, SelfHostWorkflowRequests);
       const context = yield* Effect.context<never>();
-      const addressed = Effect.gen(function* () {
-        const request = yield* HttpServerRequest.HttpServerRequest;
-        return yield* http.pipe(
-          Effect.provideService(
-            HttpServerRequest.HttpServerRequest,
-            request.modify({
-              remoteAddress: Option.fromUndefinedOr(request.headers["x-executor-client-ip"]),
-            }),
-          ),
-        );
-      });
+      const addressed = addressedRequest(http);
       return {
         fetch: HttpEffect.toWebHandlerWith<never, Effect.Services<typeof addressed>>(context)(
           addressed,
