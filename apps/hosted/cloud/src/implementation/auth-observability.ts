@@ -3,64 +3,15 @@ import type { BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { Clock, Effect, Exit, Option, Schema } from "effect";
 import { HttpServerRequest, type HttpServerResponse } from "effect/http";
-import type { RefreshRejection } from "@executor-js/hosted-server";
+import {
+  KnownError,
+  RegistrationError,
+  TokenError,
+  type RefreshRejection,
+} from "@executor-js/hosted-server";
 
-const KnownError = Schema.Literals([
-  "access_denied",
-  "state_not_found",
-  "state_mismatch",
-  "state_expired",
-  "invalid_callback_request",
-  "no_code",
-  "oauth_provider_not_found",
-  "issuer_missing",
-  "issuer_mismatch",
-  "nonce_binding_missing",
-  "invalid_code",
-  "unable_to_get_user_info",
-  "no_callback_url",
-  "unable_to_link_account",
-  "account_not_linked",
-  "email_does_not_match",
-  "account_already_linked_to_different_user",
-  "email_not_found",
-  "email_not_verified",
-  "unable_to_create_user",
-  "unable_to_create_session",
-  "signup_disabled",
-]);
 /** Grant types a client may name; Executor serves authorization codes and refresh tokens. */
 const GrantType = Schema.Literals(["authorization_code", "refresh_token", "client_credentials"]);
-/** RFC 6749 token errors, and RFC 8707's for a resource the grant does not cover. */
-const TokenError = Schema.Literals([
-  "invalid_request",
-  "invalid_client",
-  "invalid_grant",
-  "unauthorized_client",
-  "unsupported_grant_type",
-  "invalid_scope",
-  "invalid_target",
-]);
-/** RFC 7591 registration errors, and the other OAuth codes Better Auth answers one with. */
-const RegistrationError = Schema.Literals([
-  "invalid_client_metadata",
-  "invalid_redirect_uri",
-  "invalid_software_statement",
-  "invalid_client",
-  "invalid_request",
-  "invalid_scope",
-  "invalid_target",
-  "access_denied",
-]);
-/**
- * Every OAuth error code Executor's sign-in returns, token endpoint and registration answer with.
- * Other records that name an OAuth error accept only these.
- */
-export const oauthErrorCodes: ReadonlyArray<string> = [
-  ...KnownError.literals,
-  ...TokenError.literals,
-  ...RegistrationError.literals,
-];
 /**
  * Why Better Auth refused a registration, matched against the fixed opening of its own
  * `error_description`. The description itself names client input and is never recorded.

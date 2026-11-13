@@ -9,7 +9,8 @@
  * signed-in caller an endpoint refuses stays `unclassified`. On Cloud the span also names the
  * client's address (`client.address`), and creating or deleting an API key, a refused one-time
  * code, a refused role change, a consent, a refused agent revocation and a sign-out leave
- * `security.audit` log records, each naming the session that acted when one was loaded. A body
+ * `security.audit` log records, each naming the session that acted when one was loaded. On
+ * self-host a password sign-in, a refused one and a sign-out leave records too. A body
  * field an endpoint ignores changes nothing a record names. No span or record holds the key, the code or the email address,
  * nor any ID, organization or OAuth error a caller sent: a record names only stored records and
  * known codes. A sign-out is a confirmed revocation only where its session row was deleted. Each
@@ -19,7 +20,7 @@ import { expect, layer } from "@effect/vitest";
 import { Effect, Redacted, Schedule, Schema } from "effect";
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { scenarios } from "../test-plan.ts";
-import { Actors, freshOwnerSession } from "../support/actors.ts";
+import { Actors, freshOwnerSession, password } from "../support/actors.ts";
 import { Api, body, type Session } from "../support/api.ts";
 import { HostedLive, withHostedCase } from "../support/case.ts";
 import type { SpanQuery } from "../support/contracts.ts";
@@ -347,6 +348,90 @@ layer(HostedLive, { excludeTestServices: true })("Security observability", (it) 
               expect(logs, "or the code").not.toContain('"000000"');
             }),
           );
+
+          if (!cloud)
+            yield* evidence.step(
+              "Self-host records a password sign-in, a refused one and a sign-out, never the address or password",
+              Effect.gen(function* () {
+                const browser = yield* api.session();
+                const email = "owner@example.test";
+                const wrong = traced();
+                const refusedSignIn = yield* api.request(
+                  browser,
+                  "POST",
+                  "/api/auth/sign-in/email",
+                  { email, password: "Wrong-e2e-password-2026" },
+                  { traceparent: wrong.traceparent },
+                );
+                expect(refusedSignIn.status, JSON.stringify(refusedSignIn.body)).toBe(401);
+                const refused = yield* audit(wrong.traceId, "sign_in");
+                expect(
+                  auditRecord(refused, "sign_in", [
+                    "audit.outcome",
+                    "audit.failure",
+                    "audit.method",
+                    "executor.user.id",
+                  ]),
+                  "A refused sign-in names Better Auth's code and its method, but no user",
+                ).toEqual({
+                  "audit.outcome": "failure",
+                  "audit.failure": "INVALID_EMAIL_OR_PASSWORD",
+                  "audit.method": "password",
+                  "executor.user.id": undefined,
+                });
+                expect(refused, "and never the address").not.toContain(email);
+                expect(refused, "or the password").not.toContain("Wrong-e2e-password-2026");
+                const right = traced();
+                const signedInResponse = yield* api.request(
+                  browser,
+                  "POST",
+                  "/api/auth/sign-in/email",
+                  { email, password },
+                  { traceparent: right.traceparent },
+                );
+                expect(signedInResponse.status, JSON.stringify(signedInResponse.body)).toBe(200);
+                const signedIn = yield* body(
+                  SessionIdentity,
+                  yield* api.request(browser, "GET", "/api/auth/get-session"),
+                );
+                const accepted = yield* audit(right.traceId, "sign_in");
+                expect(
+                  auditRecord(accepted, "sign_in", [
+                    "audit.outcome",
+                    "audit.method",
+                    "executor.user.id",
+                  ]),
+                  "A sign-in names the user it signed in and how",
+                ).toEqual({
+                  "audit.outcome": "success",
+                  "audit.method": "password",
+                  "executor.user.id": signedIn.user.id,
+                });
+                expect(accepted, "and never the address").not.toContain(email);
+                expect(accepted, "or the password").not.toContain(password);
+                const out = traced();
+                const signedOut = yield* api.request(
+                  browser,
+                  "POST",
+                  "/api/auth/sign-out",
+                  {},
+                  { traceparent: out.traceparent },
+                );
+                expect(signedOut.status, JSON.stringify(signedOut.body)).toBe(200);
+                expect(
+                  auditRecord(yield* audit(out.traceId, "session.revoke"), "session.revoke", [
+                    "audit.outcome",
+                    "audit.target.id",
+                    "executor.user.id",
+                  ]),
+                  "A sign-out is recorded where its session is deleted",
+                ).toEqual({
+                  "audit.outcome": "success",
+                  "audit.target.id": signedIn.session.id,
+                  "executor.user.id": signedIn.user.id,
+                });
+              }),
+            );
 
           if (!cloud) return;
 
