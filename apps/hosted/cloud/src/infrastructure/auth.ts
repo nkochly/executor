@@ -3,7 +3,12 @@ import { HostedAppSessions } from "@executor-js/hosted-server/app-ui";
 import { authObservability } from "../implementation/auth-observability.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { APIError } from "better-auth/api";
-import { OrganizationId, recordCredential, recordSecurityAudit } from "@executor-js/hosted-server";
+import {
+  OrganizationId,
+  authAudit,
+  recordCredential,
+  recordSecurityAudit,
+} from "@executor-js/hosted-server";
 import { BillingMeter } from "../contracts/billing-meter.ts";
 import { billingLive } from "../implementation/billing.ts";
 import {
@@ -49,7 +54,7 @@ import { cloudAuthRateLimit } from "./stage.ts";
 import { AuthDatabase, appSessionsPerCall, boundAuthAdapter } from "./auth-database.ts";
 import { invocationSql } from "./invocation-database.ts";
 import { mcpAuthentication } from "./mcp-auth.ts";
-import { authAudit } from "../implementation/auth-audit.ts";
+import { cloudAuthAudit } from "../implementation/auth-audit-vocabulary.ts";
 
 /** Bind during initialization; database calls capture the current invocation only. */
 export const cloudAuth = (send: SendAuthEmail, onboarding: typeof Onboarding.Service) =>
@@ -163,7 +168,7 @@ export const cloudAuth = (send: SendAuthEmail, onboarding: typeof Onboarding.Ser
         // written is dropped.
         plugins: [
           ...options.plugins,
-          authAudit((event, session) =>
+          authAudit(cloudAuthAudit, (event, session) =>
             runCallback(
               Effect.andThen(
                 session === undefined

@@ -28,6 +28,9 @@ import {
   deleteOrganizationRecords,
   grantExpiry,
   authEndpointTemplates,
+  authAudit,
+  recordCredential,
+  recordSecurityAudit,
 } from "@executor-js/hosted-server";
 import { routeTemplates } from "@executor-js/telemetry";
 import { Context, Effect, Layer, Option, Redacted } from "effect";
@@ -35,6 +38,8 @@ import { SqlClient } from "effect/sql";
 import { AuthDatabase } from "./contracts/database.ts";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { accessProxy } from "./implementation/access-proxy.ts";
+import { selfHostAuthAudit } from "./implementation/auth-audit.ts";
+import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Initialize auth before listening; the database owns persistent users and sessions. */
 export const selfHostAuth = Effect.gen(function* () {
@@ -43,9 +48,27 @@ export const selfHostAuth = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   const discovery = yield* selfHostSsoDiscovery(settings);
   const base = selfHostAuthOptions(settings, ["x-executor-client-ip"], discovery);
+  // Better Auth runs its hooks as Promise code. The request that reached `handler` carries its
+  // context through that boundary, so a record joins the request's span and trace. A hook with
+  // no request around it, such as one run by a direct `auth.api` call, records nothing.
+  const requests = new AsyncLocalStorage<Context.Context<never>>();
   const options = {
     ...base,
-    plugins: [...base.plugins, selfHostRegistration(settings)],
+    plugins: [
+      ...base.plugins,
+      selfHostRegistration(settings),
+      // Telemetry never fails a request, so a record that cannot be written is dropped.
+      authAudit(selfHostAuthAudit, async (event, session) => {
+        const request = requests.getStore();
+        if (request === undefined) return;
+        await Effect.runPromise(
+          Effect.andThen(
+            session === undefined ? Effect.void : recordCredential({ kind: "session", ...session }),
+            recordSecurityAudit(event),
+          ).pipe(Effect.provideContext(request)),
+        ).catch(() => undefined);
+      }),
+    ],
     databaseHooks: selfHostUserHooks(settings),
     database,
     secret: Redacted.value(settings.secret),
@@ -163,8 +186,9 @@ export const selfHostAuth = Effect.gen(function* () {
     web.headers.delete("x-executor-client-ip");
     if (Option.isSome(request.remoteAddress))
       web.headers.set("x-executor-client-ip", request.remoteAddress.value);
+    const current = yield* Effect.context<never>();
     const response = yield* Effect.tryPromise({
-      try: () => auth.handler(web),
+      try: () => requests.run(current, () => auth.handler(web)),
       catch: () => new AuthenticationUnavailable(),
     });
     return HttpServerResponse.fromWeb(response).pipe(

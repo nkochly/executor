@@ -25,19 +25,20 @@
 import type { BetterAuthPlugin } from "better-auth";
 import { createAuthMiddleware } from "better-auth/api";
 import { Option } from "effect";
-import type { SecurityAuditAction, SecurityAuditEvent } from "@executor-js/hosted-server";
+import type { SecurityAuditAction, SecurityAuditEvent } from "../contracts/security-audit.ts";
 import {
-  audited,
+  auditsPath,
   decodeAccept,
   decodeId,
   decodeKeyId,
   decodeOAuthQuery,
   decodeReturned,
   decodeRole,
+  failureCodesOf,
   otpChecks,
   outcome,
   revocations,
-  signIns,
+  type AuthAuditVocabulary,
   type HookContext,
   type Session,
 } from "./auth-audit-vocabulary.ts";
@@ -48,12 +49,14 @@ import {
  * impersonation session `/admin/stop-impersonating` deleted.
  */
 const auditedEvent = (
+  vocabulary: AuthAuditVocabulary,
+  failureOf: ReturnType<typeof failureCodesOf>,
   ctx: HookContext,
   confirmed: boolean,
   impersonated: string | undefined,
 ): SecurityAuditEvent | undefined => {
   const path = ctx.path ?? "";
-  const failure = outcome(ctx);
+  const failure = outcome(ctx, failureOf);
   const user = ctx.context.session?.user.id;
   // Only a successful endpoint's answer and input name stored records.
   const returned =
@@ -68,7 +71,7 @@ const auditedEvent = (
     user,
     ...rest,
   });
-  const method = signIns[path];
+  const method = vocabulary.signIns[path];
   // A sign-in endpoint that created a session signed someone in, and one that reports an error
   // refused a sign-in. Starting a social sign-in, or a social return that links an account to the
   // signed-in user, does neither.
@@ -185,11 +188,13 @@ interface DeletedSession {
 }
 
 /**
- * The plugin. Register it after the product analytics plugin, whose session read it reuses.
+ * The plugin, for a host's sign-in endpoints and failure codes. Register it after any plugin
+ * that reads the signed-in session, such as Cloud's product analytics, whose read it reuses.
  * `record` receives each event with the session that made the request, if one was loaded, and
  * must never reject.
  */
 export const authAudit = (
+  vocabulary: AuthAuditVocabulary,
   record: (
     event: SecurityAuditEvent,
     /**
@@ -201,6 +206,7 @@ export const authAudit = (
       | undefined,
   ) => Promise<void>,
 ): BetterAuthPlugin => {
+  const failureOf = failureCodesOf(vocabulary);
   /** Requests, by their hook context, in which a revocation deleted a session. */
   const confirmed = new WeakSet<object>();
   /** Requests, by their hook context, that ended an impersonation: the impersonated user. */
@@ -253,9 +259,11 @@ export const authAudit = (
     hooks: {
       after: [
         {
-          matcher: (ctx) => audited(ctx.path),
+          matcher: (ctx) => auditsPath(vocabulary.signIns, ctx.path),
           handler: createAuthMiddleware(async (ctx) => {
             const event = auditedEvent(
+              vocabulary,
+              failureOf,
               ctx,
               confirmed.has(ctx.context),
               impersonations.get(ctx.context),

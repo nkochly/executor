@@ -42,6 +42,9 @@ export {
   type SecurityAuditOutcome,
 } from "./contracts/security-audit.ts";
 export { audited, recordSecurityAudit } from "./implementation/security-audit.ts";
+export { authAudit } from "./implementation/auth-audit.ts";
+export type { AuthAuditVocabulary } from "./implementation/auth-audit-vocabulary.ts";
+export * from "./contracts/oauth-errors.ts";
 export { authOptions, authSettings, sessionPrincipal } from "./implementation/auth.ts";
 export * from "./contracts/organization.ts";
 export {
