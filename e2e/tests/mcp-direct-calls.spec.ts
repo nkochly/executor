@@ -305,10 +305,12 @@ export default defineApp({ user: { accounts: { service } } }, async ({ user: { a
             {
               name: "call",
               arguments: {
-                calls: {
-                  path: nestedCall,
-                  input: { calls: { path: echo, input: { text: marker } } },
-                },
+                calls: [
+                  {
+                    path: nestedCall,
+                    input: { calls: [{ path: echo, input: { text: marker } }] },
+                  },
+                ],
               },
             },
             undefined,
@@ -321,17 +323,22 @@ export default defineApp({ user: { accounts: { service } } }, async ({ user: { a
         // Executor keeps the structured result alone.
         expect(completed.execution).toMatchObject({
           ok: true,
-          value: {
-            path: nestedCall,
-            ok: true,
-            value: {
-              content: [],
-              structuredContent: {
-                status: "completed",
-                execution: { ok: true, value: { path: echo, ok: true, value: { text: marker } } },
+          value: [
+            {
+              path: nestedCall,
+              ok: true,
+              value: {
+                content: [],
+                structuredContent: {
+                  status: "completed",
+                  execution: {
+                    ok: true,
+                    value: [{ path: echo, ok: true, value: { text: marker } }],
+                  },
+                },
               },
             },
-          },
+          ],
         });
         // Each hop carries the payload once, so nesting does not multiply the agent's context.
         const nested = JSON.stringify(completed.execution.value);
