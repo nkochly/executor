@@ -3,7 +3,7 @@
  * `ExecutorProduct` Durable Object. `worker.ts` imports this module only when the object first
  * opens, so building it costs a request's CPU time rather than the Worker's startup budget.
  */
-import * as BrowserCrypto from "@effect/platform-browser/BrowserCrypto";
+import { Digest } from "effect/crypto";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { sqliteLayer } from "fumadb-effect/sqlite";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
@@ -117,7 +117,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
         sqliteDatabaseSchema.pipe(Layer.provideMerge(sqliteLayer(state.storage))),
         telemetryLayer(telemetry),
         HttpServer.layerServices,
-        BrowserCrypto.layer,
+        Digest.layerWebCrypto,
         Layer.succeed(ScheduleHostReady, Effect.void),
       ),
     );

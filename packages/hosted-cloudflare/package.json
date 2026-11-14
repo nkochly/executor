@@ -11,7 +11,7 @@
   "dependencies": {
     "@executor-js/app-source": "workspace:*",
     "@executor-js/sdk": "workspace:*",
-    "effect": "4.0.1"
+    "effect": "4.1.4"
   },
   "devDependencies": {
     "esbuild": "0.28.2",

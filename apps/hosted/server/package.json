@@ -48,7 +48,7 @@
     "@executor-js/utils": "workspace:*",
     "apps": "workspace:*",
     "better-auth": "1.7.16",
-    "effect": "4.0.1",
+    "effect": "4.1.4",
     "fumadb-effect": "workspace:*"
   },
   "devDependencies": {}
