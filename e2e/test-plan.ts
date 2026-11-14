@@ -4124,6 +4124,34 @@ export const scenarios = plan({
       local: na("Hosted deploy routes; local shares the workerd build path."),
     },
   },
+  compiledFileLimit: {
+    fixtures: "actors",
+    file: "compiled-file-limit.spec.ts",
+    title:
+      "Builds refuse an app's own JavaScript or TypeScript file over 2 MB and create no app; a file just under it, a larger JSON import and a package with a larger file build",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Cloud's compiler Worker runs the same compileWorkerApp, and Cloudflare's CPU limit already bounds its compile; self-host covers the shared build.",
+      ),
+      local: na("Hosted deploy routes; the local server shares the workerd build path."),
+    },
+  },
+  compiledFileLimitResponsive: {
+    fixtures: "actors",
+    file: "compiled-file-limit.spec.ts",
+    title:
+      "Apps keep answering while a build refuses a 15 MB file: no longer than they wait for one file just under the limit to compile",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Cloud's compiler Worker runs the same compileWorkerApp in its own isolate, so it never holds an app's thread.",
+      ),
+      local: na(
+        "Self-host covers the shared build; local runs it in the same kind of app runtime.",
+      ),
+    },
+  },
   appOperationFailureDetails: {
     fixtures: "actors",
     managementApps: ["owner"],
