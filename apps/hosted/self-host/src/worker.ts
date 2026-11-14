@@ -105,13 +105,13 @@ const configuration = (native: HttpBinding) =>
     ),
   );
 
+/** Either engine reaches the product as one SQL client. */
+type ProductDatabaseLayer = Layer.Layer<SqlClient.SqlClient, SqlError>;
+
 /**
  * The product database: the Durable Object's own SQLite storage with `EXECUTOR_DATABASE=sqlite`,
  * else PGlite persisted in it. SQLite needs no import, initdb or WebAssembly engine.
  */
-/** Either engine reaches the product as one SQL client. */
-type ProductDatabaseLayer = Layer.Layer<SqlClient.SqlClient, SqlError>;
-
 const productDatabase = (state: DurableObjectState, env: Environment) =>
   Effect.gen(function* () {
     const engine = yield* Config.Literals(["pglite", "sqlite"], "EXECUTOR_DATABASE").pipe(
