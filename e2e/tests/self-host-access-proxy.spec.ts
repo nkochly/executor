@@ -5,10 +5,12 @@
  * is the caller's identity on `/mcp` and on the caller's own scoped connection URLs; one for another
  * application, one signed by a key the team does not publish, one naming someone outside the
  * organization, and a connection the caller does not own are not. A bundle's URL names the bundle,
- * and reaches the caller's own copy of it only while the caller is in one of its groups.
+ * and reaches the caller's own copy of it only while the caller is in one of its groups. A shared
+ * sign-in's assertion, which another Worker forwards, reads the person's apps at `/api/me/apps` and
+ * is refused on `/mcp`.
  */
 import { expect, layer } from "@effect/vitest";
-import { Effect, Schema } from "effect";
+import { Effect, Schedule, Schema } from "effect";
 import { randomUUID } from "node:crypto";
 import { Browser } from "../support/browser.ts";
 import { TestLive, withCase } from "../support/case.ts";
@@ -19,6 +21,7 @@ import { selfHostSsoIdp } from "../support/sso.ts";
 import { scenarios } from "../test-plan.ts";
 
 const audience = "synthetic-access-application";
+const shared = "synthetic-shared-sign-in";
 const owner = "owner@access.example.test";
 
 layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Access", (it) => {
@@ -39,6 +42,7 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             yield* serverControl("environment", 200, {
               EXECUTOR_ACCESS_TEAM_DOMAIN: new URL(team.issuer).host,
               EXECUTOR_ACCESS_AUD: audience,
+              EXECUTOR_ACCESS_SHARED_AUD: shared,
               // The product trusts only the fixture's synthetic certificate.
               NODE_EXTRA_CA_CERTS: team.certificate,
             });
@@ -111,6 +115,87 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               yield* team.accessAssertion("stranger@access.example.test", audience),
             ),
           ).toBe(403);
+
+          // The person's apps: through Access or the shared sign-in, never for anyone else.
+          const personApps = (step: string, assertion?: string) =>
+            browser.use(step, (page) =>
+              page
+                .context()
+                .request.get(`${origin}/api/me/apps`, {
+                  headers: assertion === undefined ? {} : { "cf-access-jwt-assertion": assertion },
+                })
+                .then((response) =>
+                  response
+                    .json()
+                    .catch(() => undefined)
+                    .then((body: unknown) => ({ status: response.status(), body })),
+                ),
+            );
+          const PersonApps = Schema.Struct({
+            organization: Schema.String,
+            apps: Schema.Array(
+              Schema.Struct({
+                id: Schema.String,
+                name: Schema.String,
+                slug: Schema.String,
+                deployed: Schema.Boolean,
+                ready: Schema.Boolean,
+                slots: Schema.Array(
+                  Schema.Struct({
+                    name: Schema.String,
+                    scope: Schema.Literals(["app", "user"]),
+                    provider: Schema.String,
+                    cardinality: Schema.Literals(["one", "many"]),
+                    linked: Schema.Boolean,
+                  }),
+                ),
+              }),
+            ),
+          });
+          // Setup installs the organization's Executor app in the background; the list shows it
+          // once it is there, deployed.
+          const listed = yield* personApps(
+            "The owner's apps, signed in by Access",
+            yield* team.accessAssertion(owner, audience),
+          ).pipe(
+            Effect.flatMap(({ status, body }) =>
+              status === 200
+                ? Schema.decodeUnknownEffect(PersonApps)(body)
+                : Effect.fail(new Error(`answered ${status}`)),
+            ),
+            Effect.filterOrFail(
+              ({ apps }) => apps.some((app) => app.name === "Executor" && app.deployed),
+              () => new Error("the Executor app is not listed yet"),
+            ),
+            Effect.retry({ schedule: Schedule.spaced("500 millis"), times: 60 }),
+          );
+          const throughShared = yield* personApps(
+            "The owner's apps, through the shared sign-in",
+            yield* team.accessAssertion(owner, shared),
+          );
+          expect(throughShared.status).toBe(200);
+          expect(
+            (yield* Schema.decodeUnknownEffect(PersonApps)(throughShared.body)).organization,
+          ).toBe(listed.organization);
+          expect((yield* personApps("Apps with no assertion")).status).toBe(401);
+          expect(
+            (yield* personApps(
+              "Apps for another Access application",
+              yield* team.accessAssertion(owner, "another-access-application"),
+            )).status,
+          ).toBe(401);
+          expect(
+            (yield* personApps(
+              "Apps of someone who is not a member",
+              yield* team.accessAssertion("stranger@access.example.test", shared),
+            )).status,
+          ).toBe(403);
+          expect(
+            yield* initialize(
+              "The shared sign-in on /mcp",
+              yield* team.accessAssertion(owner, shared),
+            ),
+          ).toBe(401);
 
           // A scoped connection's URL works through Access too, as that connection's caller.
           const connection = randomUUID();

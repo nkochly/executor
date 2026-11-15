@@ -140,6 +140,7 @@ export { browserTelemetry } from "./implementation/telemetry.ts";
 
 export { hostedWebhookCallback } from "./implementation/webhooks.ts";
 export { browserMcpRequest, hostedMcpApproval } from "./implementation/mcp-approvals.ts";
+export { personApps, type PersonApp, type PersonAppSlot } from "./implementation/person-apps.ts";
 
 export { makeOrganizationIcons } from "./implementation/organization-icons.ts";
 

@@ -37,7 +37,7 @@ import { Context, Effect, Layer, Option, Redacted } from "effect";
 import { SqlClient } from "effect/sql";
 import { AuthDatabase } from "./contracts/database.ts";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
-import { accessProxy } from "./implementation/access-proxy.ts";
+import { accessProxies, type AccessProxy } from "./implementation/access-proxy.ts";
 import { selfHostAuthAudit } from "./implementation/auth-audit.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 
@@ -115,11 +115,13 @@ export const selfHostAuth = Effect.gen(function* () {
       ),
   });
   // With Access in front of the host, the person Access signed in is the MCP caller.
-  const proxy = yield* accessProxy;
-  const mcpIdentity = Layer.succeed(McpAuthentication, {
-    ...origins,
-    authenticate: (headers, mode, organization, connection) =>
-      proxy.verify(headers).pipe(
+  const proxies = yield* accessProxies;
+  const proxy = proxies.mcp;
+  /** The person Access signed in through `signedIn`, else the request's own bearer. */
+  const authenticateWith =
+    (signedIn: AccessProxy): McpAuthentication["Service"]["authenticate"] =>
+    (headers, mode, organization, connection) =>
+      signedIn.verify(headers).pipe(
         Effect.flatMap((email) =>
           Option.isSome(email)
             ? proxyMcpAccess(email.value, { headers, mode, organization, connection })
@@ -130,7 +132,10 @@ export const selfHostAuth = Effect.gen(function* () {
           Effect.annotateCurrentSpan(callerSpanAttributes(access.organization, userId)),
         ),
         Effect.withSpan("auth.authenticate"),
-      ),
+      );
+  const mcpIdentityService: McpAuthentication["Service"] = {
+    ...origins,
+    authenticate: authenticateWith(proxy),
     browserGrant: (headers, id) => {
       // A proxy grant is approved in the browser by the same person Access signed in there.
       const grant = proxyGrantOf(id);
@@ -164,6 +169,12 @@ export const selfHostAuth = Effect.gen(function* () {
     connections: mcpConnectionStore((run) =>
       Effect.tryPromise({ try: () => run(auth.api), catch: (cause) => cause }),
     ),
+  };
+  const mcpIdentity = Layer.succeed(McpAuthentication, mcpIdentityService);
+  // The person's read routes also take the shared sign-in another Worker forwards.
+  const readerIdentity = Layer.succeed(McpAuthentication, {
+    ...mcpIdentityService,
+    authenticate: authenticateWith(proxies.reader),
   });
   const apiIdentity = Layer.succeed(ApiAuthentication, {
     ...origins,
@@ -206,6 +217,7 @@ export const selfHostAuth = Effect.gen(function* () {
   return {
     identity,
     mcpIdentity,
+    readerIdentity,
     apiIdentity,
     appSessions,
     agentGrants: grantExpiry((run) =>

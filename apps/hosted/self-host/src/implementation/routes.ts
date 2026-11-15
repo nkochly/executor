@@ -34,6 +34,7 @@ import {
   apiProtectedResource,
   lazyHostedApiDocument,
   ProductAnalytics,
+  personApps,
 } from "@executor-js/hosted-server";
 import { recordRequestRejections, requestTiming } from "@executor-js/telemetry/http";
 import { withRemoteSpan } from "@executor-js/telemetry";
@@ -193,6 +194,11 @@ export const selfHostRouteMap = <DashboardE, DashboardR>(options: {
         clientMetadataDocument(clientMetadata),
       ).pipe(HttpRouter.provideRequest(auth.identity)),
       mcpRoutes,
+      // The person's own read routes; they also take the shared sign-in another Worker forwards.
+      HttpRouter.add("GET", "/api/me/apps", personApps).pipe(
+        HttpRouter.provideRequest(auth.readerIdentity),
+        HttpRouter.provideRequest(executorServices),
+      ),
       Layer.mergeAll(
         HttpRouter.add("GET", "/api/mcp/approvals/:requestId", mcp.approvals),
         HttpRouter.add("POST", "/api/mcp/approvals/:requestId", mcp.approvals),
