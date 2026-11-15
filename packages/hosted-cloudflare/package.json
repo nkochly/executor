@@ -6,7 +6,8 @@
   "exports": {
     "./blobs": "./src/blobs.ts",
     "./app-source": "./src/app-source.ts",
-    "./product-location": "./src/product-location.ts"
+    "./product-location": "./src/product-location.ts",
+    "./backup": "./src/backup.ts"
   },
   "dependencies": {
     "@executor-js/app-source": "workspace:*",
