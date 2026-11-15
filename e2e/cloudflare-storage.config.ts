@@ -10,6 +10,7 @@ export default defineConfig({
     include: [
       "e2e/tests/cloudflare-storage.spec.ts",
       "e2e/tests/cloudflare-product-move.spec.ts",
+      "e2e/tests/cloudflare-product-backup.spec.ts",
       "e2e/tests/cloudflare-mcp-wire.spec.ts",
       "e2e/tests/cloudflare-live-stream.spec.ts",
     ],

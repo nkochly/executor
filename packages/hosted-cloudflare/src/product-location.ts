@@ -59,6 +59,12 @@ export const productLocation = (env: ProductLocationEnvironment): string | undef
   return hint;
 };
 
+/** The name of the product object every entry point reaches. */
+export const productName = (env: ProductLocationEnvironment): string => {
+  const hint = productLocation(env);
+  return hint === undefined ? unplaced : `${unplaced}-${hint}`;
+};
+
 /** The product object every entry point reaches. */
 export const productStub = <Stub>(
   namespace: ProductNamespace<Stub>,
@@ -66,7 +72,7 @@ export const productStub = <Stub>(
 ): Stub => {
   const hint = productLocation(env);
   if (hint === undefined) return namespace.getByName(unplaced);
-  return namespace.getByName(`${unplaced}-${hint}`, { locationHint: hint });
+  return namespace.getByName(productName(env), { locationHint: hint });
 };
 
 /** The unnamed object, which a placed install's product copies once and then retires. */
@@ -191,37 +197,44 @@ export const adoptPreviousStorage = async (
     pages.push(page);
     cursor = page.next ?? null;
   } while (cursor !== null);
-  const [first] = pages;
   state.storage.transactionSync(() => {
-    // Anything here was written before the copy, by nothing that has finished; start clean.
-    for (const entry of userSchema(state).reverse())
-      if (entry.type !== "table" && entry.type !== "index")
-        state.storage.sql.exec(`DROP ${entry.type.toUpperCase()} IF EXISTS ${quoted(entry.name)}`);
-    for (const entry of userSchema(state).reverse())
-      if (entry.type === "table")
-        state.storage.sql.exec(`DROP TABLE IF EXISTS ${quoted(entry.name)}`);
-    // Keys are listed before any is deleted; deleting while listing would skip entries.
-    const keys = Array.from(state.storage.kv.list(), ([key]) => key);
-    for (const key of keys) state.storage.kv.delete(key);
-    const schema = first?.schema ?? [];
-    // Tables, then the indexes a foreign key's parent column may need, then rows; a row's parent
-    // may come later in the copy, so foreign keys are checked when the transaction commits.
-    // Triggers and views come last, so no trigger fires for a copied row.
-    for (const entry of schema) if (entry.type === "table") state.storage.sql.exec(entry.sql);
-    for (const entry of schema) if (entry.type === "index") state.storage.sql.exec(entry.sql);
-    state.storage.sql.exec("PRAGMA defer_foreign_keys = ON");
-    for (const page of pages) {
-      if (page.table === undefined || page.columns === undefined || page.rows === undefined)
-        continue;
-      const insert = `INSERT INTO ${quoted(page.table)} (${page.columns.map(quoted).join(", ")}) VALUES (${page.columns.map(() => "?").join(", ")})`;
-      for (const row of page.rows) state.storage.sql.exec(insert, ...row);
-    }
-    for (const entry of schema)
-      if (entry.type !== "table" && entry.type !== "index") state.storage.sql.exec(entry.sql);
-    for (const [key, value] of first?.values ?? []) state.storage.kv.put(key, value);
+    replaceStorage(state, pages);
     state.storage.kv.put(adoptedKey, previousId);
   });
   return true;
+};
+
+/**
+ * Replace everything this object stores with the storage in `pages`. Call it inside a
+ * `transactionSync`, so the object holds either all of the copy or what it held before.
+ */
+export const replaceStorage = (state: DurableObjectState, pages: ReadonlyArray<StoragePage>) => {
+  const [first] = pages;
+  // Anything here was written before the copy, by nothing that has finished; start clean.
+  for (const entry of userSchema(state).reverse())
+    if (entry.type !== "table" && entry.type !== "index")
+      state.storage.sql.exec(`DROP ${entry.type.toUpperCase()} IF EXISTS ${quoted(entry.name)}`);
+  for (const entry of userSchema(state).reverse())
+    if (entry.type === "table")
+      state.storage.sql.exec(`DROP TABLE IF EXISTS ${quoted(entry.name)}`);
+  // Keys are listed before any is deleted; deleting while listing would skip entries.
+  const keys = Array.from(state.storage.kv.list(), ([key]) => key);
+  for (const key of keys) state.storage.kv.delete(key);
+  const schema = first?.schema ?? [];
+  // Tables, then the indexes a foreign key's parent column may need, then rows; a row's parent
+  // may come later in the copy, so foreign keys are checked when the transaction commits.
+  // Triggers and views come last, so no trigger fires for a copied row.
+  for (const entry of schema) if (entry.type === "table") state.storage.sql.exec(entry.sql);
+  for (const entry of schema) if (entry.type === "index") state.storage.sql.exec(entry.sql);
+  state.storage.sql.exec("PRAGMA defer_foreign_keys = ON");
+  for (const page of pages) {
+    if (page.table === undefined || page.columns === undefined || page.rows === undefined) continue;
+    const insert = `INSERT INTO ${quoted(page.table)} (${page.columns.map(quoted).join(", ")}) VALUES (${page.columns.map(() => "?").join(", ")})`;
+    for (const row of page.rows) state.storage.sql.exec(insert, ...row);
+  }
+  for (const entry of schema)
+    if (entry.type !== "table" && entry.type !== "index") state.storage.sql.exec(entry.sql);
+  for (const [key, value] of first?.values ?? []) state.storage.kv.put(key, value);
 };
 
 /**

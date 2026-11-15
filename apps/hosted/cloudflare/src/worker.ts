@@ -9,7 +9,10 @@
  * - telemetry is logged to the console, which Workers observability collects, unless an OTLP
  *   endpoint is configured; every public request continues this invocation's Workers trace
  *   (`trace.ts`), so one trace id follows it through the product, its apps and their calls;
- * - blobs, app repositories and the app runtime come from `platform.ts`.
+ * - blobs, app repositories and the app runtime come from `platform.ts`;
+ * - the product writes a backup of its storage into `BACKUPS` once a day and proves it by
+ *   restoring it into the scratch object `restore-test:<product>`; `EXECUTOR_PRODUCT_RESTORE`
+ *   restores a backup into a product object that stores nothing yet, before it opens.
  */
 import * as workers from "cloudflare:workers";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
@@ -22,6 +25,7 @@ import {
   openPlacedProduct,
   previousProduct,
   productLocation,
+  productName,
   productStub,
   type ProductLocationEnvironment,
   type ProductNamespace,
@@ -29,6 +33,15 @@ import {
   type StorageCursor,
   type StoragePage,
 } from "@executor-js/hosted-cloudflare/product-location";
+import {
+  readBackup,
+  restoreInto,
+  storesNothing,
+  testRestore,
+  writeBackup,
+  type BackupBucket,
+  type RestoreTest,
+} from "@executor-js/hosted-cloudflare/backup";
 import { traced, type WorkersTracing } from "./trace.ts";
 
 // Only the Durable Objects build the product and the MCP sessions, and each loads its module when
@@ -42,6 +55,10 @@ export interface ProductStub {
   workflow(request: Request): Promise<Response>;
   mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
 }
+/** The scratch product object a backup is restored into to prove it. */
+interface RestoreTestStub {
+  testRestore(stamp: string): Promise<RestoreTest>;
+}
 /** A caller's session object, as the product reaches it. */
 interface McpSessionStub {
   fetch(request: Request): Promise<Response>;
@@ -49,7 +66,14 @@ interface McpSessionStub {
   approvalAnswer(caller: string, address: unknown, response: unknown): Promise<WireExit>;
 }
 export interface Environment extends PlatformBindings, ProductLocationEnvironment {
-  readonly PRODUCT: ProductNamespace<ProductStub & RetiredProduct>;
+  readonly PRODUCT: ProductNamespace<ProductStub & RetiredProduct & RestoreTestStub>;
+  /** Where the product writes its backups; without it, no backups are written. */
+  readonly BACKUPS?: BackupBucket;
+  /**
+   * A backup to restore, `latest` or a backup's stamp, into a product object that stores nothing
+   * yet. An object that stores anything ignores it.
+   */
+  readonly EXECUTOR_PRODUCT_RESTORE?: string;
   /** Callers' MCP session objects; used when `EXECUTOR_MCP_SESSIONS` is true. */
   readonly MCP_SESSIONS?: {
     getByName(name: string, options?: { locationHint?: string }): McpSessionStub;
@@ -73,14 +97,17 @@ export class ExecutorProduct
   readonly #env: Environment;
   /** The unnamed object of an install that names a location: it serves nothing. */
   readonly #retired: boolean;
+  /** The scratch object backups are restored into to prove them: it serves nothing. */
+  readonly #restoreTest: boolean;
   #opening: Promise<ProductStub | undefined> | undefined;
   constructor(state: DurableObjectState, env: Environment) {
     super(state, env);
     this.#state = state;
     this.#env = env;
     this.#retired = isRetiredProduct(state.id, env.PRODUCT, env);
+    this.#restoreTest = state.id.equals(env.PRODUCT.idFromName(restoreTestName(env)));
     // Start at once, as after a restart; a failure is reported to the events that wait for it.
-    if (!this.#retired) this.#product().catch(() => undefined);
+    if (!this.#retired && !this.#restoreTest) this.#product().catch(() => undefined);
   }
   /**
    * The open product. A failed open releases what it acquired, and the next event retries it.
@@ -98,6 +125,7 @@ export class ExecutorProduct
     return previousProduct(this.#env.PRODUCT);
   }
   async #open(): Promise<ProductStub | undefined> {
+    await this.#restoreIfAsked();
     const open = async () => {
       const { openProduct } = await import("./product.ts");
       return openProduct(this.#state, this.#env);
@@ -113,17 +141,17 @@ export class ExecutorProduct
   }
   /** Dispatch the authenticated product routes. */
   async fetch(request: Request): Promise<Response> {
-    if (this.#retired) return this.#successor().fetch(request);
+    if (this.#retired || this.#restoreTest) return this.#successor().fetch(request);
     return (await this.#product()).fetch(request);
   }
   /** Private workflow callbacks are reached only through the named service entrypoint. */
   async workflow(request: Request): Promise<Response> {
-    if (this.#retired) return this.#successor().workflow(request);
+    if (this.#retired || this.#restoreTest) return this.#successor().workflow(request);
     return (await this.#product()).workflow(request);
   }
   /** One backend operation a caller's session object sends for the request it serves. */
   async mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit> {
-    if (this.#retired) return this.#successor().mcpBackend(request, call);
+    if (this.#retired || this.#restoreTest) return this.#successor().mcpBackend(request, call);
     return (await this.#product()).mcpBackend(request, call);
   }
   /** One page of a retired object's storage, for the placed product that succeeds it. */
@@ -142,12 +170,63 @@ export class ExecutorProduct
   }
   /** Restore the background owner after an eviction or restart even when no request arrives. */
   async alarm(): Promise<void> {
-    // A retired object keeps no background owner; its alarm ends here.
-    if (this.#retired) return;
+    // A retired object and the restore test object keep no background owner; their alarm ends here.
+    if (this.#retired || this.#restoreTest) return;
     await this.#product();
     await this.#state.storage.setAlarm(Date.now() + 30_000);
+    // A failed backup is tried again at the next alarm and never stops the background owner.
+    await this.#backUpIfDue().catch((error: unknown) =>
+      console.error(JSON.stringify({ event: "product_backup_failed", error: String(error) })),
+    );
+  }
+  /**
+   * Once a day, write a backup and prove it: restore it into the scratch object, which compares
+   * what it holds with the backup's manifest and then deletes everything it stored.
+   */
+  async #backUpIfDue(now = Date.now()): Promise<void> {
+    const bucket = this.#env.BACKUPS;
+    if (bucket === undefined) return;
+    const last = this.#state.storage.kv.get(backupAtKey);
+    if (typeof last === "number" && now - last < backupInterval) return;
+    const manifest = await writeBackup(bucket, productName(this.#env), this.#state, { now });
+    this.#state.storage.kv.put(backupAtKey, now);
+    const hint = productLocation(this.#env);
+    const test = await this.#env.PRODUCT.getByName(
+      restoreTestName(this.#env),
+      hint === undefined ? {} : { locationHint: hint },
+    ).testRestore(manifest.stamp);
+    console.log(JSON.stringify({ event: "product_backup", ...test }));
+  }
+  /** Restore a backup into the scratch object, report it, and leave the object storing nothing. */
+  async testRestore(stamp: string): Promise<RestoreTest> {
+    if (!this.#restoreTest) throw new Error("Only the restore test object restores a test copy");
+    const bucket = this.#env.BACKUPS;
+    if (bucket === undefined) throw new Error("No BACKUPS bucket is bound");
+    try {
+      return await testRestore(this.#state, bucket, productName(this.#env), stamp);
+    } finally {
+      await this.#state.storage.deleteAlarm();
+      await this.#state.storage.deleteAll();
+    }
+  }
+  /** Restore the backup `EXECUTOR_PRODUCT_RESTORE` names, if this object stores nothing yet. */
+  async #restoreIfAsked(): Promise<void> {
+    const asked = this.#env.EXECUTOR_PRODUCT_RESTORE?.trim();
+    const bucket = this.#env.BACKUPS;
+    if (!asked || bucket === undefined || !storesNothing(this.#state)) return;
+    const { manifest, pages } = await readBackup(
+      bucket,
+      productName(this.#env),
+      asked === "latest" ? undefined : asked,
+    );
+    restoreInto(this.#state, pages);
+    console.log(JSON.stringify({ event: "product_restored", stamp: manifest.stamp }));
   }
 }
+
+const backupAtKey = "executor:backup-at";
+const backupInterval = 24 * 60 * 60 * 1000;
+const restoreTestName = (env: ProductLocationEnvironment) => `restore-test:${productName(env)}`;
 
 /** Service entrypoint for the app host's workflow callbacks. */
 export class WorkflowCallbacks extends WorkerEntrypoint<Environment> {
