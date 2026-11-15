@@ -3,6 +3,10 @@
  * its own OAuth, and passes each request a signed assertion (`Cf-Access-Jwt-Assertion`) naming
  * the person. When `EXECUTOR_ACCESS_TEAM_DOMAIN` and `EXECUTOR_ACCESS_AUD` are set, an assertion that verifies
  * against the team's keys and names this application is the caller's identity on `/mcp`.
+ *
+ * `EXECUTOR_ACCESS_SHARED_AUD` names a second Access application, one sign-in shared by several hosts,
+ * whose assertion another Worker forwards with the person's request. It is accepted only on the
+ * person's read routes (`/api/me/*`), never on `/mcp` or any route that changes something.
  */
 import { Config, Effect, Option } from "effect";
 
@@ -30,10 +34,10 @@ const base64UrlJson = (part: string): unknown =>
 
 const certsLifetimeMs = 60 * 60 * 1000;
 
-/** Verify an Access assertion: RS256 by a current team key, this application's audience, the team issuer, in its lifetime. */
+/** Verify an Access assertion: RS256 by a current team key, one of these audiences, the team issuer, in its lifetime. */
 export const makeAccessProxy = (
   teamDomain: string,
-  audience: string,
+  accepted: readonly string[],
   fetchCerts: () => Promise<readonly Jwk[]> = async () => {
     const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
     if (!response.ok) throw new Error(`Access certs answered ${response.status}`);
@@ -91,7 +95,7 @@ export const makeAccessProxy = (
       email?: unknown;
     };
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
-    if (!audiences.includes(audience)) return undefined;
+    if (!audiences.some((audience) => accepted.includes(audience))) return undefined;
     if (claims.iss !== `https://${teamDomain}`) return undefined;
     const seconds = now() / 1000;
     if (typeof claims.exp !== "number" || claims.exp <= seconds) return undefined;
@@ -114,14 +118,24 @@ export const makeAccessProxy = (
 /** No proxy: every request authenticates with its own credential. */
 const noProxy: AccessProxy = { verify: () => Effect.succeed(Option.none()) };
 
-/** The configured proxy, or none when either setting is absent. */
-export const accessProxy = Effect.gen(function* () {
-  const team = yield* Config.option(Config.String("EXECUTOR_ACCESS_TEAM_DOMAIN"));
-  const audience = yield* Config.option(Config.String("EXECUTOR_ACCESS_AUD"));
-  return Option.isSome(team) &&
-    Option.isSome(audience) &&
-    team.value !== "" &&
-    audience.value !== ""
-    ? makeAccessProxy(team.value, audience.value)
-    : noProxy;
+const setting = (name: string) =>
+  Config.option(Config.String(name)).pipe(Config.map(Option.filter((value) => value !== "")));
+
+/**
+ * The configured proxies, or none when the team or this application's audience is absent: `mcp`
+ * accepts this application only; `reader` also accepts the shared sign-in, for the person's read
+ * routes.
+ */
+export const accessProxies = Effect.gen(function* () {
+  const team = yield* setting("EXECUTOR_ACCESS_TEAM_DOMAIN");
+  const audience = yield* setting("EXECUTOR_ACCESS_AUD");
+  const shared = yield* setting("EXECUTOR_ACCESS_SHARED_AUD");
+  if (Option.isNone(team) || Option.isNone(audience)) return { mcp: noProxy, reader: noProxy };
+  const mcp = makeAccessProxy(team.value, [audience.value]);
+  return {
+    mcp,
+    reader: Option.isSome(shared)
+      ? makeAccessProxy(team.value, [audience.value, shared.value])
+      : mcp,
+  };
 });
