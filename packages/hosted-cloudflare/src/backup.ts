@@ -61,6 +61,12 @@ const format = 1;
 const manifestName = "manifest.json";
 const day = 24 * 60 * 60 * 1000;
 const keyShape = /^[A-Za-z0-9._:-]{1,200}$/;
+/**
+ * The largest database a backup copies. A backup holds the whole object in memory while it writes,
+ * and an isolate has 128 MB; a larger object fails with a BackupError that says so instead.
+ */
+export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
+const mib = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
 
 /** Every page of the object's storage, read without yielding, so the copy is one moment of it. */
 export const readStorage = (state: DurableObjectState): StoragePage[] => {
@@ -223,26 +229,35 @@ export const writeBackup = async (
   bucket: BackupBucket,
   key: string,
   state: DurableObjectState,
-  options: { readonly now?: number; readonly keepDays?: number } = {},
+  options: { readonly now?: number; readonly keepDays?: number; readonly maxBytes?: number } = {},
 ): Promise<BackupManifest> => {
   checkKey(key);
   const now = options.now ?? Date.now();
   const stamp = new Date(now).toISOString();
-  const pages = readStorage(state);
-  const encoded = pages.map(encodePage);
-  for (const [n, text] of encoded.entries()) await bucket.put(pageName(key, stamp, n), text);
+  const maxBytes = options.maxBytes ?? MAX_BACKUP_BYTES;
+  const size = (state.storage.sql as { readonly databaseSize?: number }).databaseSize ?? 0;
+  if (size > maxBytes)
+    throw new BackupError(
+      `${key} holds ${mib(size)} MiB; a backup copies at most ${mib(maxBytes)} MiB, so none was written.`,
+    );
+  // Each page is encoded as soon as it is read, so the raw rows are never all held at once.
+  const encoded: string[] = [];
   const tables: Record<string, number> = {};
-  for (const page of pages)
+  let values = 0;
+  let cursor: StorageCursor | null = null;
+  do {
+    const page: StoragePage = exportStoragePage(state, cursor);
+    if (page.values) values = page.values.length;
     if (page.table !== undefined)
       tables[page.table] = (tables[page.table] ?? 0) + (page.rows?.length ?? 0);
-  const manifest: BackupManifest = {
-    format,
-    key,
-    stamp,
-    pages: pages.length,
-    tables,
-    values: pages[0]?.values?.length ?? 0,
-  };
+    encoded.push(encodePage(page));
+    cursor = page.next ?? null;
+  } while (cursor !== null);
+  for (let n = 0; n < encoded.length; n++) {
+    await bucket.put(pageName(key, stamp, n), encoded[n]!);
+    encoded[n] = "";
+  }
+  const manifest: BackupManifest = { format, key, stamp, pages: encoded.length, tables, values };
   await bucket.put(`${key}/${stamp}/${manifestName}`, JSON.stringify(manifest));
   const cutoff = new Date(now - (options.keepDays ?? 30) * day).toISOString();
   const incompleteCutoff = new Date(now - day).toISOString();
