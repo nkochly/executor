@@ -128,6 +128,10 @@ question. How you answer depends on the connection's mode:
   Call `resume` with `{ requestId, response: { action: "accept", content } }`,
   or with `action: "decline"` or `"cancel"`. Put the user's form fields in
   `content`. Never approve on the user's behalf.
+- Automatic mode: Executor approves tool calls itself, so `approval-required`
+  never appears; your own permission prompt for `execute` and `call` is the
+  check. A running tool's `input-required` question still comes back to you, and
+  you answer it as in model mode.
 - Browser mode: the result includes `approvalUrl`. Show it to the user, who
   answers in their signed-in browser, then call `resume({ requestId })`.
 - Native mode: the MCP client shows its own prompt, and `execute` continues by

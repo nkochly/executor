@@ -7513,7 +7513,7 @@ export const scenarios = plan({
     fixtures: "actors",
     file: "mcp-tool-input.spec.ts",
     title:
-      "Hosted MCP model and browser modes return an account-free tool's input request and resume it with the answer",
+      "Hosted MCP model, browser and automatic modes return an account-free tool's input request and resume it with the answer, and automatic mode skips its approval",
     targets: {
       "self-host": scheduled,
       cloud: scheduled,
@@ -7523,7 +7523,7 @@ export const scenarios = plan({
   localMcpToolInput: {
     file: "mcp-tool-input.spec.ts",
     title:
-      "Local MCP model and browser modes return an account-free tool's input request and resume it with the answer",
+      "Local MCP model, browser and automatic modes return an account-free tool's input request and resume it with the answer, and automatic mode skips its approval",
     targets: {
       local: scheduled,
       "self-host": na("Hosted products run the same flow in mcpToolInput."),

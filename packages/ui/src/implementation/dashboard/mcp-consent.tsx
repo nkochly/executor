@@ -93,6 +93,10 @@ export function McpConsentSummary({
             title: "Approvals through your agent",
             detail: "Your agent collects responses and resumes calls that need approval.",
           })),
+          Match.when("automatic", () => ({
+            title: "Automatic approvals",
+            detail: "Executor does not ask. Your agent's own permission prompts decide.",
+          })),
           Match.exhaustive,
         );
   return (
