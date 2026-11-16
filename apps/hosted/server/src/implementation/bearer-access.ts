@@ -17,11 +17,11 @@
 import { defaultKeyHasher } from "@better-auth/api-key";
 import { fullAuthority, type AuthorizationPolicy } from "@executor-js/authorization";
 import {
+  ApprovalMode,
   GrantId,
   GrantPolicy,
   grantAuthorization,
   grantTarget,
-  type ApprovalMode,
   type GrantTarget,
 } from "@executor-js/mcp-auth";
 import {
@@ -806,7 +806,7 @@ export const apiBearerAccess = (origins: HostedOAuthOrigins, request: BearerRequ
 export const ProxyGrant = Schema.Struct({
   user: Schema.NonEmptyString,
   organization: OrganizationId,
-  mode: Schema.Literals(["model", "native", "browser"]),
+  mode: ApprovalMode,
   connection: Schema.optionalKey(ConnectionId),
 });
 const proxyGrantPrefix = "proxy:";
