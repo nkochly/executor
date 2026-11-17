@@ -1,6 +1,7 @@
 import {
   Feedback,
   FeedbackDisabled,
+  FeedbackRefused,
   FeedbackUnavailable,
 } from "@executor-js/telemetry/product-analytics";
 import { Schema } from "effect";
@@ -14,12 +15,12 @@ export const HostedFeedback = HttpApiGroup.make("feedback")
       params: { organization: OrganizationReference },
       payload: Feedback,
       success: Schema.Struct({ status: Schema.Literal("accepted") }),
-      error: [FeedbackUnavailable, FeedbackDisabled],
+      error: [FeedbackUnavailable, FeedbackDisabled, FeedbackRefused],
     })
       .annotate(OpenApi.Summary, "Submit feedback")
       .annotate(
         OpenApi.Description,
-        "Send feedback about Executor to the Executor team. Returns accepted only after ingestion succeeds. Returns FeedbackDisabled when this instance has analytics turned off. Do not include credentials or other sensitive information.",
+        "Send feedback about Executor to the Executor team. Returns accepted only after ingestion succeeds. Returns FeedbackDisabled when this instance has analytics turned off, and FeedbackRefused, with the reason, when this instance's feedback destination declines it. Do not include credentials or other sensitive information.",
       ),
   )
   .middleware(RequireOrganization);

@@ -3,6 +3,7 @@ import { Cause, Clock, Context, Effect, Exit, Option, Schema } from "effect";
 import {
   feedbackDisabled,
   type FeedbackDisabled,
+  type FeedbackRefused,
   type FeedbackUnavailable,
 } from "@executor-js/telemetry/product-analytics";
 import { CurrentUserId } from "./auth.ts";
@@ -88,7 +89,7 @@ export const ProductAnalytics = Context.Reference<{
     readonly message: string;
     readonly userId: string;
     readonly organizationId: string;
-  }) => Effect.Effect<void, FeedbackUnavailable | FeedbackDisabled>;
+  }) => Effect.Effect<void, FeedbackUnavailable | FeedbackDisabled | FeedbackRefused>;
 }>("hosted/ProductAnalytics", {
   defaultValue: () => ({
     enabled: false,

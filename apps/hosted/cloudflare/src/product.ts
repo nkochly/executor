@@ -6,6 +6,7 @@
 import { Digest } from "effect/crypto";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { sqliteLayer } from "fumadb-effect/sqlite";
+import { SqlClient } from "effect/sql";
 import { executorSkillFiles } from "@executor-js/app-templates/executor";
 import { ScheduleHostReady } from "@executor-js/sdk/scheduling";
 import { telemetryConfig, telemetryLayer } from "@executor-js/telemetry";
@@ -38,6 +39,7 @@ import {
   type HttpBinding,
   type McpSessionHost,
 } from "@executor-js/hosted-self-host/product";
+import { agentReportsFeedback } from "./agent-reports.ts";
 import skills from "executor:skills";
 import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
@@ -140,6 +142,9 @@ const prepare = (state: DurableObjectState, env: Environment) =>
           : undefined;
       const routes = yield* selfHostRouteMap({
         ...(sessions === undefined ? {} : { mcpSessions: sessions.host }),
+        ...(env.AGENT_REPORTS === undefined
+          ? {}
+          : { feedback: agentReportsFeedback(env.AGENT_REPORTS, yield* SqlClient.SqlClient) }),
         skills: executorSkillFiles(skills),
         egress,
         executorServices: Layer.succeedContext(services),

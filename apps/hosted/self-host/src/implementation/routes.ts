@@ -64,16 +64,26 @@ export const selfHostRouteMap = <DashboardE, DashboardR>(options: {
   readonly dashboard: Effect.Effect<HttpServerResponse.HttpServerResponse, DashboardE, DashboardR>;
   /** Session objects that hold MCP protocol state and run programs outside this process. */
   readonly mcpSessions?: McpSessionHost;
+  /**
+   * Where submitted feedback goes instead of the analytics sink. Product analytics are unchanged:
+   * with this alone, the instance records no events and sends only explicitly submitted feedback.
+   */
+  readonly feedback?: (typeof ProductAnalytics.Service)["submitFeedback"];
 }) =>
   Effect.gen(function* () {
     const { skills, egress, executorServices, dashboard } = options;
     const auth = yield* SelfHostAuth.pipe(Effect.provide(executorServices));
     const analytics = yield* selfHostAnalytics;
+    const sink: typeof ProductAnalytics.Service | undefined =
+      options.feedback === undefined
+        ? analytics?.product
+        : {
+            ...(analytics?.product ?? { enabled: false, capture: () => {} }),
+            submitFeedback: options.feedback,
+          };
     /** Requests and background schedules record through this instance's sink unless it opted out. */
     const observed = <A, E, R>(effect: Effect.Effect<A, E, R>) =>
-      analytics === undefined
-        ? effect
-        : effect.pipe(Effect.provideService(ProductAnalytics, analytics.product));
+      sink === undefined ? effect : effect.pipe(Effect.provideService(ProductAnalytics, sink));
     const scheduler = yield* Effect.gen(function* () {
       const executor = yield* Effect.flatten(HostedExecutor);
       const authorize = yield* ScheduledAuthority;

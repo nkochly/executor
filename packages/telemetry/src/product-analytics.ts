@@ -36,6 +36,17 @@ export class FeedbackDisabled extends Schema.TaggedError<FeedbackDisabled>()(
   { httpApiStatus: 409 },
 ) {}
 
+/**
+ * The instance's feedback destination read the feedback and declined it, saying why: for example
+ * text that looks like a credential, or too much feedback from one person in an hour. A 4xx status
+ * so the reason reaches the agent; nothing was recorded.
+ */
+export class FeedbackRefused extends Schema.TaggedError<FeedbackRefused>()(
+  "FeedbackRefused",
+  { message: Schema.String },
+  { httpApiStatus: 422 },
+) {}
+
 /** The error returned whenever this instance does not send feedback. */
 export const feedbackDisabled = () =>
   new FeedbackDisabled({ message: "Feedback is disabled on this instance." });
