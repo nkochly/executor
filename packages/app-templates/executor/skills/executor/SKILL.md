@@ -66,7 +66,8 @@ use the `executor apps` CLI, else `execute`; read the `app-authoring` skill firs
 
 ## Send feedback
 
-Send feedback with the Executor app's `feedback.submit` tool when Executor gets
-in your way, can't do something you need, works especially well, or the user
-has feedback. Before your final reply, check whether anything is worth
-reporting. Be specific; never include credentials or user data (`feedback.md`).
+Send feedback with the Executor app's `feedback.submit` tool when Executor or an
+app you call through it gets in your way, can't do something you need, works
+especially well, or the user has feedback. Before your final reply, check
+whether anything is worth reporting. Write a problem in the shape `feedback.md`
+gives, with the fix you propose; never include credentials or user data.

@@ -210,6 +210,7 @@ const errorMessage = Match.type<HostedError>().pipe(
     CatalogUnavailable: () => "The app catalog could not be reached. Try again.",
     FeedbackUnavailable: () => "Feedback could not be sent. Try again.",
     FeedbackDisabled: ({ message }) => message,
+    FeedbackRefused: ({ message }) => message,
     HttpClientError: () =>
       pageOutdated()
         ? outdatedPageMessage

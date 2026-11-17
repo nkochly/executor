@@ -19,6 +19,7 @@ import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { PlatformBindings } from "./platform.ts";
+import type { AgentReportsBinding } from "./agent-reports.ts";
 import {
   exportStoragePage,
   isRetiredProduct,
@@ -82,6 +83,8 @@ export interface Environment extends PlatformBindings, ProductLocationEnvironmen
   readonly ASSETS: Fetcher;
   /** This Worker's own `SelfOrigin` entrypoint, for requests to the dashboard origin. */
   readonly SELF: Fetcher;
+  /** Where submitted feedback goes (`agent-reports.ts`); without it, feedback is disabled. */
+  readonly AGENT_REPORTS?: AgentReportsBinding;
 }
 
 /**
