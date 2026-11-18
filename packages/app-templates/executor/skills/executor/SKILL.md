@@ -39,22 +39,28 @@ as above. Return only the data you need. For depth, read the `code-mode` skill.
 When `call` or `execute` pauses for approval or input, show the request to the
 user and resume it; never repeat the call or run the program again.
 
-## See images and hear audio
+## See images, hear audio and read files
 
-You can look at any image and listen to any audio a tool gives you. Wherever
-the value `call` or `execute` returns holds `{ type: "image", mimeType, data }`
-or `{ type: "audio", mimeType, data }`, with `data` in standard or URL-safe
-base64, you receive that block as media, and the JSON shows
-`{ type, mimeType, contentIndex }` in its place. Screenshots from MCP servers already arrive in that shape. When a tool
-returns the bytes some other way, such as an email attachment as `{ base64 }`,
-return them in that shape from `execute`:
+You can look at any image, listen to any audio and read any file a tool gives
+you. Wherever the value `call` or `execute` returns holds
+`{ type: "image", mimeType, data }`, `{ type: "audio", mimeType, data }` or a
+file as `{ type: "resource", resource: { uri, mimeType, blob } }`, with the
+bytes in standard or URL-safe base64, you receive that block as media or a
+file, such as a PDF, and the JSON shows it without its bytes plus
+`contentIndex`. Screenshots from MCP servers already arrive in that shape. When
+a tool returns the bytes some other way, such as an email attachment as
+`{ base64 }`, return them in that shape from `execute`: an image block for an
+image, and otherwise a resource whose `uri` ends in the file's name:
 
 ```js
 const file = await tools.gmail.attachment({ messageId, attachmentId });
-return { type: "image", mimeType: "image/png", data: file.base64 };
+return {
+  type: "resource",
+  resource: { uri: "file:///report.pdf", mimeType: "application/pdf", blob: file.base64 },
+};
 ```
 
-Never read, decode or describe base64 yourself; return it as media and look.
+Never read, decode or describe base64 yourself; return it as a block and look.
 
 ## Build an app
 
