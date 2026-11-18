@@ -1,3 +1,4 @@
+import { engineCallFaults } from "../test-plan.ts";
 import {
   Clock,
   Console,
@@ -291,6 +292,8 @@ export const startCloudEnvironment = (input: {
       V1_IMPORT_OPERATOR_TOKEN: v1ImportOperatorToken,
       // Imports freeze and cut over each organization in the emulated v1 through this login.
       V1_IMPORT_WRITER_DATABASE_URL: `postgresql://${v1DatabaseWriter}:${v1WriterPassword}@127.0.0.1:${input.databasePort}/executor_v1?sslmode=disable`,
+      // Fails only engine calls to steps the workflow engine calls scenario's app names.
+      EXECUTOR_TEST_WORKFLOW_ENGINE_FAULTS: JSON.stringify(engineCallFaults),
       V1_MCP_FORWARD_SECRET: v1ForwardSecret,
       V1_SESSION_HANDOFF_SECRET: v1HandoffSecret,
       // Serve the role hosts as production does, at `app.`, `mcp.` and `api.` of the origin's host.
