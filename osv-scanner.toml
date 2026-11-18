@@ -1,0 +1,3 @@
+[[IgnoredVulns]]
+id = "GHSA-fc5q-39xc-vjpf"
+reason = "picomatch ReDoS: every version is affected and no fix is released. It reaches this tree through build and test tooling only, matching trusted glob patterns. Remove this entry once a fixed version is installed."
