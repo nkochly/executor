@@ -65,5 +65,9 @@ Single sign-on (`e2e/tests/self-host-sso-emulated.spec.ts`, `self-host-access-pr
 
 ## Consequences
 
-- The SSO e2e scenario waits out Better Auth's sign-in rate limit with fixed sleeps; a beta Muster
-  task tracks configuring the test instance instead.
+- The SSO e2e scenario waits out Better Auth's sign-in rate limit with fixed 11-second sleeps
+  (three attempts per address per ten seconds; one SSO sign-in is two). The limit is set in
+  upstream's auth files and the client address comes from the socket, so the test can neither
+  configure it nor use a fresh address. A fork setting in those upstream files would remove the
+  sleeps; the scenario keeps them instead, so upstream's auth files stay unchanged (Nathan,
+  2026-11-20).

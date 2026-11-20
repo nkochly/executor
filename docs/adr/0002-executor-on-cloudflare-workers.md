@@ -115,5 +115,7 @@ Live queries (`fixture/live-stream.ts`, `e2e/tests/cloudflare-live-stream.spec.t
 ## Consequences
 
 - Cold starts pay for opening the product on the first request, not at Worker startup.
-- `prepare.ts` writes a stub for PGlite's modules, which the product imports even on SQLite; a beta
-  Muster task tracks removing that import.
+- `prepare.ts` writes a stub for PGlite's modules, because `dev/product.jsonc` runs upstream's
+  self-host `worker.ts`, which imports them even on SQLite. Removing the stub needs either an edit
+  to that upstream file or running the Cloudflare product Worker in development instead of the
+  stand-ins; the stub stays (Nathan, 2026-11-20).
