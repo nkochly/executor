@@ -151,6 +151,15 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
     }),
   );
 
+  it.effect("an R2 failure's code reads from the binding's error", () =>
+    Effect.gen(function* () {
+      const failure = yield* request("/r2-error-code").pipe(
+        Effect.flatMap(jsonOf(Schema.Struct({ code: Schema.NullOr(Schema.Number) }))),
+      );
+      expect(failure.code, "R2's code for an object name past 1024 bytes").toBe(10020);
+    }),
+  );
+
   it.effect("app source committed to Artifacts reads back byte for byte", () =>
     Effect.gen(function* () {
       const code = "code_bytes1";

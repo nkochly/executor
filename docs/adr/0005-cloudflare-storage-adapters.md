@@ -43,5 +43,7 @@ Local tests (`scripts/storage-host.ts`, `fixture/worker.ts`):
 
 ## Consequences
 
-- R2's rate limit is detected by the code 10058 in the error message; a beta Muster task tracks
-  reading it from a structured error instead.
+- The R2 binding throws a plain `Error` with no `code` property; its message ends with the code in
+  parentheses (`put: <reason> (10020)`). `r2ErrorCode` reads that code, and the rate limit is
+  code 10058. `e2e/tests/cloudflare-storage.spec.ts` holds the message's shape against Miniflare's
+  R2, so a change in it fails a test instead of silently stopping the retry.
