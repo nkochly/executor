@@ -20,7 +20,8 @@ commits. Deleting code comments in upstream's files would make every later port 
   fix the implementation. A tautology or stale code comment is deleted.
 - The comment ratchet (`scripts/comment-ratchet.mjs`, synced from gh-ci-templates) enforces it
   against `.comment-baseline.json`: a file may hold at most the code comments its baseline allows,
-  and `--update` only lowers counts. Upstream's files are listed under `ignore`.
+  and `--update` only lowers counts. `only` lists the fork-owned files, so upstream's files are
+  never scanned. `.github/workflows/comment-ratchet.yml` runs it on the Cloudflare runners.
 - Exempt (as the delete-comment skill applies it): directives (`@ts-expect-error`, `/// <reference>`, lint and coverage pragmas,
   `#__PURE__`, `@vitest-environment`, `@jsx`), a license header at the top of a file, and generated
   files (`@generated`, `DO NOT EDIT`).
@@ -31,8 +32,9 @@ commits. Deleting code comments in upstream's files would make every later port 
 
 ## Consequences
 
-- The first pass removed every code comment from fork-owned code: 518 code comments, 1,191 lines.
-- A new upstream file brought in by a port must be added to `ignore`, or the comment ratchet
-  fails on its code comments.
+- The first pass removed every code comment from fork-owned code: 518 code comments, 1,191 lines, plus 16 comment lines in the Cloudflare host's Wrangler
+  configuration.
+- A new fork-owned file must be added to `only` in the same change, or the comment ratchet does
+  not see it.
 - A file the fork copies from upstream under a new path is fork-owned and must lose its code
   comments.

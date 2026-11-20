@@ -70,7 +70,16 @@ Platform services (`platform.ts`, `apps-worker/src/worker.ts`):
   public internet, as workerd's public-only network service does in self-host. Private
   destinations are refused by name before they get there unless the operator allows them.
 
-Build (`scripts/generate.ts`, `src/modules.d.ts`):
+Build (`scripts/generate.ts`, `src/modules.d.ts`, `wrangler.jsonc`):
+
+- The Worker is minified: startup must stay under Cloudflare's 1 s CPU limit, and parsing the
+  unminified bundle alone takes about a third of it.
+- Secrets (`BETTER_AUTH_SECRET`, `EXECUTOR_ENCRYPTION_KEY`) are set with `wrangler secret put`, or
+  in `.dev.vars` for `wrangler dev`. The app host's `CREDENTIAL_SECRET` is derived from the
+  product's encryption key.
+- The app host Worker has no route or public URL; only the product binds it. The product
+  authenticates to it with a fixed value, because the service binding itself is the credential.
+  Apps calling the product's public origin go through `SELF`.
 
 - Wrangler runs `generate.ts` before every build. It writes the build-time modules
   `executor:skills`, `executor:dashboard` and `executor:program-sandbox`. The dashboard must be

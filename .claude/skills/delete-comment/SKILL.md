@@ -16,13 +16,14 @@ holds the rule.
 git remote add upstream https://github.com/UsefulSoftwareCo/executor 2>/dev/null
 git fetch upstream v2
 base=$(git merge-base HEAD upstream/v2)
-git ls-files | grep -E '\.(c|m)?(j|t)sx?$' > /tmp/here
+git ls-files | grep -E '\.(c|m)?(j|t)sx?$|\.(jsonc|css|html?|ya?ml|sh|bash|toml|py|sql)$' > /tmp/here
 { git ls-tree -r --name-only upstream/v2; git ls-tree -r --name-only "$base"; } | sort -u > /tmp/upstream
 grep -vxFf /tmp/upstream /tmp/here
 ```
 
-Check the result against `only` in `.comment-baseline.json`. A new fork-owned directory goes into
-`only`; a new upstream file inside one goes into `ignore`.
+Check the result against `only` in `.comment-baseline.json`, which lists every fork-owned file the
+comment ratchet scans (code, `.jsonc`, `.yml`, `.toml` and the other kinds it reads). Add any
+fork-owned file missing from it.
 
 ## 2. List every code comment
 

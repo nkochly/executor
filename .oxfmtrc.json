@@ -11,6 +11,7 @@
     "node_modules",
     "patches",
     "bun.lock",
+    "scripts/comment-ratchet.mjs",
     "*.tsbuildinfo",
     "**/.generated",
     "**/routeTree.gen.ts",
