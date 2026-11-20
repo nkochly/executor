@@ -56,7 +56,8 @@ Protocol sessions survive eviction (`mcp-session-store.ts`):
   object's storage commits, is not caught: the runtime discards the response and restarts the
   object, and the client sees an error.
 
-Programs in isolates (`program-sandbox.ts`, `apps/hosted/server/src/implementation/mcp-isolated.ts`):
+Programs in isolates (`program-sandbox.ts`, `program-isolate.ts`,
+`apps/hosted/server/src/implementation/mcp-isolated.ts`):
 
 - When `LOADER` is bound, each `execute` program runs in a fresh Dynamic Worker with no network
   and a CPU budget of 300 seconds, the most Cloudflare allows one Worker invocation. Without
@@ -70,8 +71,16 @@ Programs in isolates (`program-sandbox.ts`, `apps/hosted/server/src/implementati
 - A tool call names the program's call it serves, so the host can mark its approval wait. The
   broker finds that call by the fiber that runs the backend operation.
 - The deadline settles when the budget is spent or the host ends the execution; either way the
-  program stops and returns what it did. When the isolate cannot give a result, the execution
-  fails with the calls the program made, and nothing it started keeps running.
+  program stops and returns what it did. Only the host ending the execution (an interruption)
+  settles a wait quietly; any other failure of the deadline, or of its RPC, fails the program.
+  When the isolate cannot give a result, the execution fails with the calls the program made, and
+  nothing it started keeps running.
+- The sandbox handles no unhandled rejection. CodeMode interrupts the work a finished program
+  left waiting, and every promise the isolate makes has its handler, so a rejection no one hears
+  is a defect and is left for the runtime to report.
+- `fixture/isolated-program.ts` runs programs through the real sandbox in a local Dynamic Worker
+  (`e2e/tests/cloudflare-isolated-program.spec.ts`): a program that leaves work waiting, one
+  still waiting at its deadline, and a deadline that fails.
 
 The wire between session object and product (`mcp-remote.ts`):
 
@@ -100,5 +109,3 @@ Self-host program cap (`e2e/tests/self-host-program-cap.spec.ts`):
 ## Consequences
 
 - A program's CPU and memory are its isolate's, so it cannot slow or crash another caller's.
-- Two excuses in this area are beta Muster tasks: the sandbox swallows every unhandled rejection
-  after a program finishes, and the isolate's deadline swallows every failure of its wait.

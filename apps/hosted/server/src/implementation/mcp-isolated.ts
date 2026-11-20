@@ -1,4 +1,4 @@
-import { Effect } from "effect";
+import { Cause, Effect, Exit } from "effect";
 import {
   executeProgram,
   executionProgress,
@@ -65,6 +65,12 @@ export const isolatedProgram =
       const ended = new AbortController();
       const run = <A>(effect: Effect.Effect<A>) =>
         Effect.runPromiseWith(context)(effect, { signal: ended.signal });
+      const settle = (effect: Effect.Effect<void>) =>
+        Effect.runPromiseExitWith(context)(effect, { signal: ended.signal }).then((exit) =>
+          Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)
+            ? Promise.reject(Cause.squash(exit.cause))
+            : undefined,
+        );
       const host: ProgramHost = {
         backend: (call) =>
           run(
@@ -77,7 +83,7 @@ export const isolatedProgram =
             }),
           ),
         progress: (report) => mirror(progress, report),
-        deadline: () => run(deadline).catch(() => undefined),
+        deadline: () => settle(deadline),
       };
       return yield* Effect.tryPromise(() => start(code, limits, host)).pipe(
         Effect.map((result) => fromWire(result) as typeof ExecuteResult.Type),
@@ -123,7 +129,7 @@ export const runIsolatedProgram = (
         remote(progress.callFibers.get(fiber)).callTool(input, options),
       ),
   };
-  const deadline = Effect.promise(() => host.deadline().catch(() => undefined));
+  const deadline = Effect.promise(() => host.deadline());
   return Effect.runPromise(
     executeProgram(code)(backend, limits, deadline, progress).pipe(
       Effect.map((result) => {
