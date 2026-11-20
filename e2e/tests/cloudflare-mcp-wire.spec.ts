@@ -1,10 +1,3 @@
-/**
- * The Cloudflare host's MCP backend wire across releases: a session object and the product can
- * run different releases for minutes after a deploy. The current release carries the execution to
- * the product and the tool call log's reference back; either side of the release before it, which
- * knows neither, still serves and is served. Run by
- * `apps/hosted/cloudflare/scripts/mcp-wire-versions.ts`.
- */
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect, Schema, Stream } from "effect";
@@ -45,13 +38,10 @@ layer(NodeServices.layer)("Cloudflare MCP backend wire", (it) => {
         );
         if (line._tag === "None") return yield* Effect.die(new Error("wire check printed nothing"));
         const report = yield* Schema.decodeUnknownEffect(Schema.fromJsonString(Report))(line.value);
-        // Both on this release: the product sees the run, the session object gets the reference.
         expect(report.current.execution).toBe("run_current");
         expect(report.current.recorded).toBe("call_current");
-        // A session object of the release before: the call is served, with no execution to record.
         expect(report.previousSession.ok).toBe(true);
         expect(report.previousSession.execution).toBeUndefined();
-        // A product of the release before: the call is served, and no reference is invented.
         expect(report.previousProduct.recorded).toBeUndefined();
       }).pipe(Effect.scoped),
     90_000,

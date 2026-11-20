@@ -1,11 +1,3 @@
-/**
- * A live app query runs only while a page holds it. The Cloudflare product serves from a Durable
- * Object behind its Worker, and its event streams end only when the runtime cancels the body the
- * object streamed. If a client's disconnect stopped reaching that body, every live query a page
- * ever opened would keep re-running its query until the object was evicted (upstream's self-host
- * image, on its own workerd build, needed `enable_request_signal` for this). Served in local workerd, with the Worker's own compatibility settings, by
- * `apps/hosted/cloudflare/scripts/live-stream-host.ts`.
- */
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Context, Effect, Layer, Schema, Stream } from "effect";
@@ -49,7 +41,6 @@ layer(liveStreamHost, { excludeTestServices: true })("Cloudflare live stream", (
     Effect.gen(function* () {
       const { origin } = yield* LiveStreamHost;
       const client = yield* HttpClient.HttpClient;
-      // The client holds the stream while this scope is open; closing it disconnects.
       yield* Effect.scoped(
         Effect.gen(function* () {
           const response = yield* client.execute(HttpClientRequest.get(`${origin}/live`));
@@ -63,10 +54,8 @@ layer(liveStreamHost, { excludeTestServices: true })("Cloudflare live stream", (
         }),
       ).pipe(Effect.orDie);
 
-      // The runtime finds the client gone on its next write; give it time.
       yield* Effect.sleep("2 seconds");
       const settled = yield* runs;
-      // About twenty runs fall in this window while the stream still runs.
       yield* Effect.sleep("2 seconds");
       const later = yield* runs;
       expect(later - settled, "runs of the stream after its client went away").toBe(0);

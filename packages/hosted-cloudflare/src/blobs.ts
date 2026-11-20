@@ -1,11 +1,6 @@
-/**
- * Blob storage on an R2 bucket bound to the Worker. The Cloud build's store, without its
- * deployment wiring: the host passes the bucket binding it was given.
- */
 import { BlobKey, BlobStoreError, type BlobRange, type BlobStorage } from "@executor-js/sdk/core";
 import { Effect, Option, Schedule, Schema, Stream } from "effect";
 
-/** The R2 bucket methods the store calls; a Worker's `R2Bucket` binding satisfies it. */
 export interface R2BucketBinding {
   readonly head: (key: string) => Promise<{ readonly size: number } | null>;
   readonly get: (
@@ -29,7 +24,6 @@ export interface R2BucketBinding {
   }>;
 }
 
-/** R2 names an explicit rate-limit rejection with code 10058 in the error message. */
 const rateLimited = (cause: unknown) => cause instanceof Error && cause.message.includes("10058");
 
 const call = <A>(operation: BlobStoreError["operation"], key: string, evaluate: () => Promise<A>) =>
@@ -43,7 +37,6 @@ const call = <A>(operation: BlobStoreError["operation"], key: string, evaluate: 
     ),
   );
 
-/** One object per key. Writes of the same key and bytes retry R2's explicit rate limit twice. */
 export const r2BlobStore = (bucket: R2BucketBinding): BlobStorage => ({
   get: (key) =>
     call("get", key, async () => {
@@ -62,7 +55,6 @@ export const r2BlobStore = (bucket: R2BucketBinding): BlobStorage => ({
       Effect.asVoid,
     ),
   remove: (key) => call("remove", key, () => bucket.delete(key)),
-  // `delimiter` keeps nested folders out; R2 pages the names itself.
   list: (folder, options) =>
     call("list", folder, () =>
       bucket.list({
@@ -82,7 +74,6 @@ export const r2BlobStore = (bucket: R2BucketBinding): BlobStorage => ({
   stream: (key, range) => streamObject(bucket, key, range),
 });
 
-/** Range reads go to R2; an empty range only needs the object's size. */
 const streamObject = (bucket: R2BucketBinding, key: BlobKey, range: BlobRange | undefined) =>
   range !== undefined && range.length === 0
     ? call("get", key, () => bucket.head(key)).pipe(

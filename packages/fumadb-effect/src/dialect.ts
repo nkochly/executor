@@ -1,4 +1,3 @@
-/** SQL expressions that differ between PostgreSQL and SQLite. */
 export {
   isSqlite,
   isoText,

@@ -1,9 +1,3 @@
-/**
- * Connection bundles: scoped connections an organization's admins define once and give to groups.
- * Each member of an assigned group gets the bundle as one of their own connections, which runs as
- * that member's own linked accounts and which only admins change. One organization setting decides
- * whether members may also make connections of their own.
- */
 import { AppId } from "@executor-js/sdk/core";
 import { EventScope, ToolScope } from "@executor-js/authorization";
 import { ConnectedAgent, ConnectedAgentNotFound } from "@executor-js/mcp-auth/agents";
@@ -27,14 +21,11 @@ import {
   RequireOrganization,
 } from "./organization.ts";
 
-/** Stable bundle identity, always looked up within an explicit organization. */
 export const BundleId = Schema.NonEmptyString.pipe(Schema.brand("ConnectionBundleId"));
 export type BundleId = typeof BundleId.Type;
-/** Opaque version used to prevent overwriting another administrator's changes. */
 export const BundleRevision = Schema.NonEmptyString.pipe(Schema.brand("ConnectionBundleRevision"));
 export type BundleRevision = typeof BundleRevision.Type;
 
-/** One app of a bundle: which tools and events it exposes. Accounts are each member's own. */
 export const BundleApp = Schema.Struct({
   app: AppId,
   tools: ToolScope,
@@ -45,7 +36,6 @@ const uniqueApps = (apps: readonly { readonly app: string }[]) =>
   new Set(apps.map((item) => item.app)).size === apps.length;
 const uniqueIds = (ids: readonly string[]) => new Set(ids).size === ids.length;
 
-/** One atomic edit saves the name, the apps and the complete set of assigned groups. */
 export const BundleInput = Schema.Struct({
   name: ConnectionName,
   apps: Schema.Array(BundleApp).check(
@@ -65,11 +55,6 @@ export const Bundle = Schema.Struct({
 });
 export type Bundle = typeof Bundle.Type;
 
-/**
- * The name a bundle is reached by in an MCP URL: `/mcp?connection=<slug>`. Every member of the
- * bundle's groups uses the same URL and reaches their own copy. Lowercase letters, digits and
- * single hyphens; empty when the name has no letter or digit. Unique within an organization.
- */
 export const bundleSlug = (name: string) =>
   name
     .normalize("NFKD")
@@ -79,14 +64,8 @@ export const bundleSlug = (name: string) =>
     .slice(0, 64)
     .replace(/-+$/u, "");
 
-/** An app or group an admin can put in a bundle, named for the editor. */
 export const BundleChoice = Schema.Struct({ id: Schema.NonEmptyString, name: Schema.String });
 export type BundleChoice = typeof BundleChoice.Type;
-/**
- * The organization's bundles and its setting, with the viewer's authority to change them. Admins
- * also get every app and group of the organization to choose from, including apps shared with
- * groups they are not in.
- */
 export const BundlesView = Schema.Struct({
   bundles: Schema.Array(Bundle),
   membersCreateConnections: Schema.Boolean,
@@ -96,14 +75,12 @@ export const BundlesView = Schema.Struct({
 });
 export type BundlesView = typeof BundlesView.Type;
 
-/** A connection as its owner sees it, naming the bundle it was made from when it is a bundle's. */
 export const HostedConnectionView = Schema.Struct({
   ...ConnectionView.fields,
   bundle: Schema.optionalKey(Schema.Struct({ id: BundleId, name: ConnectionName })),
 });
 export type HostedConnectionView = typeof HostedConnectionView.Type;
 
-/** One member's connections and connected agents, as an admin oversees them. */
 export const MemberConnections = Schema.Struct({
   userId: Schema.NonEmptyString,
   name: Schema.String,
@@ -119,7 +96,6 @@ const bundleConflicts = {
   name_taken:
     "Another bundle in this organization already uses this name, or a name with the same MCP URL.",
 } as const;
-/** Safe conflicts preserve the admin's draft; no partial edit is committed. */
 export const BundleConflict = ApiError.define({
   tag: "BundleConflict",
   status: 409,
@@ -134,7 +110,6 @@ export const BundleNotFound = ApiError.define({
   message: "This connection bundle does not exist.",
 });
 export type BundleNotFound = typeof BundleNotFound.Type;
-/** A bundle may name only apps and groups of its own organization. */
 export const BundleInvalid = ApiError.define({
   tag: "BundleInvalid",
   status: 400,
@@ -154,7 +129,6 @@ export const BundlesUnavailable = ApiError.define({
   message: "Executor could not read or save connection bundles. Try again.",
 });
 export type BundlesUnavailable = typeof BundlesUnavailable.Type;
-/** A member's copy of a bundle is changed only through the bundle. */
 export const ConnectionManaged = ApiError.define({
   tag: "ConnectionManaged",
   status: 409,
@@ -164,7 +138,6 @@ export const ConnectionManaged = ApiError.define({
   recorded: () => "A member tried to change a connection a bundle manages",
 });
 export type ConnectionManaged = typeof ConnectionManaged.Type;
-/** The organization lets members use only the bundles its admins give them. */
 export const ConnectionsRestricted = ApiError.define({
   tag: "ConnectionsRestricted",
   status: 403,
@@ -181,7 +154,6 @@ const saveErrors = [...errors, BundleConflict, BundleNotFound, BundleInvalid] as
 const path = "/api/organizations/:organization/connection-bundles";
 const oversight = "/api/organizations/:organization/member-connections";
 
-/** Reads need membership; every write and the oversight routes need a current admin role. */
 export const HostedConnectionBundles = HttpApiGroup.make("connectionBundles")
   .add(
     HttpApiEndpoint.get("list", path, {

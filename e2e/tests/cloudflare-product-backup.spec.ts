@@ -1,9 +1,3 @@
-/**
- * The Cloudflare product's backups: a backup of a product-shaped object restores into an object
- * that stores nothing, exactly and without firing its triggers; a restore never writes over an
- * object that stores data; and a restore test in a scratch object matches the backup and leaves
- * nothing stored. Served in local workerd by `packages/hosted-cloudflare/scripts/product-backup-host.ts`.
- */
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Context, Effect, Layer, Schema, Stream } from "effect";
@@ -75,7 +69,6 @@ layer(backupHost, { excludeTestServices: true })("Cloudflare product backups", (
       const restored = yield* call("POST", "/restore/fresh-a?from=product-a").pipe(
         Effect.flatMap(decode(Contents)),
       );
-      // The trigger came back but did not fire for restored rows: the audit holds the two copied rows.
       expect(restored).toEqual(before);
       expect(restored.sealed).toEqual([1, 2, 3]);
     }),

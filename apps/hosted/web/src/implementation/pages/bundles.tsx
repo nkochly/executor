@@ -1,9 +1,3 @@
-/**
- * Connection bundles: admins choose apps and tools once and give them to groups. Each member of an
- * assigned group gets the bundle as a locked connection that runs as their own linked accounts.
- * Admins also decide whether members may make connections of their own, and see and revoke every
- * member's connections and connected agents.
- */
 import { useAtomSet, useAtomValue } from "@effect/atom-react";
 import { Cause, Exit, Option } from "effect";
 import { useId, useState } from "react";
@@ -45,10 +39,8 @@ import { appError, type HostedError } from "../../contracts/errors.ts";
 
 export const bundlesTitle = "Bundles";
 
-/** The one MCP URL every member of a bundle's groups connects at; each reaches their own copy. */
 const bundleUrl = (name: string) => `${window.location.origin}/mcp?connection=${bundleSlug(name)}`;
 
-/** Admins read bundles, the apps and groups to choose from, and every member's connections. */
 export const bundlesPageReads: OrganizationPageReads = (organization) => [
   bundlesAtom(organization),
 ];

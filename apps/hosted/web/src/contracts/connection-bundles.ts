@@ -1,4 +1,3 @@
-/** Admin-managed connection bundles, the members-create switch, and oversight of every member's connections. */
 import { hydrated } from "@executor-js/ui/contracts/http";
 import { revalidated } from "@executor-js/ui/contracts/refresh";
 import { Atom } from "effect/reactivity";
@@ -11,14 +10,12 @@ import { acknowledge, acknowledgedQuery, upsert } from "@executor-js/ui/contract
 import { HostedClient } from "./api.ts";
 import { mcpConnectionsAtom } from "./mcp-connections.ts";
 
-/** The organization's bundles and setting; members read only the setting. */
 export const bundlesAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.query("connectionBundles", "list", hydrated({ params: { organization } })).pipe(
     revalidated,
     acknowledgedQuery,
   ),
 );
-/** Every member's connections and agents, for admins. */
 export const memberConnectionsAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.query("connectionBundles", "members", hydrated({ params: { organization } })).pipe(
     revalidated,
@@ -30,7 +27,6 @@ type Save = {
   readonly input: BundleInput;
   readonly existing: Pick<Bundle, "id" | "revision"> | null;
 };
-/** An edit submits the revision it was read at; members' copies follow on the server. */
 export const saveBundleAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.runtime.fn((input: Save, get) =>
     Effect.flatMap(HostedClient, (client) =>
@@ -54,7 +50,6 @@ export const saveBundleAtom = Atom.family((organization: OrganizationReference) 
     ),
   ),
 );
-/** Removing a bundle revokes every member's copy of it. */
 export const removeBundleAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.runtime.fn((bundle: Pick<Bundle, "id" | "revision">, get) =>
     Effect.flatMap(HostedClient, (client) =>
@@ -76,7 +71,6 @@ export const removeBundleAtom = Atom.family((organization: OrganizationReference
     ),
   ),
 );
-/** Turns members' own connections on or off for the whole organization. */
 export const connectionSettingsAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.runtime.fn((membersCreateConnections: boolean, get) =>
     Effect.flatMap(HostedClient, (client) =>
@@ -96,7 +90,6 @@ export const connectionSettingsAtom = Atom.family((organization: OrganizationRef
     ),
   ),
 );
-/** An admin revokes one member's connection; a bundle's copy comes back on the next read. */
 export const revokeMemberConnectionAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.runtime.fn(
     (input: { readonly user: string; readonly connection: ConnectionId }, get) =>
@@ -107,7 +100,6 @@ export const revokeMemberConnectionAtom = Atom.family((organization: Organizatio
       ).pipe(Effect.tap(() => Effect.sync(() => get.refresh(memberConnectionsAtom(organization))))),
   ),
 );
-/** An admin disconnects one of a member's agents. */
 export const revokeMemberAgentAtom = Atom.family((organization: OrganizationReference) =>
   HostedClient.runtime.fn((input: { readonly user: string; readonly agent: GrantId }, get) =>
     Effect.flatMap(HostedClient, (client) =>

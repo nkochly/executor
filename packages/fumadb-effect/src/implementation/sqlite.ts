@@ -1,23 +1,13 @@
-/**
- * One SQLite client for Durable Objects and native hosts. Both run Effect's Durable Object client
- * over the same storage contract: Cloudflare's `ctx.storage`, or a native file behind the same
- * `sql.exec` and `transaction` shape. Native tests therefore exercise the client a Worker runs.
- */
 import type { DurableObjectStorage, SqlStorage } from "@cloudflare/workers-types";
 import * as SqliteClient from "@effect/sql-sqlite-do/SqliteClient";
 import { Context, Layer } from "effect";
 import { translateForSqlite } from "./sqlite-translate.ts";
 
-/** What the client reads of Durable Object storage. */
 export interface SqliteStorage {
   readonly sql: Pick<SqlStorage, "exec">;
   readonly transaction: <T>(closure: (txn: { rollback(): void }) => Promise<T>) => Promise<T>;
 }
 
-/**
- * SQLite binds numbers, strings, bigints, bytes and null. Booleans become 0 or 1, dates their
- * epoch milliseconds (FumaDB's SQLite temporal encoding), and undefined null.
- */
 export const sqliteParameter = (value: unknown): unknown => {
   if (typeof value === "boolean") return value ? 1 : 0;
   if (value instanceof Date) return value.getTime();
@@ -25,11 +15,6 @@ export const sqliteParameter = (value: unknown): unknown => {
   return value;
 };
 
-/**
- * The SQLite result code of a failure, as Effect's `classifySqliteError` reads it. A Durable
- * Object reports only the message, and node:sqlite its own code; both name constraint failures
- * in the message. A primary key conflict is a unique violation, as it is in Postgres.
- */
 const sqliteCode = (message: string) =>
   /\b(UNIQUE|PRIMARY KEY) constraint failed\b/.test(message)
     ? "SQLITE_CONSTRAINT_UNIQUE"
@@ -37,10 +22,6 @@ const sqliteCode = (message: string) =>
       ? "SQLITE_CONSTRAINT"
       : undefined;
 
-/**
- * The failure with the code Effect classifies it by, when its message names one, and the
- * constraint it broke when known.
- */
 export const sqliteFailure = (cause: unknown, constraint?: string): unknown => {
   if (!(cause instanceof Error)) return cause;
   const code = sqliteCode(cause.message);
@@ -51,11 +32,6 @@ export const sqliteFailure = (cause: unknown, constraint?: string): unknown => {
   });
 };
 
-/**
- * A unique violation names its columns (`t.a, t.b`), not the index that holds them, where
- * Postgres names the constraint callers match. That name is the table's unique index over
- * exactly those columns, in order.
- */
 const uniqueIndexOf = (storage: SqliteStorage, message: string): string | undefined => {
   const listed = /UNIQUE constraint failed: (.+)$/u.exec(message)?.[1];
   if (listed === undefined || listed.startsWith("index ")) return undefined;
@@ -97,7 +73,6 @@ const classifiedBy =
     }
   };
 
-/** A cursor whose methods and iterators fail with classified errors (a cursor may step lazily). */
 const classifiedCursor = <C extends object>(cursor: C, classified: Classify): C =>
   new Proxy(cursor, {
     get(target, key) {
@@ -122,11 +97,6 @@ function* classifiedIterator<T>(iterator: Iterator<T>, classified: Classify): Ge
   }
 }
 
-/**
- * Storage whose statements are read as SQLite (see `translateForSqlite`), receive only values
- * SQLite can bind, and fail with errors Effect classifies (unique and other constraint
- * violations).
- */
 export const normalizedStorage = (storage: SqliteStorage): SqliteStorage => {
   const classified = classifiedBy(storage);
   return {
@@ -146,16 +116,10 @@ export const normalizedStorage = (storage: SqliteStorage): SqliteStorage => {
   };
 };
 
-/**
- * The storage under the host's SQLite client, for code outside Effect SQL that must open its own
- * transactions (a Durable Object refuses `BEGIN`). It shares the client's database, not its
- * connection lock: callers hold a reservation of the client while they use it.
- */
 export class SqliteStorageService extends Context.Service<SqliteStorageService, SqliteStorage>()(
   "fumadb-effect/SqliteStorage",
 ) {}
 
-/** Effect SQL over Durable Object (or native) SQLite storage, with transactions. */
 export const sqliteLayer = (storage: SqliteStorage) => {
   const normalized = normalizedStorage(storage);
   return Layer.merge(

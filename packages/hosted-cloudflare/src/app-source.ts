@@ -1,9 +1,3 @@
-/**
- * App source on Cloudflare Artifacts, for a host whose product runs in one Durable Object.
- * Git reads and pushes are the shared `@executor-js/app-source/cloudflare` adapter. This module
- * supplies the host side it needs: repository creation, write tokens, and the binding reads Git
- * cannot do without fetching whole packs. Tokens are stored encrypted in the host's storage.
- */
 import {
   AppCodeId,
   GitCommit,
@@ -15,7 +9,6 @@ import {
 import { cloudflareRepositories, type ArtifactsTokens } from "@executor-js/app-source/cloudflare";
 import { Clock, Effect, Redacted, Schedule, Schema, Semaphore } from "effect";
 
-/** The Artifacts repository methods the source calls; the binding's `ArtifactsRepo` satisfies it. */
 export interface ArtifactsRepository {
   readonly createToken: (
     scope: "write",
@@ -33,7 +26,6 @@ export interface ArtifactsRepository {
   }) => Promise<{ arrayBuffer(): Promise<ArrayBuffer> } | null>;
 }
 
-/** The namespace methods the source calls; a Worker's `Artifacts` binding satisfies it. */
 export interface ArtifactsBinding {
   readonly create: (
     name: string,
@@ -42,7 +34,6 @@ export interface ArtifactsBinding {
   readonly get: (name: string) => Promise<ArtifactsRepository>;
 }
 
-/** Key-value storage that survives restarts; a Durable Object's `ctx.storage` satisfies it. */
 export interface CredentialStorage {
   readonly get: (key: string) => Promise<unknown>;
   readonly put: (key: string, value: unknown) => Promise<void>;
@@ -51,13 +42,11 @@ export interface CredentialStorage {
 export interface ArtifactsSourceSettings {
   readonly artifacts: ArtifactsBinding;
   readonly storage: CredentialStorage;
-  /** 64 hex characters: the host's 256-bit credential key. */
   readonly encryptionKey: Redacted.Redacted<string>;
   readonly accountId: string;
   readonly namespace: string;
 }
 
-/** Artifacts' longest token lifetime. A token is replaced five minutes before it expires. */
 const tokenLifetimeSeconds = 31_536_000;
 const refreshBeforeExpiryMs = 5 * 60_000;
 const blobReads = 4;
@@ -98,7 +87,6 @@ const attempt = <A>(evaluate: () => Promise<A>) =>
   Effect.tryPromise({ try: evaluate, catch: unavailable });
 const storageKey = (repository: AppCodeId) => `artifacts-token:${repository}`;
 
-/** A Worker RPC stub holds resources until disposed; plain objects have nothing to release. */
 const dispose = (value: unknown) =>
   Effect.sync(() => {
     if (value !== null && typeof value === "object" && Symbol.dispose in value) {
@@ -107,10 +95,6 @@ const dispose = (value: unknown) =>
     }
   });
 
-/**
- * Host-owned credentials and binding reads for the Git adapter. One lock serializes token
- * refreshes: the product runs in one Durable Object, so this lock is the only writer.
- */
 export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
   Effect.gen(function* () {
     const encryption = yield* aesGcmCredentials(settings.encryptionKey, crypto);
@@ -118,7 +102,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
     const open = (repository: AppCodeId) =>
       Effect.acquireRelease(
         attempt(() => settings.artifacts.get(repository)).pipe(
-          // A repository is briefly unavailable while Artifacts finishes creating it.
           Effect.retry({ schedule: Schedule.spaced("5 seconds"), times: 2 }),
         ),
         dispose,
@@ -152,7 +135,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
                 attempt(() => repo.createToken("write", tokenLifetimeSeconds)),
                 dispose,
               );
-              // RPC properties are read while the handle is alive; the plaintext is never logged.
               return yield* attempt(async () => ({
                 id: await result.id,
                 plaintext: await result.plaintext,
@@ -181,7 +163,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
       create: (repository) =>
         Effect.scoped(
           Effect.acquireRelease(
-            // Creation is keyed by the repository ID, so an existing repository is reused.
             attempt(async (): Promise<{ readonly token: string } | null> => {
               try {
                 return await settings.artifacts.create(repository, { setDefaultBranch: "main" });
@@ -223,7 +204,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
         ),
       resolve: (repository, ref) =>
         read(repository, (repo) =>
-          // A commit is read as given; a branch resolves to its head.
           (Schema.is(objectId)(ref)
             ? attempt(() => repo.readCommit(ref)).pipe(
                 Effect.map((commit) => (commit === null ? [] : [commit])),
@@ -241,7 +221,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
         read(repository, (repo) =>
           Effect.gen(function* () {
             const reads = yield* Semaphore.make(treeReads);
-            // Siblings are read together; each level keeps its order, so the list is depth-first.
             const walk = (
               hash: string,
               prefix: string,
@@ -287,7 +266,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
             const ids = yield* Schema.decodeUnknownEffect(Schema.Array(objectId))(objects).pipe(
               Effect.mapError(unavailable),
             );
-            // Bytes are kept while the running total of sizes stays within budget.
             let total = 0;
             return yield* Effect.forEach(
               ids,
@@ -326,7 +304,6 @@ export const artifactsTokens = (settings: ArtifactsSourceSettings) =>
     } satisfies ArtifactsTokens;
   });
 
-/** The product's app repositories on Artifacts, in the shape the self-host product consumes. */
 export const artifactsRepositories = (
   settings: ArtifactsSourceSettings,
 ): Effect.Effect<RepositoryBackend, SourceError> =>

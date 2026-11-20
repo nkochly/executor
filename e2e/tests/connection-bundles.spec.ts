@@ -1,8 +1,3 @@
-/**
- * Connection bundles: admins give groups locked connections, decide whether members may make their
- * own, and oversee every member's connections. The switch changes what every member of the
- * organization may do, so the scenario turns it back on when it ends.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Redacted, Schema } from "effect";
 import { randomUUID } from "node:crypto";
@@ -180,7 +175,6 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             );
             expect(foreign.status).toBe(400);
 
-            // Giving the bundle to the group shares its apps with the group.
             expect((yield* appAccess(actors.owner)).audience).toEqual({
               kind: "groups",
               groups: [group.id],
@@ -191,14 +185,11 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             );
             expect(copies).toHaveLength(1);
             const copy = copies[0]!;
-            // Every member of the bundle's groups shares one URL, named for the bundle.
             expect(copy.url).toMatch(new RegExp(`/mcp\\?connection=sales-bundle-${suffix}$`, "u"));
             expect(copy.policy.apps).toEqual([
               expect.objectContaining({ app: app.id, tools: { kind: "readOnly" } }),
             ]);
-            // Runs as whatever accounts the member links, never a fixed list.
             expect(copy.policy.apps[0]?.runsAs).toBeUndefined();
-            // The group's page names the bundle that gives its members their connections.
             yield* browser.login(actors.owner);
             yield* browser.use("Open the bundle's group", (page) =>
               page.goto(`/org/${organization.slug}/groups/${group.id}`),
@@ -334,7 +325,6 @@ layer(HostedLive, { excludeTestServices: true })("Connection bundles", (it) => {
             expect(
               (yield* memberConnections).filter((item) => item.bundle !== undefined),
             ).toHaveLength(0);
-            // The share the bundle made goes with it.
             expect((yield* appAccess(actors.member)).canUse).toBe(false);
           }),
         );

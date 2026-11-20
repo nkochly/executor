@@ -1,8 +1,3 @@
-/**
- * The product itself: its database, auth, routes and background work, opened inside the
- * `ExecutorProduct` Durable Object. `worker.ts` imports this module only when the object first
- * opens, so building it costs a request's CPU time rather than the Worker's startup budget.
- */
 import { Digest } from "effect/crypto";
 import type { DurableObjectState } from "@cloudflare/workers-types";
 import { sqliteLayer } from "fumadb-effect/sqlite";
@@ -51,17 +46,10 @@ import type { Environment, ProductStub } from "./worker.ts";
 
 const encodeAccess = Schema.encodeSync(Schema.fromJsonString(McpAccess));
 
-/**
- * MCP sessions in their own objects: the product authenticates and forwards each `/mcp` request
- * to the caller's object, and runs the backend operations the object sends back. Until `serve`
- * is called no operation can run, and the product answers each with a defect.
- */
 const sessionHost = (
   namespace: NonNullable<Environment["MCP_SESSIONS"]>,
   locationHint: string | undefined,
 ) => {
-  // With a location, each caller's object is the one named for it there. Sessions live in
-  // memory, so an object left elsewhere holds nothing a caller loses.
   const sessions = {
     getByName: (key: string) =>
       locationHint === undefined
@@ -108,7 +96,6 @@ const sessionHost = (
   return { host, backend };
 };
 
-/** Outbound requests leave through the Worker's network; the URL policy is checked before. */
 const network: HttpBinding = { fetch: (request) => fetch(request) };
 
 const prepare = (state: DurableObjectState, env: Environment) =>
@@ -171,17 +158,11 @@ const prepare = (state: DurableObjectState, env: Environment) =>
     }).pipe(Effect.provideContext(common));
   });
 
-/**
- * Open the product on the object's storage. Opening runs schema migrations and data steps; a
- * failure releases what it acquired and throws an error naming any invalid setting.
- */
 export const openProduct = async (
   state: DurableObjectState,
   env: Environment,
 ): Promise<ProductStub> => {
   const scope = Scope.makeUnsafe();
-  // Invalid settings say which setting, never a value, so they are reported as they are; any
-  // other failure keeps the whole cause.
   let settings: string | undefined;
   let failure: unknown;
   try {
@@ -207,7 +188,6 @@ export const openProduct = async (
     )
       settings = squashed.message;
     failure = opened.cause;
-    // The Worker's logs are the operator's only view of why the product did not open.
     console.error(Cause.pretty(opened.cause));
   } catch (error) {
     failure = error;

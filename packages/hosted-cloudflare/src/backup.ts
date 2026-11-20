@@ -1,24 +1,3 @@
-/**
- * Backups of the product object: a copy of everything it stores in an R2 bucket, written by the
- * object itself, and the restore of one into an object that stores nothing yet.
- *
- * Cloudflare offers no export of a Durable Object's storage (its point-in-time recovery stays
- * inside the object), so a backup is read with `exportStoragePage` and restored with
- * `replaceStorage`: the same pages, in the same order, as the product's move to a location.
- *
- * Layout in the bucket, for a backup key `<key>`:
- *   <key>/<stamp>/page-00000.json ... one page each
- *   <key>/<stamp>/manifest.json       written last: a stamp without one is incomplete
- * `<stamp>` is the backup's ISO time, so stamps sort by time. The newest complete backup of a key
- * is always kept; older ones go after `keepDays`, and incomplete ones after a day.
- *
- * Values JSON cannot carry are tagged: bytes as `{"$":"bytes","v":<base64>}` (`"u8":true` for a
- * Uint8Array), a Date as `{"$":"date","v":<iso>}`, a non-finite number as `{"$":"number","v":"NaN"}`,
- * and a stored object that has a `$` key of its own as `{"$":"object","v":{...}}`. A stored value of
- * any other kind fails the backup and names its key rather than be copied wrong.
- *
- * This module imports nothing at run time; the Worker's entry modules load it at startup.
- */
 import {
   exportStoragePage,
   replaceStorage,
@@ -27,19 +6,15 @@ import {
   type StoragePage,
 } from "./product-location.ts";
 
-/** What a complete backup holds, as its manifest says. */
 export interface BackupManifest {
   readonly format: 1;
   readonly key: string;
   readonly stamp: string;
   readonly pages: number;
-  /** Rows per table that has any. */
   readonly tables: Readonly<Record<string, number>>;
-  /** How many stored values. */
   readonly values: number;
 }
 
-/** The part of an R2 bucket a backup uses. */
 export interface BackupBucket {
   put(key: string, value: string): Promise<unknown>;
   get(key: string): Promise<{ text(): Promise<string> } | null>;
@@ -52,7 +27,6 @@ export interface BackupBucket {
   delete(keys: string | string[]): Promise<void>;
 }
 
-/** A backup or restore that cannot be done; the message says why. */
 export class BackupError extends Error {
   override readonly name = "BackupError";
 }
@@ -61,14 +35,9 @@ const format = 1;
 const manifestName = "manifest.json";
 const day = 24 * 60 * 60 * 1000;
 const keyShape = /^[A-Za-z0-9._:-]{1,200}$/;
-/**
- * The largest database a backup copies. A backup holds the whole object in memory while it writes,
- * and an isolate has 128 MB; a larger object fails with a BackupError that says so instead.
- */
 export const MAX_BACKUP_BYTES = 32 * 1024 * 1024;
 const mib = (bytes: number) => (bytes / (1024 * 1024)).toFixed(1);
 
-/** Every page of the object's storage, read without yielding, so the copy is one moment of it. */
 export const readStorage = (state: DurableObjectState): StoragePage[] => {
   const pages: StoragePage[] = [];
   let cursor: StorageCursor | null = null;
@@ -80,7 +49,6 @@ export const readStorage = (state: DurableObjectState): StoragePage[] => {
   return pages;
 };
 
-/** Whether the object stores nothing at all: no table of its own and no value. */
 export const storesNothing = (state: DurableObjectState): boolean => {
   const first = exportStoragePage(state, null);
   return (first?.schema?.length ?? 0) === 0 && (first?.values?.length ?? 0) === 0;
@@ -106,7 +74,6 @@ const kindOf = (value: unknown) =>
       ? (value.constructor?.name ?? "object")
       : typeof value;
 
-/** A value as JSON can carry it; `where` names it when it cannot. */
 export const encodeValue = (value: unknown, where: string): unknown => {
   if (value === null || typeof value === "string" || typeof value === "boolean") return value;
   if (typeof value === "number")
@@ -127,7 +94,6 @@ export const encodeValue = (value: unknown, where: string): unknown => {
   );
 };
 
-/** The value `encodeValue` was given. */
 export const decodeValue = (value: unknown): unknown => {
   if (Array.isArray(value)) return value.map(decodeValue);
   if (value === null || typeof value !== "object") return value;
@@ -221,10 +187,6 @@ const manifestOf = async (
   return object ? (JSON.parse(await object.text()) as BackupManifest) : null;
 };
 
-/**
- * Write a backup of the object's storage under `key`, then delete this key's complete backups
- * older than `keepDays` (never the newest) and incomplete ones older than a day.
- */
 export const writeBackup = async (
   bucket: BackupBucket,
   key: string,
@@ -240,7 +202,6 @@ export const writeBackup = async (
     throw new BackupError(
       `${key} holds ${mib(size)} MiB; a backup copies at most ${mib(maxBytes)} MiB, so none was written.`,
     );
-  // Each page is encoded as soon as it is read, so the raw rows are never all held at once.
   const encoded: string[] = [];
   const tables: Record<string, number> = {};
   let values = 0;
@@ -270,7 +231,6 @@ export const writeBackup = async (
   return manifest;
 };
 
-/** The complete backups of a key, newest first. */
 export const listBackups = async (bucket: BackupBucket, key: string): Promise<BackupManifest[]> => {
   checkKey(key);
   const out: BackupManifest[] = [];
@@ -281,7 +241,6 @@ export const listBackups = async (bucket: BackupBucket, key: string): Promise<Ba
   return out;
 };
 
-/** The pages of one complete backup: the newest, or the one at `stamp`. */
 export const readBackup = async (
   bucket: BackupBucket,
   key: string,
@@ -308,10 +267,6 @@ export const readBackup = async (
   return { manifest, pages };
 };
 
-/**
- * Write a backup's pages into this object in one transaction, only if it stores nothing yet: a
- * restore never writes over an object in use.
- */
 export const restoreInto = (state: DurableObjectState, pages: ReadonlyArray<StoragePage>) => {
   state.storage.transactionSync(() => {
     if (!storesNothing(state))
@@ -322,7 +277,6 @@ export const restoreInto = (state: DurableObjectState, pages: ReadonlyArray<Stor
   });
 };
 
-/** A restore test: what the backup's manifest says, and what the restored copy holds. */
 export interface RestoreTest {
   readonly key: string;
   readonly stamp: string;
@@ -331,10 +285,6 @@ export interface RestoreTest {
   readonly ok: boolean;
 }
 
-/**
- * Restore a backup into this scratch object, count what it holds against the manifest, and
- * report. The caller deletes the scratch object's storage afterwards.
- */
 export const testRestore = async (
   state: DurableObjectState,
   bucket: BackupBucket,

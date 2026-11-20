@@ -1,27 +1,13 @@
-/**
- * The closed vocabularies the Better Auth security audit (`auth-audit.ts`) reads: which endpoints
- * it audits and how, the failure codes a record may name, the decoders for the request body
- * fields and stored answers it reads, and how an endpoint's answer decodes to its outcome.
- * Anything outside them is never recorded as given. Each host names its own sign-in endpoints
- * and any failure codes its own plugins add (`AuthAuditVocabulary`); the rest is shared.
- */
 import { BASE_ERROR_CODES } from "better-auth";
 import { APIError } from "better-auth/api";
 import { Option, Schema } from "effect";
 import { auditFailureCodes, type SecurityAuditFailure } from "../contracts/security-audit.ts";
 import { oauthErrorCodes } from "../contracts/oauth-errors.ts";
 
-/**
- * What a host adds to the shared vocabulary. `signIns` maps each of its sign-in endpoints to how
- * it signs in; a session one creates is a success. Other endpoints also set a new session, such
- * as `/get-session` when it extends one, so only these count as sign-ins. `failureCodes` are the
- * codes its own plugins answer with beyond the shared ones.
- */
 export interface AuthAuditVocabulary {
   readonly signIns: Readonly<Record<string, string>>;
   readonly failureCodes?: Iterable<string> | undefined;
 }
-/** Endpoints that check a one-time code outside sign-in, where a wrong code is the event. */
 export const otpChecks = new Set([
   "/email-otp/verify-email",
   "/email-otp/check-verification-otp",
@@ -29,14 +15,12 @@ export const otpChecks = new Set([
   "/email-otp/change-email",
   "/email-otp/reset-password",
 ]);
-/** Endpoints that end sessions. */
 export const revocations = new Set([
   "/sign-out",
   "/revoke-session",
   "/revoke-sessions",
   "/revoke-other-sessions",
 ]);
-/** The other audited endpoints: API keys, members, invitations, OAuth clients, impersonation. */
 const actions = new Set([
   "/api-key/create",
   "/api-key/delete",
@@ -50,24 +34,15 @@ const actions = new Set([
   "/admin/impersonate-user",
   "/admin/stop-impersonating",
 ]);
-/** Whether the audit records a request to `path`. */
 export const auditsPath = (signIns: AuthAuditVocabulary["signIns"], path: string | undefined) =>
   path !== undefined &&
   (path in signIns || otpChecks.has(path) || revocations.has(path) || actions.has(path));
 
-/**
- * The failure codes these endpoints answer with: Better Auth's own, the
- * codes of the email-code, organization and API key plugins they raise, the OAuth errors a sign-in
- * returns with, and an HTTP status where the answer carries no code. Anything else is `other`.
- */
-/** The failure codes every host's endpoints answer with; a host adds its own plugins'. */
 const sharedFailureCodes = [
   ...Object.keys(BASE_ERROR_CODES),
-  // Email codes.
   "OTP_EXPIRED",
   "INVALID_OTP",
   "TOO_MANY_ATTEMPTS",
-  // Organization members and invitations.
   "MEMBER_NOT_FOUND",
   "NO_ACTIVE_ORGANIZATION",
   "ORGANIZATION_NOT_FOUND",
@@ -86,27 +61,20 @@ const sharedFailureCodes = [
   "YOU_ARE_NOT_ALLOWED_TO_INVITE_USER_WITH_THIS_ROLE",
   "YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION",
   "YOU_CANNOT_LEAVE_THE_ORGANIZATION_AS_THE_ONLY_OWNER",
-  // API keys.
   "KEY_NOT_FOUND",
   "UNAUTHORIZED_SESSION",
   "INVALID_NAME_LENGTH",
   "NAME_REQUIRED",
-  // Impersonation.
   "YOU_ARE_NOT_ALLOWED_TO_IMPERSONATE_USERS",
   "YOU_CANNOT_IMPERSONATE_ADMINS",
   ...oauthErrorCodes,
   ...Array.from({ length: 200 }, (_, offset) => String(400 + offset)),
 ];
 
-/** The failure-code reader for a host's vocabulary. Anything outside it is `other`. */
 export const failureCodesOf = (vocabulary: AuthAuditVocabulary) =>
   auditFailureCodes([...sharedFailureCodes, ...(vocabulary.failureCodes ?? [])]);
 
 const Id = Schema.String.check(Schema.isNonEmpty(), Schema.isMaxLength(256));
-/**
- * The request body fields the endpoints read, each decoded on its own. Better Auth ignores a field
- * an endpoint does not take, so one such field's value must not hide another's.
- */
 export const decodeKeyId = Schema.decodeUnknownOption(Schema.Struct({ keyId: Id }));
 export const decodeRole = Schema.decodeUnknownOption(
   Schema.Struct({ role: Schema.Literals(["owner", "admin", "member"]) }),
@@ -115,7 +83,6 @@ export const decodeAccept = Schema.decodeUnknownOption(Schema.Struct({ accept: S
 export const decodeOAuthQuery = Schema.decodeUnknownOption(
   Schema.Struct({ oauth_query: Schema.String }),
 );
-/** The stored records the endpoints answer with. */
 const Returned = Schema.Struct({
   id: Schema.optionalKey(Id),
   client_id: Schema.optionalKey(Id),
@@ -131,12 +98,10 @@ export const decodeReturned = Schema.decodeUnknownOption(Returned);
 const decodeError = Schema.decodeUnknownOption(ErrorBody);
 export const decodeId = Schema.decodeUnknownOption(Id);
 
-/** A signed-in session, as a hook or the endpoint's authentication loaded it. */
 export interface Session {
   readonly user: { readonly id: string };
   readonly session: { readonly id: string; readonly impersonatedBy?: string | null | undefined };
 }
-/** The structural part of Better Auth's hook context this module reads. */
 export interface HookContext {
   readonly path?: string | undefined;
   readonly body?: unknown;
@@ -154,10 +119,6 @@ export interface HookContext {
   };
 }
 
-/**
- * The endpoint's outcome: failure with Better Auth's error code, or the `error` a redirect carries
- * back to the browser; success otherwise. A redirect is an `APIError` whatever it means.
- */
 export const outcome = (
   ctx: HookContext,
   failureOf: (code: string | undefined) => SecurityAuditFailure | undefined,

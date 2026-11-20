@@ -1,8 +1,3 @@
-/**
- * Serve `fixture/live-stream.ts` in local workerd through Wrangler, with the compatibility date
- * and flags of this Worker's `wrangler.jsonc`, so the runtime behaves as the deployed one does.
- * Prints `listening <url>` when ready and runs until stopped.
- */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

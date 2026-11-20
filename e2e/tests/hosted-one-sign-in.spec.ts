@@ -1,10 +1,3 @@
-/**
- * One sign-in serves every app that asks for the same provider: connecting an account for one
- * app's user requirement also links it, for the connecting member, to every user requirement of
- * that provider, one() or many(), with no link of theirs in every other app they may use. A link
- * the member already made is never replaced or added to, and apps the member may not use get
- * nothing.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { randomUUID } from "node:crypto";
@@ -19,7 +12,6 @@ import { scenarios } from "../test-plan.ts";
 
 const Failure = Schema.Struct({ _tag: Schema.String });
 
-/** An app whose `service` user requirement uses the shared provider, and whose `who` tool reports it. */
 const source = (
   requirements: string,
 ) => `import { defineApp, defineProvider, secrets, query, object, string, router,
@@ -50,7 +42,6 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
               yield* api.request(item.actor, "DELETE", `${prefix}/accounts/${item.id}`);
           }).pipe(Effect.orDie),
         );
-        /** Deploy an app as the owner, shared with everyone unless `private`. */
         const deploy = (requirements: string, options: { readonly private?: boolean } = {}) =>
           Effect.gen(function* () {
             const deployed = yield* api.request(actors.owner, "POST", `${prefix}/apps/deploy`, {
@@ -73,7 +64,6 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
             }
             return path;
           });
-        /** Connect a personal account for `service` from the app at `path`, as `actor`. */
         const connect = (actor: Session, path: string, label: string) =>
           Effect.gen(function* () {
             const started = yield* api.request(
@@ -108,10 +98,8 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         const manyOnly = yield* deploy("{ extra: service.many() }");
         const ownerOnly = yield* deploy("{ service }", { private: true });
 
-        // The admin signs in first, from `second`.
         const kept = yield* connect(actors.admin, second, "Bob earlier");
 
-        // The member signs in once, from `first`.
         const alice = yield* connect(actors.member, first, "Alice");
         expect(yield* accountLinks(actors.member, first)).toEqual([["service", alice]]);
         expect(yield* accountLinks(actors.member, second)).toEqual([["service", alice]]);
@@ -122,8 +110,6 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         expect(yield* accountLinks(actors.member, manyOnly)).toEqual([["extra", alice]]);
         expect((yield* who(yield* call(actors.member, second))).account).toBe(alice);
         expect((yield* who(yield* call(actors.member, both))).extra).toEqual([alice]);
-        // An app the member could not use when they connected got no link of theirs: once it is
-        // shared with them, it still has none.
         const access = yield* body(
           Access,
           yield* api.request(actors.owner, "GET", `${ownerOnly}/access`),
@@ -135,9 +121,6 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         expect(opened.status, JSON.stringify(opened.body)).toBe(200);
         expect(yield* accountLinks(actors.member, ownerOnly)).toEqual([]);
 
-        // The admin's earlier sign-in, from `second`, filled `first`, `both` and `manyOnly` too.
-        // Connecting another account from `first` replaces the link there only: the apps they
-        // already linked keep the account they had, and a many() requirement gets nothing beside it.
         expect(yield* accountLinks(actors.admin, both)).toEqual([
           ["extra", kept],
           ["service", kept],
@@ -152,12 +135,10 @@ layer(HostedLive, { excludeTestServices: true })("Hosted one sign-in", (it) => {
         expect(yield* accountLinks(actors.admin, manyOnly)).toEqual([["extra", kept]]);
         expect((yield* who(yield* call(actors.admin, second))).account).toBe(kept);
 
-        // Nobody else's links change: the owner connected nothing and still has none.
         const ownerCall = yield* call(actors.owner, second);
         expect(ownerCall.status, JSON.stringify(ownerCall.body)).toBe(409);
         expect((yield* body(Failure, ownerCall))._tag).toBe("AccountRequired");
 
-        // Linking by hand is unchanged: it links one app only.
         yield* linkAccount(actors.member, second, "service", alice);
         expect(yield* accountLinks(actors.member, manyOnly)).toEqual([["extra", alice]]);
       }),

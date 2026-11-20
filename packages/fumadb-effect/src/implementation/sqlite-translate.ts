@@ -1,21 +1,3 @@
-/**
- * The PostgreSQL spellings SQLite reads the same way once removed. Shared queries keep one text
- * for both dialects where the only difference is one of these:
- *
- * - Casts to `jsonb`, `json`, `text`, `boolean`, `integer`, `int` and `bigint`. SQLite's `->` and
- *   `->>` read JSON text, `->>` already returns SQL values, and its columns are dynamically typed.
- * - JSON functions SQLite names differently but computes the same: `json_build_object` and
- *   `jsonb_build_object` are `json_object`, `json_agg` and `jsonb_agg` are `json_group_array`
- *   (SQLite 3.44 and later order inside aggregates as PostgreSQL does).
- * - `gen_random_uuid()`, which becomes an expression for a random version 4 UUID.
- * - A trailing row lock (`for update`, `for share`, `for no key update`, `for key share`, with
- *   `of` tables and `skip locked` or `nowait`). A SQLite transaction holds the whole database for
- *   writing, in a Durable Object and in a native file alike, so it already excludes every other
- *   writer that such a lock would.
- *
- * String literals, quoted identifiers and comments are never changed. Anything else that differs,
- * such as `now()`, intervals or jsonb functions, is written per dialect where it is used.
- */
 import { sqliteUuid } from "./dialect.ts";
 
 const renamed: Record<string, string> = {
@@ -34,7 +16,6 @@ export const translateForSqlite = (query: string): string => {
   let index = 0;
   while (index < query.length) {
     const char = query[index]!;
-    // Copy quoted text (strings, identifiers) whole; '' and "" escape their quote.
     if (char === "'" || char === '"') {
       let end = index + 1;
       while (end < query.length) {

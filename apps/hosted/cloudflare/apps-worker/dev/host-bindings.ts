@@ -1,7 +1,3 @@
-/**
- * Development only: the product's native bindings as Worker entrypoints that forward to
- * `host.mjs` on 127.0.0.1, and its two egress networks as global `fetch`.
- */
 import { WorkerEntrypoint } from "cloudflare:workers";
 
 const origin = "http://127.0.0.1:4499";

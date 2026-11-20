@@ -1,11 +1,3 @@
-/**
- * The hosted product tables on SQLite, as PostgreSQL steps 1 to 9 leave them. A SQLite database is
- * always created fresh by this baseline: no PostgreSQL history is replayed or transferred, so the
- * steps' backfills (which read empty tables on a new database) have nothing to do here.
- *
- * Instants are epoch milliseconds and JSON columns are text, as FumaDB stores them on SQLite.
- * Triggers keep the PostgreSQL functions' effects; a refused API key aborts its statement.
- */
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { sqliteNow, sqliteUuid } from "fumadb-effect/dialect";
@@ -93,7 +85,6 @@ const statements = [
   `create trigger if not exists hosted_provision_team_slug after update of slug on organization for each row begin
     insert into hosted_provisioning (kind, organization_id) values ('domain', new.id);
   end`,
-  // Cascade deletion must not insert an event referencing a removed team.
   `create trigger if not exists hosted_provision_member_insert after insert on member for each row
     when exists (select 1 from organization where id = new."organizationId") begin
     insert into hosted_provisioning (kind, organization_id) values ('billing', new."organizationId");
@@ -176,7 +167,6 @@ const statements = [
   `create index if not exists hosted_app_account_links_account on hosted_app_account_links (account, app)`,
 ];
 
-/** Hosted step 1 on SQLite: the whole current layout. */
 export const migrateSqliteBaseline = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   for (const statement of statements) yield* sql.unsafe(statement).unprepared;

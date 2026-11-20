@@ -1,7 +1,3 @@
-/**
- * Tool search rows on SQLite under the Durable Object SQL limits: a statement binds at most 100
- * parameters there, where a native file allows thousands.
- */
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 import { nativeSqliteStorage } from "fumadb-effect/sqlite-native";
@@ -38,7 +34,6 @@ describe("native SQLite storage", () => {
 
 describe("tool search store on SQLite", () => {
   it("writes a listing whose rows bind more than 100 parameters in all", async () => {
-    // The wiki app lists about 25 tools; each tool row binds 9 parameters.
     const tools = Array.from({ length: 30 }, (_, index) => ({
       name: `tool_${index}`,
       readOnly: index % 2 === 0,

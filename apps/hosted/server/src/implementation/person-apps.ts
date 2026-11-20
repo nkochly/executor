@@ -1,9 +1,3 @@
-/**
- * The person's apps: every app the caller can use in their organization, with each account slot
- * and whether an account fills it for them now. It names apps, slots and providers only; never an
- * account's ID, label or credentials. Read-only, and only as the caller: their membership, app
- * access and grant decide what it lists, exactly as MCP discovery lists the same apps.
- */
 import { grantAuthorization } from "@executor-js/mcp-auth";
 import { permittedAppIds } from "@executor-js/authorization";
 import type { AccountScope, App } from "@executor-js/sdk/core";
@@ -17,7 +11,6 @@ import { CurrentOrganization, OrganizationReference } from "../contracts/organiz
 import { appLinkedAccounts, callerLinkedAccounts } from "./app-accounts.ts";
 import { policyDatabase, visibleApps } from "./resource-policy.ts";
 
-/** One account slot of an app, and whether an account fills it for the caller. */
 export interface PersonAppSlot {
   readonly name: string;
   readonly scope: AccountScope;
@@ -26,7 +19,6 @@ export interface PersonAppSlot {
   readonly linked: boolean;
 }
 
-/** One app the caller can use. `ready`: deployed, and every plain slot has an account. */
 export interface PersonApp {
   readonly id: string;
   readonly name: string;
@@ -36,7 +28,6 @@ export interface PersonApp {
   readonly slots: readonly PersonAppSlot[];
 }
 
-/** Shape the apps with the requirements their user links and app links fill. */
 export const personAppList = (
   apps: readonly App[],
   links: ReadonlyArray<{ readonly app: string; readonly requirement: string }>,
@@ -66,10 +57,6 @@ export const personAppList = (
     .sort((a, b) => a.name.localeCompare(b.name));
 };
 
-/**
- * `GET /api/me/apps[?organization=<id or slug>]`. The caller authenticates as on `/mcp`: the person
- * Access signed in, or their own bearer. A browser page on another origin is refused.
- */
 export const personApps = Effect.gen(function* () {
   const auth = yield* McpAuthentication;
   const request = yield* HttpServerRequest.HttpServerRequest;

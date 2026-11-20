@@ -1,4 +1,3 @@
-/** Promise boundary required by Better Auth's Kysely driver, over a host-owned SQLite client. */
 import { Effect, Exit, Scope, Schema } from "effect";
 import { SqlClient } from "effect/sql";
 import type { SqliteStorage } from "fumadb-effect/sqlite";
@@ -18,13 +17,11 @@ import {
   type TableMetadata,
 } from "kysely";
 
-/** A SQLite auth database operation failed; driver details remain private. */
 export class DatabaseUnavailable extends Schema.TaggedError<DatabaseUnavailable>()(
   "AuthDatabaseUnavailable",
   { stage: Schema.Literal("query") },
 ) {}
 
-/** SQLite reports the rows a write changed through `changes()` on the same connection. */
 const changedRows = (connection: Connection) =>
   connection
     .execute("select changes() as changed", [], undefined)
@@ -33,14 +30,8 @@ const changedRows = (connection: Connection) =>
 const isRead = (sql: string) =>
   /^\s*(select|with|pragma)\b/iu.test(sql) || /\breturning\b/iu.test(sql);
 
-/** A Durable Object's own tables (`_cf_KV` and others), which refuse reads of their columns. */
 const isHostTable = (name: string) => name.startsWith("_cf_");
 
-/**
- * Better Auth's migration reads every table's indexes in one statement, from `sqlite_master AS
- * tables`, and takes no introspector for a Kysely instance. That statement skips the host's
- * tables here, as the introspector below does.
- */
 const indexScan =
   /(\bFROM\s+sqlite_master\s+AS\s+tables\b[\s\S]*\bWHERE\s+tables\.type\s*=\s*'table')/iu;
 const withoutHostTables = (statement: string) =>
@@ -48,10 +39,6 @@ const withoutHostTables = (statement: string) =>
     ? statement.replace(indexScan, "$1 AND substr(tables.name, 1, 4) <> '_cf_'")
     : statement;
 
-/**
- * Kysely's SQLite introspector, without the host's own tables: it reads every table's columns in
- * one statement, and a Durable Object refuses that statement once its `_cf_KV` table exists.
- */
 class HostSqliteIntrospector implements DatabaseIntrospector {
   readonly #db: Kysely<unknown>;
   readonly #base: SqliteIntrospector;
@@ -108,16 +95,9 @@ class HostSqliteIntrospector implements DatabaseIntrospector {
   }
 }
 
-/**
- * Reserve Effect's connection for each Kysely checkout, including its entire transaction. A SQLite
- * client has one connection, so a reservation also excludes every other statement until Kysely
- * releases it: auth queries cannot join or commit another SDK operation's transaction.
- */
 export const makeSqliteAuthDatabase = (storage: SqliteStorage) =>
   Effect.gen(function* () {
     const client = yield* SqlClient.SqlClient;
-    // Open transactions through storage: a Durable Object refuses `BEGIN`. Each ends when Kysely
-    // commits or rolls back on the connection that began it.
     const open = new Map<DatabaseConnection, { end: (rollback: boolean) => Promise<void> }>();
     const owner = yield* Effect.scope;
     const releases = new Map<DatabaseConnection, () => Promise<void>>();

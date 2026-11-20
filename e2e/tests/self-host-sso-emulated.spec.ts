@@ -1,10 +1,3 @@
-/**
- * Self-host SSO against a hosted emulated OpenID provider (emulators.dev's Okta emulator), the
- * shape an operator gets from a managed identity front door such as Cloudflare Access for SaaS:
- * discovery at a fixed HTTPS URL, a confidential client, and a redirect back to
- * `/api/auth/callback/sso`. Admin emails the operator lists become organization admins at sign-in,
- * and a change to the list takes effect at each member's next SSO sign-in.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { randomUUID } from "node:crypto";
@@ -36,7 +29,6 @@ const Client = Schema.Struct({
   }),
 });
 
-/** One private provider instance with the operator and a member, and a client for `origin`. */
 const emulatedProvider = (origin: string) =>
   Effect.gen(function* () {
     const { providerBaseUrl } = yield* emulatorRequest(
@@ -74,15 +66,9 @@ const restartWithAdmins = (adminEmails: string) =>
     yield* serverControl("start");
   });
 
-/**
- * Sign out, continue with SSO, pick `email` on the provider's page and land in the org. With
- * `direct` the sign-in page goes to the provider by itself, with no button to press.
- */
 const signInAs = (origin: string, email: string, wait = true, direct = false) =>
   Effect.gen(function* () {
     const browser = yield* Browser;
-    // Better Auth allows three sign-in attempts per address in ten seconds, and one SSO sign-in
-    // makes two (start and callback), so each after the first waits out the previous window.
     if (wait) yield* Effect.sleep("11 seconds");
     yield* browser.use(`${email}: sign out`, (page) => page.context().clearCookies());
     yield* browser.use(`${email}: open sign-in`, (page) => page.goto(`${origin}/login`));
@@ -135,8 +121,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host SSO with an emulated p
             const instance = yield* startControlledSelfHost(target);
             const origin = instance.metadata.origin;
             const provider = yield* emulatedProvider(origin);
-            // The browser reaches the provider's pages through the runner's own network stack, which
-            // trusts the CAs the runner trusts, so a runner behind a TLS-terminating proxy works too.
             const providerOrigin = new URL(provider.discoveryUrl).origin;
             yield* browser.use("Reach the provider through the runner", (page) =>
               page.context().route(
@@ -175,19 +159,16 @@ layer(TestLive, { excludeTestServices: true })("Self-host SSO with an emulated p
               ),
             ).toBe(200);
 
-            // Each person joins on first SSO sign-in; the listed operator joins as an admin.
             expect(yield* signInAs(origin, admin, false)).toBe("admin");
             yield* browser.checkpoint("Listed operator joined as an admin");
             expect(yield* signInAs(origin, member)).toBe("member");
             yield* browser.checkpoint("Unlisted person joined as a member");
 
-            // The operator moves the admin role; it follows at each person's next sign-in.
             yield* restartWithAdmins(member).pipe(Effect.provideService(Target, instance));
             expect(yield* signInAs(origin, admin)).toBe("member");
             expect(yield* signInAs(origin, member)).toBe("admin");
             yield* browser.checkpoint("Admin role follows the operator's list");
 
-            // When the operator makes SSO the sign-in, the sign-in page goes to the provider.
             yield* Effect.gen(function* () {
               yield* serverControl("stop");
               yield* serverControl("environment", 200, { SSO_DIRECT: "true" });

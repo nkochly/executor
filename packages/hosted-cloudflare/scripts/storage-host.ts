@@ -1,17 +1,3 @@
-/**
- * Serve `fixture/worker.ts` in local workerd through Miniflare, with the bindings the Cloudflare
- * host gives its product: a locally simulated R2 bucket, a SQLite-backed Durable Object, and an
- * Artifacts namespace.
- *
- * Artifacts has no local simulator, so real Git stands in for it: each repository is a bare
- * repository in a temporary directory. Pushes reach `git http-backend` through the Worker's
- * outbound fetch to `<account>.artifacts.cloudflare.net`, and the binding's read methods
- * (`log`, `readCommit`, `readTree`, `readBlob`, `readFile`) are answered with `git` plumbing.
- * Write tokens are checked on every Git request, so an unknown token is refused as Artifacts
- * refuses it.
- *
- * Prints `listening <url>` when ready and runs until stopped.
- */
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm, stat } from "node:fs/promises";
@@ -64,7 +50,6 @@ const exists = (path: string) =>
   );
 const objectId = /^[a-f0-9]{40}$/u;
 
-/** Commit metadata as the binding decodes it. */
 const commits = async (cwd: string, args: ReadonlyArray<string>) => {
   const result = await run(
     [
@@ -118,8 +103,6 @@ const entryType = (mode: string, type: string) =>
           ? "symlink"
           : "blob";
 
-/** One binding call: `{ repository, input }` in, `{ result }` or `{ error: <ArtifactsErrorCode> }` out. */
-/** Every argument any binding method takes; each method reads its own. */
 interface BindingInput {
   readonly setDefaultBranch?: string;
   readonly scope?: string;
@@ -220,7 +203,6 @@ const binding = async (
   }
 };
 
-/** Git smart HTTP for `https://<account>.artifacts.cloudflare.net/git/<namespace>/<repo>.git/...`. */
 const gitHttp = async (request: MiniflareRequest) => {
   const url = new URL(request.url);
   const prefix = `/git/${namespace}/`;
@@ -290,7 +272,6 @@ const miniflare = new Miniflare({
   durableObjects: { PRODUCT: { className: "Product", useSQLite: true } },
   durableObjectsPersist: persist,
   bindings: {
-    // A fixed local test key; the real host reads its key from a Worker secret.
     ENCRYPTION_KEY: "11".repeat(32),
     ACCOUNT_ID: accountId,
     NAMESPACE: namespace,

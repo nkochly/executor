@@ -1,9 +1,3 @@
-/**
- * The Cloudflare product's move into an object placed at a location, across a release. Cloudflare
- * moves Durable Objects to new code one at a time, so the placed product can start while the
- * unnamed object it succeeds still runs the release before the move, which cannot hand over its
- * storage. Served in local workerd by `packages/hosted-cloudflare/scripts/product-move-host.ts`.
- */
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Context, Effect, Layer, Schema, Stream } from "effect";
@@ -85,7 +79,6 @@ layer(moveHost, { excludeTestServices: true })("Cloudflare product move", (it) =
         yield* seed("previous", ["first", "second"]);
         const served = yield* ask("product-wnam-a", "previous");
         expect(served).toEqual({ servedBy: "previous release", notes: ["first", "second"] });
-        // Every request asks again, and none fails while the release has not moved.
         const again = yield* ask("product-wnam-a", "previous");
         expect(again.servedBy).toBe("previous release");
       }),
@@ -96,7 +89,6 @@ layer(moveHost, { excludeTestServices: true })("Cloudflare product move", (it) =
       yield* seed("current", ["kept", "also kept"]);
       const served = yield* ask("product-wnam-b", "current");
       expect(served).toEqual({ servedBy: "placed", notes: ["kept", "also kept"] });
-      // The install asks for the unnamed object's copy to go, so it is gone once the copy is held.
       expect(yield* unnamed).toEqual([]);
     }),
   );

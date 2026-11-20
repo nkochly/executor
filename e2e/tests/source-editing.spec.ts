@@ -1,7 +1,3 @@
-/**
- * An admin changes an app after it was created: the Source view edits a file in place, and saving
- * commits it and deploys that commit as a new version.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schema } from "effect";
 import { randomUUID } from "node:crypto";

@@ -1,4 +1,3 @@
-/** Development only: the product's build-time asset modules, as self-host's packaging makes them. */
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Effect } from "effect";
@@ -37,6 +36,5 @@ await writeFile(
   path.join(generated, "dashboard.js"),
   `export default ${JSON.stringify(dashboard)};\n`,
 );
-// The product imports PGlite's modules; with EXECUTOR_DATABASE=sqlite nothing reads them.
 await writeFile(path.join(generated, "unused.js"), "export default undefined;\n");
 console.log(`skills ${Object.keys(skills).length}, dashboard files ${files.length}`);

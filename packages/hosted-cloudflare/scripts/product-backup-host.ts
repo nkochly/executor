@@ -1,7 +1,3 @@
-/**
- * Serve `fixture/product-backup.ts` in local workerd through Miniflare: product-shaped objects and
- * an R2 bucket for their backups. Prints `listening <url>` when ready and runs until stopped.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

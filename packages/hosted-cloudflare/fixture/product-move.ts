@@ -1,9 +1,3 @@
-/**
- * The product's move to a location across a release, for `scripts/product-move-host.ts`. Cloudflare
- * moves Durable Objects to new code one at a time, so the unnamed object can still run the
- * previous release when the placed one first starts. `PreviousRelease` is that release: it serves
- * its notes and cannot hand them over. `Product` is this release, unnamed (retired) or placed.
- */
 import { DurableObject } from "cloudflare:workers";
 import {
   exportStoragePage,
@@ -45,10 +39,6 @@ const notes = (state: DurableObjectState) => {
     .toArray()
     .map(({ body }) => body);
 };
-/**
- * Notes, plus tables shaped like the product's: a child created before its parent, and a foreign
- * key whose parent column is unique only through an index of its own.
- */
 const seed = (state: DurableObjectState, bodies: ReadonlyArray<string>) => {
   notes(state);
   const sql = state.storage.sql;
@@ -64,7 +54,6 @@ const seed = (state: DurableObjectState, bodies: ReadonlyArray<string>) => {
   }
 };
 
-/** The release before the move: no `exportPage`. */
 export class PreviousRelease extends DurableObject<Environment> {
   async seed(bodies: ReadonlyArray<string>) {
     seed(this.ctx, bodies);
@@ -74,7 +63,6 @@ export class PreviousRelease extends DurableObject<Environment> {
   }
 }
 
-/** This release. Which object is the unnamed one's predecessor is chosen per request here. */
 export class Product extends DurableObject<Environment> {
   get #state(): DurableObjectState {
     return this.ctx;
@@ -88,7 +76,6 @@ export class Product extends DurableObject<Environment> {
   async exportPage(cursor: StorageCursor | null) {
     return exportStoragePage(this.#state, cursor);
   }
-  /** Refuses while `refuseWipe` is set, as an object Cloudflare cannot reach would. */
   async wipe() {
     if (this.ctx.storage.kv.get("refuseWipe") === true) throw new Error("unreachable");
     await this.ctx.storage.deleteAll();
@@ -120,8 +107,6 @@ export class Product extends DurableObject<Environment> {
   }
 }
 
-/** `POST /seed/<previous|current>` seeds that release's unnamed object; `GET /placed/<name>` asks a placed one; `GET /unnamed` lists the
- * notes the unnamed object still holds. */
 export default {
   async fetch(request: Request, env: Environment): Promise<Response> {
     const [, route, name = ""] = new URL(request.url).pathname.split("/");
