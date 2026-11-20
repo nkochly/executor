@@ -10,7 +10,7 @@ permissions: {}
 
 jobs:
   comment-ratchet:
-    runs-on: [self-hosted, cf, ci-coordinator]
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     permissions:
       contents: read
