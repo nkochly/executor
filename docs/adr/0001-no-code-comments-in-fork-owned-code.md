@@ -21,7 +21,8 @@ commits. Deleting code comments in upstream's files would make every later port 
 - The comment ratchet (`scripts/comment-ratchet.mjs`, synced from gh-ci-templates) enforces it
   against `.comment-baseline.json`: a file may hold at most the code comments its baseline allows,
   and `--update` only lowers counts. `only` lists the fork-owned files, so upstream's files are
-  never scanned. `.github/workflows/comment-ratchet.yml` runs it on the Cloudflare runners.
+  never scanned. `.github/workflows/comment-ratchet.yml` runs it on a GitHub-hosted runner: the repository is a
+  public fork, and the Cloudflare runners serve private repositories only.
 - Exempt (as the delete-comment skill applies it): directives (`@ts-expect-error`, `/// <reference>`, lint and coverage pragmas,
   `#__PURE__`, `@vitest-environment`, `@jsx`), a license header at the top of a file, and generated
   files (`@generated`, `DO NOT EDIT`).
