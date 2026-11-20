@@ -1,14 +1,3 @@
-/**
- * An MCP backend served across a Durable Object RPC boundary. The session object that runs a
- * caller's MCP protocol and programs holds no database; each backend operation is one call to the
- * product, which authenticates the request's headers again and runs the operation with the same
- * authorized backend an in-process request uses. No transaction spans two calls.
- *
- * Values cross as structured clones. Product errors and other Schema classes do not survive a
- * clone, so they cross as their encoded form under their identifier and are rebuilt on the other
- * side; a class this side does not know arrives as `RemoteFailure`, which presents nothing.
- * Functions in an operation's options (an elicitation handler) cross as RPC stubs.
- */
 import { Cause, Effect, Exit, Option, Schema } from "effect";
 import * as SdkCore from "@executor-js/sdk/core";
 import * as Mcp from "@executor-js/mcp";
@@ -24,7 +13,6 @@ import type { McpBackend } from "@executor-js/mcp";
 import * as McpContracts from "../contracts/mcp.ts";
 import * as OrganizationContracts from "../contracts/organization.ts";
 
-/** An error whose class this side does not know. It keeps the tag and nothing it could present. */
 export class RemoteFailure extends Schema.TaggedError<RemoteFailure>()("RemoteFailure", {
   tag: Schema.String,
 }) {}
@@ -37,7 +25,6 @@ type SchemaClass = Schema.Top &
 const isSchemaClass = (value: unknown): value is SchemaClass =>
   typeof value === "function" && Schema.isSchema(value) && typeof value.prototype === "object";
 
-/** Every Schema class the product's operations can return or fail with, by identifier. */
 const registry: ReadonlyMap<string, SchemaClass> = new Map(
   [SdkCore, Mcp, McpAuth, AppContracts, McpContracts, OrganizationContracts]
     .flatMap((module) => Object.values(module))
@@ -52,7 +39,6 @@ const plain = (value: object) => {
   return prototype === Object.prototype || prototype === null;
 };
 
-/** A value as it crosses: Schema class instances and Options become tagged plain data. */
 export const toWire = (value: unknown): unknown => {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(toWire);
@@ -72,11 +58,9 @@ export const toWire = (value: unknown): unknown => {
       $error: (value as { _tag?: unknown })._tag ?? value.name,
       message: value.message,
     };
-  // Dates, maps, sets and bytes are structured-cloneable as they are.
   return value;
 };
 
-/** The value `toWire` sent, with its classes rebuilt. */
 export const fromWire = (value: unknown): unknown => {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return value.map(fromWire);
@@ -98,11 +82,6 @@ export const fromWire = (value: unknown): unknown => {
   return out;
 };
 
-/**
- * An operation's outcome as it crosses: its value, its expected error, or that it died, with the
- * tool call log's reference for a call the product recorded (`ToolCallRecorded`). A side that
- * predates the reference neither sends nor reads it.
- */
 export type WireExit = (
   | { readonly ok: true; readonly value: unknown }
   | { readonly ok: false; readonly error: unknown }
@@ -111,25 +90,20 @@ export type WireExit = (
 
 export type McpBackendMethod = keyof McpBackend<Error>;
 
-/** One operation's request: its method and its arguments, options last. */
 export interface McpBackendCall {
   readonly method: McpBackendMethod;
   readonly args: ReadonlyArray<unknown>;
-  /** The execution the operation runs for (`CurrentMcpExecution`), which the call log records. */
   readonly execution?: string;
 }
 
-/** An elicitation handler as it crosses: a plain async function answering with a reply. */
 type RemoteElicitation = (request: FormElicitation) => Promise<unknown>;
 
-/** The argument that carries an operation's options, for the operations whose options hold a handler. */
 const optionsIndex: Partial<Record<McpBackendMethod, number>> = {
   callTool: 1,
   resumeInvocation: 2,
 };
 const isOptions = (method: McpBackendMethod, index: number) => optionsIndex[method] === index;
 
-/** Replace an options object's Effect handler with a function the other side can call. */
 const sendOptions = (options: unknown): unknown => {
   if (options === null || typeof options !== "object") return toWire(options);
   const { elicitation, ...rest } = options as { elicitation?: ElicitationHandler };
@@ -147,7 +121,6 @@ const sendOptions = (options: unknown): unknown => {
   return { ...wire, elicitation: remote };
 };
 
-/** The options the product passes to its backend: a remote handler becomes an Effect again. */
 const receiveOptions = (options: unknown): unknown => {
   if (options === null || typeof options !== "object") return fromWire(options);
   const { elicitation, ...rest } = options as { elicitation?: RemoteElicitation };
@@ -170,11 +143,6 @@ const receiveOptions = (options: unknown): unknown => {
   return { ...decoded, elicitation: handler };
 };
 
-/**
- * Run one operation the session object sent with the product's own backend for its request. The
- * operation runs for the execution the call names, else the caller's own; the reference of a tool
- * call it recorded goes back beside its outcome.
- */
 export const serveMcpBackendCall = <E extends Error>(
   backend: McpBackend<E>,
   call: McpBackendCall,
@@ -208,16 +176,11 @@ export const serveMcpBackendCall = <E extends Error>(
     );
   });
 
-/** A product operation could not be reached or died there; the agent sees an unavailable backend. */
 export class RemoteBackendUnavailable extends Schema.TaggedError<RemoteBackendUnavailable>()(
   "RemoteBackendUnavailable",
   {},
 ) {}
 
-/**
- * The backend a session object runs its requests with. `send` delivers one operation to the
- * product for the request being served and answers with its outcome.
- */
 export const remoteMcpBackend = (
   send: (call: McpBackendCall) => Promise<WireExit>,
 ): McpBackend<Error> => {

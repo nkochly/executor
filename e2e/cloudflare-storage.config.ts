@@ -1,10 +1,5 @@
 import { defineConfig } from "vitest/config";
 
-/**
- * Runs the Cloudflare host's storage adapters in local workerd: R2 simulated by Miniflare and
- * Artifacts answered by real Git, since Artifacts has no local simulator; and the product's move
- * into a placed object and the MCP backend wire, across a release.
- */
 export default defineConfig({
   test: {
     include: [

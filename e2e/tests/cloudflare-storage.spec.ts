@@ -1,10 +1,3 @@
-/**
- * The Cloudflare host's storage: blobs on R2 and app source on Artifacts, served from a product
- * Durable Object in local workerd by `packages/hosted-cloudflare/scripts/storage-host.ts`. R2 is
- * Miniflare's local simulation. Artifacts has no local simulator, so the host answers its binding
- * from real Git repositories and takes pushes through `git http-backend`; the adapter's pushes are
- * real Git smart-HTTP pushes. Every write is read back and compared byte for byte.
- */
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { Context, Effect, Layer, Schema, Stream } from "effect";
@@ -20,7 +13,6 @@ class StorageHost extends Context.Service<StorageHost, { readonly origin: string
   "e2e/StorageHost",
 ) {}
 
-/** Start the host and wait for the origin it prints; the process stops with the scope. */
 const storageHost = Layer.effect(
   StorageHost,
   Effect.gen(function* () {
@@ -71,7 +63,6 @@ const jsonOf =
   (response: HttpClientResponse.HttpClientResponse) =>
     response.json.pipe(Effect.flatMap(Schema.decodeUnknownEffect(schema)), Effect.orDie);
 
-/** Random bytes, so a byte that is lost, reordered or re-encoded cannot go unnoticed. */
 const random = (length: number) => {
   const bytes = new Uint8Array(length);
   for (let at = 0; at < length; at += 65_536)
@@ -164,7 +155,6 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
     Effect.gen(function* () {
       const code = "code_bytes1";
       expect((yield* request(`/source/${code}/create`, { method: "POST" })).status).toBe(204);
-      // Creating it again reuses the repository Artifacts already holds.
       expect((yield* request(`/source/${code}/create`, { method: "POST" })).status).toBe(204);
 
       const text = {
@@ -196,7 +186,6 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
         if (file.path in text && "content" in file)
           expect(file.content).toBe(text[file.path as keyof typeof text]);
       }
-      // Binary public files are listed by blob; each blob reads back as the bytes written.
       for (const [path, bytes] of [
         ["ui/public/logo.png", logo],
         ["ui/public/fonts/body.woff2", font],
@@ -210,7 +199,6 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
         );
         expect(Buffer.compare(blob, bytes)).toBe(0);
       }
-      // Every file of the commit, by path, is the exact bytes that were saved.
       const expected: ReadonlyArray<readonly [string, Uint8Array]> = [
         ...Object.entries(text).map(
           ([path, content]) => [path, new TextEncoder().encode(content)] as const,
@@ -225,7 +213,6 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
         expect(Buffer.compare(read, bytes), path).toBe(0);
       }
 
-      // A second save against the first replaces one file and leaves one out.
       const second = yield* request(`/source/${code}/commit`, {
         method: "POST",
         body: JSON.stringify({
@@ -258,7 +245,6 @@ layer(storageHost, { excludeTestServices: true })("Cloudflare host storage", (it
         [first.commit, "First save"],
       ]);
 
-      // A save against a commit that is no longer the head is refused.
       const stale = yield* request(`/source/${code}/commit`, {
         method: "POST",
         body: JSON.stringify({

@@ -1,9 +1,3 @@
-/**
- * Every program a self-host process runs shares its one thread. Past `EXECUTOR_MCP_MAX_PROGRAMS`
- * programs doing work, a new `execute` is refused at once with a message the agent can act on,
- * and nothing from it runs; once a program ends, the next one is admitted. With
- * `EXECUTOR_MCP_MAX_OUTPUT_BYTES` set, a program's value is cut to that budget and marked.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Fiber, Schema } from "effect";
 import { Browser } from "../support/browser.ts";
@@ -18,7 +12,6 @@ import { scenarios } from "../test-plan.ts";
 const audience = "synthetic-access-application";
 const owner = "owner@program-cap.example.test";
 
-/** A tool result as the protocol carries it. */
 const ToolResult = Schema.Struct({
   result: Schema.Struct({
     isError: Schema.optional(Schema.Boolean),
@@ -29,7 +22,6 @@ const ToolResult = Schema.Struct({
   }),
 });
 
-/** The JSON-RPC message in a response that may be SSE or plain JSON. */
 const message = (text: string): unknown => {
   const data = text
     .split("\n")
@@ -49,7 +41,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host program cap", (it) => 
             evidence = yield* Evidence;
           const instance = yield* startControlledSelfHost(target);
           const origin = instance.metadata.origin;
-          // Access signs the caller in, as on Cloudflare, so each request names the owner.
           const team = yield* selfHostSsoIdp(origin);
           yield* Effect.gen(function* () {
             yield* serverControl("stop");
@@ -87,7 +78,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host program cap", (it) => 
               "mcp-protocol-version": "2025-06-18",
               ...(session === undefined ? {} : { "mcp-session-id": session }),
             }));
-          /** POST one JSON-RPC message as Access forwards it, and read the response's text. */
           const post = (step: string, data: unknown, session?: string) =>
             Effect.gen(function* () {
               const sent = yield* headers(session);
@@ -136,7 +126,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host program cap", (it) => 
               Effect.flatMap(Schema.decodeUnknownEffect(ToolResult)),
             );
 
-          // One program keeps the only slot busy for a few seconds.
           const busy = yield* Effect.forkChild(
             execute(
               "Run a program that works for five seconds",
@@ -160,7 +149,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host program cap", (it) => 
           expect(first.result.isError ?? false).toBe(false);
           expect(JSON.stringify(first.result.structuredContent)).toContain("done");
 
-          // The slot is free again, and a value over the output budget comes back cut and marked.
           const admitted = yield* execute(
             "Run a program once the first has ended",
             4,

@@ -1,4 +1,3 @@
-/** A native SQLite file behind the Durable Object storage contract, for Node and Bun hosts. */
 import { appendFileSync } from "node:fs";
 import { DatabaseSync } from "node:sqlite";
 import type { SqlStorage } from "@cloudflare/workers-types";
@@ -7,13 +6,8 @@ import type { SqliteStorage } from "./sqlite.ts";
 
 class Rollback extends Error {}
 
-/**
- * A native SQLite file behind the Durable Object storage contract. A transaction opened inside
- * another becomes a savepoint, as nested `storage.transaction` calls are in a Durable Object.
- */
 export const nativeSqliteStorage = (
   filename: string,
-  /** A file that receives the text of each statement SQLite refuses, with its error. */
   trace?: string,
 ): SqliteStorage & { close(): void } => {
   const db = new DatabaseSync(filename);
@@ -24,14 +18,12 @@ export const nativeSqliteStorage = (
     try {
       return run(query, bindings);
     } catch (cause) {
-      // Statement text only, never its values: for porting and debugging native runs.
       if (trace !== undefined)
         appendFileSync(trace, `${String(cause)}\n${query}\n----\n`, { mode: 0o600 });
       throw cause;
     }
   };
   const run = (query: string, bindings: Array<unknown>) => {
-    // A Durable Object refuses these; a native file would accept them and hide the failure.
     if (bindings.length > sqliteMaxParameters)
       throw new Error(
         `too many SQL variables: ${bindings.length} bound, at most ${sqliteMaxParameters}: SQLITE_ERROR`,
@@ -72,14 +64,11 @@ export const nativeSqliteStorage = (
           },
         });
         if (rolledBack) throw new Rollback();
-        // A refused COMMIT (a deferred foreign key) leaves the transaction open: the catch
-        // rolls it back.
         db.exec(outermost ? "COMMIT" : `RELEASE ${savepoint}`);
         depth--;
         return result;
       } catch (cause) {
         depth--;
-        // SQLite may already have rolled the transaction back (a busy or full database).
         if (db.isTransaction)
           db.exec(outermost ? "ROLLBACK" : `ROLLBACK TO ${savepoint}; RELEASE ${savepoint}`);
         if (cause instanceof Rollback) return undefined as never;

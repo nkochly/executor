@@ -1,9 +1,3 @@
-/**
- * Writes the build-time modules the Worker imports as `executor:skills`, `executor:dashboard` and
- * `executor:program-sandbox`: the Executor skill files, the dashboard's browser files with their
- * content types, and the bundled isolate each `execute` program runs in. Wrangler runs this before
- * every build (`build.command`); the dashboard must be built first.
- */
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
@@ -53,7 +47,6 @@ const generate = Effect.gen(function* () {
     path.join(output, "skills.js"),
     `export default ${JSON.stringify(skills)};\n`,
   );
-  // One self-contained module: a Dynamic Worker receives only the modules it is given.
   const sandbox = yield* Effect.promise(() =>
     build({
       entryPoints: [path.join(root, "src/program-sandbox.ts")],

@@ -1,14 +1,3 @@
-/**
- * Self-host behind Cloudflare Access. Access signs in every caller, MCP clients through its own
- * OAuth, and passes each request a signed assertion naming the person. With the team and the
- * application's audience configured, an assertion that verifies against the team's published keys
- * is the caller's identity on `/mcp` and on the caller's own scoped connection URLs; one for another
- * application, one signed by a key the team does not publish, one naming someone outside the
- * organization, and a connection the caller does not own are not. A bundle's URL names the bundle,
- * and reaches the caller's own copy of it only while the caller is in one of its groups. A shared
- * sign-in's assertion, which another Worker forwards, reads the person's apps at `/api/me/apps` and
- * is refused on `/mcp`.
- */
 import { expect, layer } from "@effect/vitest";
 import { Effect, Schedule, Schema } from "effect";
 import { randomUUID } from "node:crypto";
@@ -34,8 +23,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             target = yield* Target;
           const instance = yield* startControlledSelfHost(target);
           const origin = instance.metadata.origin;
-          // The synthetic IdP stands in for the Access team: it publishes the team's keys at
-          // `/cdn-cgi/access/certs` over HTTPS and signs assertions with them.
           const team = yield* selfHostSsoIdp(origin);
           yield* Effect.gen(function* () {
             yield* serverControl("stop");
@@ -43,7 +30,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               EXECUTOR_ACCESS_TEAM_DOMAIN: new URL(team.issuer).host,
               EXECUTOR_ACCESS_AUD: audience,
               EXECUTOR_ACCESS_SHARED_AUD: shared,
-              // The product trusts only the fixture's synthetic certificate.
               NODE_EXTRA_CA_CERTS: team.certificate,
             });
             yield* serverControl("start");
@@ -65,7 +51,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             ),
           ).toBe(200);
 
-          /** Initialize an MCP session carrying `assertion`, the way Access forwards a request. */
           const initialize = (step: string, assertion?: string, path = "/mcp") =>
             browser.use(step, (page) =>
               page
@@ -116,7 +101,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             ),
           ).toBe(403);
 
-          // The person's apps: through Access or the shared sign-in, never for anyone else.
           const personApps = (step: string, assertion?: string) =>
             browser.use(step, (page) =>
               page
@@ -152,8 +136,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               }),
             ),
           });
-          // Setup installs the organization's Executor app in the background; the list shows it
-          // once it is there, deployed.
           const listed = yield* personApps(
             "The owner's apps, signed in by Access",
             yield* team.accessAssertion(owner, audience),
@@ -197,7 +179,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             ),
           ).toBe(401);
 
-          // A scoped connection's URL works through Access too, as that connection's caller.
           const connection = randomUUID();
           const [organization] = yield* Schema.decodeUnknownEffect(
             Schema.Array(Schema.Struct({ id: Schema.String })),
@@ -235,7 +216,6 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
             ),
           ).toBe(401);
 
-          // A bundle's URL names the bundle; each member of its groups reaches their own copy.
           const prefix = `${origin}/api/organizations/${organization?.id}`;
           const post = (step: string, path: string, data: unknown) =>
             browser.use(step, (page) =>

@@ -1,16 +1,5 @@
-/**
- * Cloudflare Access in front of the whole host. Access signs in every caller, MCP clients through
- * its own OAuth, and passes each request a signed assertion (`Cf-Access-Jwt-Assertion`) naming
- * the person. When `EXECUTOR_ACCESS_TEAM_DOMAIN` and `EXECUTOR_ACCESS_AUD` are set, an assertion that verifies
- * against the team's keys and names this application is the caller's identity on `/mcp`.
- *
- * `EXECUTOR_ACCESS_SHARED_AUD` names a second Access application, one sign-in shared by several hosts,
- * whose assertion another Worker forwards with the person's request. It is accepted only on the
- * person's read routes (`/api/me/*`), never on `/mcp` or any route that changes something.
- */
 import { Config, Effect, Option } from "effect";
 
-/** The verified email of the person Access signed in, or none. */
 export interface AccessProxy {
   readonly verify: (headers: Headers) => Effect.Effect<Option.Option<string>>;
 }
@@ -34,7 +23,6 @@ const base64UrlJson = (part: string): unknown =>
 
 const certsLifetimeMs = 60 * 60 * 1000;
 
-/** Verify an Access assertion: RS256 by a current team key, one of these audiences, the team issuer, in its lifetime. */
 export const makeAccessProxy = (
   teamDomain: string,
   accepted: readonly string[],
@@ -77,7 +65,6 @@ export const makeAccessProxy = (
     const header = base64UrlJson(head) as { alg?: unknown; kid?: unknown };
     if (header.alg !== "RS256" || typeof header.kid !== "string") return undefined;
     let key = (await keys(false)).get(header.kid);
-    // A key Access rotated in since the last fetch.
     if (key === undefined) key = (await keys(true)).get(header.kid);
     if (key === undefined) return undefined;
     const valid = await crypto.subtle.verify(
@@ -107,7 +94,6 @@ export const makeAccessProxy = (
     verify: (headers) => {
       const token = headers.get("cf-access-jwt-assertion");
       if (token === null) return Effect.succeed(Option.none());
-      // Any failure to verify is no identity; the request then needs a credential of its own.
       return Effect.promise(() => verifyToken(token).catch(() => undefined)).pipe(
         Effect.map(Option.fromNullishOr),
       );
@@ -115,17 +101,11 @@ export const makeAccessProxy = (
   };
 };
 
-/** No proxy: every request authenticates with its own credential. */
 const noProxy: AccessProxy = { verify: () => Effect.succeed(Option.none()) };
 
 const setting = (name: string) =>
   Config.option(Config.String(name)).pipe(Config.map(Option.filter((value) => value !== "")));
 
-/**
- * The configured proxies, or none when the team or this application's audience is absent: `mcp`
- * accepts this application only; `reader` also accepts the shared sign-in, for the person's read
- * routes.
- */
 export const accessProxies = Effect.gen(function* () {
   const team = yield* setting("EXECUTOR_ACCESS_TEAM_DOMAIN");
   const audience = yield* setting("EXECUTOR_ACCESS_AUD");

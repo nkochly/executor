@@ -1,7 +1,3 @@
-/**
- * Run `fixture/mcp-wire-versions.ts` and print its report as one JSON line. The fixture is bundled
- * first, as the session object and product Workers are.
- */
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

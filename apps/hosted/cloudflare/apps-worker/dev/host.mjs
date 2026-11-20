@@ -1,10 +1,3 @@
-/**
- * Development only: the native services the product Worker binds (configuration, Git, the build
- * disk, dashboard files and the telemetry collector), served on 127.0.0.1 so `wrangler dev` can
- * run the product and this app host together. It mirrors self-host's native helper and workerd
- * disk services. The Cloudflare host shell replaces each of these with Worker vars, R2,
- * Artifacts and static assets.
- */
 import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import { mkdir, mkdtemp, readdir, rm, stat, writeFile, rename } from "node:fs/promises";
@@ -119,7 +112,6 @@ const native = async (request, response, route) => {
   return json(response, null, 404);
 };
 
-/** workerd's writable disk service: whole files, atomic PUT, directory GET lists entries. */
 const disk = async (root, request, response, route) => {
   const file = path.join(root, ...route.split("/").filter(Boolean).map(decodeURIComponent));
   if (!file.startsWith(root)) return json(response, null, 400);

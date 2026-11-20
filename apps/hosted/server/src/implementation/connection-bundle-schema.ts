@@ -1,8 +1,3 @@
-/**
- * Additive storage for connection bundles. A member's copy of a bundle is an ordinary scoped
- * connection in Better Auth's `mcpConnection` table; these rows only say which bundle made it.
- * Identifiers are made by the server, so the same statements run on PostgreSQL and SQLite.
- */
 import { Effect } from "effect";
 import { SqlClient } from "effect/sql";
 
@@ -25,7 +20,6 @@ const statements = [
     foreign key (organization_id, bundle_id) references hosted_connection_bundles(organization_id, id) on delete cascade,
     foreign key (organization_id, group_id) references hosted_groups(organization_id, id) on delete cascade
   )`,
-  // No foreign key to the bundle: a copy outlives its bundle until its connection is revoked.
   `create table if not exists hosted_connection_bundle_copies (
     organization_id text not null references organization(id) on delete cascade,
     bundle_id text not null,
@@ -42,11 +36,6 @@ const statements = [
   )`,
 ];
 
-/**
- * Hosted step 11 on both dialects: the app shares bundles made. Giving a bundle to a group shares
- * the bundle's apps with that group; these rows say which `hosted_app_groups` rows a bundle added,
- * so taking the bundle away removes only those.
- */
 export const migrateBundleAppShares = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   yield* sql.unsafe(`create table if not exists hosted_connection_bundle_app_shares (
@@ -57,7 +46,6 @@ export const migrateBundleAppShares = Effect.gen(function* () {
   )`).unprepared;
 });
 
-/** Hosted step 10 on both dialects: bundles, their groups, members' copies, and the setting. */
 export const migrateConnectionBundles = Effect.gen(function* () {
   const sql = yield* SqlClient.SqlClient;
   for (const statement of statements) yield* sql.unsafe(statement).unprepared;

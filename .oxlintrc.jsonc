@@ -114,6 +114,7 @@
     },
   ],
   "ignorePatterns": [
+    "scripts/comment-ratchet.mjs",
     ".alchemy/",
     "**/.blume/",
     ".local/",

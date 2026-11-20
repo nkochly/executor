@@ -1,4 +1,3 @@
-/** SQLite over Durable Object storage, or a native file with the same contract. */
 export {
   normalizedStorage,
   sqliteLayer,

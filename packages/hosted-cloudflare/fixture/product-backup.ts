@@ -1,9 +1,3 @@
-/**
- * The product's backups, for `scripts/product-backup-host.ts`: an object shaped like the product
- * (a child table created before its parent, a foreign key whose parent column is unique only
- * through an index, a trigger, bytes and stored values) writes a backup into `BACKUPS`, and other
- * objects restore it or prove it.
- */
 import { DurableObject } from "cloudflare:workers";
 import {
   listBackups,
@@ -87,12 +81,6 @@ export class Product extends DurableObject<Environment> {
 
 const json = (value: unknown) => Response.json(value);
 
-/**
- * `POST /seed/<object>` seeds an object; `POST /backup/<object>` writes its backup under its name;
- * `POST /restore/<object>?from=<key>` restores that key's newest backup into the object;
- * `POST /test/<object>?from=<key>` proves it in a scratch object; `GET /contents/<object>`,
- * `GET /empty/<object>` and `GET /backups/<key>` read.
- */
 export default {
   async fetch(request: Request, env: Environment): Promise<Response> {
     const url = new URL(request.url);

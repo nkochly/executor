@@ -1,8 +1,3 @@
-/**
- * Serve `fixture/product-move.ts` in local workerd through Miniflare: this release's product
- * objects beside an object of the release before the move. Prints `listening <url>` when ready and
- * runs until stopped.
- */
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";

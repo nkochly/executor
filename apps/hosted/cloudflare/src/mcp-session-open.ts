@@ -1,8 +1,3 @@
-/**
- * What a caller's session object runs: the hosted MCP server, its programs and approvals.
- * `mcp-session.ts` imports this module only when the object first opens, so building it costs a
- * request's CPU time rather than the Worker's startup budget.
- */
 import { RpcTarget } from "cloudflare:workers";
 import type { DurableObjectStorage, WorkerLoader } from "@cloudflare/workers-types";
 import {
@@ -33,10 +28,8 @@ import {
   type McpSessionHandle,
 } from "./mcp-session.ts";
 
-/** The most CPU time one program may use; Cloudflare allows a Worker invocation five minutes. */
 const maxProgramCpuMs = 300_000;
 
-/** The host a program's isolate calls back, as an RPC target so its methods cross as calls. */
 class ProgramHostTarget extends RpcTarget implements ProgramHost {
   readonly #host: ProgramHost;
   constructor(host: ProgramHost) {
@@ -58,7 +51,6 @@ interface ProgramEntrypoint {
   run(code: string, limits: unknown, host: ProgramHostTarget): Promise<unknown>;
 }
 
-/** Load a fresh isolate for one program, with no network and the program's CPU budget. */
 const startInIsolate =
   (loader: WorkerLoader): StartIsolatedProgram =>
   (code, limits, host) => {
@@ -84,7 +76,6 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
     const hosted = yield* makeHostedMcp(
       beforeExecute,
       limits,
-      // Protocol sessions are kept in the object's storage, so they outlive its eviction or restart.
       mcpSessionStore(storage),
       undefined,
       env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
@@ -94,20 +85,14 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
       const request = yield* HttpServerRequest.HttpServerRequest;
       const encoded = request.headers[mcpSessionAccessHeader];
       const access = yield* decodeAccess(encoded ?? "");
-      // Each operation goes back with the headers the client sent, which the product
-      // authenticates again; the access header is the product's own and does not go back.
       const headers = new Headers(request.headers);
       headers.delete(mcpSessionAccessHeader);
-      // Each operation is sent without the request's body.
       headers.delete("content-length");
       headers.delete("transfer-encoding");
       const url = new URL(request.url, origin).toString();
-      // Its errors are the product's own, rebuilt by class, so they are the request's errors.
       const backend = remoteMcpBackend((call) =>
         product.mcpBackend(new Request(url, { method: "POST", headers }), call),
       ) as unknown as McpBackend<HostedMcpRequestError>;
-      // The product hands over the request's trace context; continuing it here keeps the
-      // session's spans, its programs and every app call in the caller's trace.
       return yield* provideHostedMcpRequest(access, backend, origin, hosted.http).pipe(
         withRemoteSpan(
           new Request("https://mcp-session.internal", {
@@ -130,7 +115,6 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
     };
   }).pipe(Effect.provide(HttpServer.layerServices));
 
-/** Open a caller's MCP sessions; a failure releases what it acquired. */
 export const openMcpSession = async (
   env: McpSessionEnvironment,
   storage: DurableObjectStorage,

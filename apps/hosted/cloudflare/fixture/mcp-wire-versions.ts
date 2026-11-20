@@ -1,9 +1,3 @@
-/**
- * The MCP backend wire between session objects and the product across releases. Cloudflare moves
- * a busy object to new code minutes after a deploy, so a session object and the product can run
- * different releases. A release that sends the execution and returns the tool call log's
- * reference must still serve, and be served by, one that knows neither.
- */
 import { Effect } from "effect";
 import { CurrentMcpExecution, ToolCallRecorded, type McpBackend } from "@executor-js/mcp";
 import {
@@ -17,7 +11,6 @@ interface Seen {
   execution: string | undefined;
 }
 
-/** A product backend whose `callTool` records the call under `reference` and reports its execution. */
 const productBackend = (seen: Seen, reference: string) =>
   ({
     callTool: () =>
@@ -28,7 +21,6 @@ const productBackend = (seen: Seen, reference: string) =>
       }),
   }) as unknown as McpBackend<Error>;
 
-/** A session object's call, as this release makes it, for execution `execution`. */
 const sessionCall = (send: (call: McpBackendCall) => Promise<WireExit>, execution: string) =>
   Effect.gen(function* () {
     let recorded: string | undefined;
@@ -43,7 +35,6 @@ const sessionCall = (send: (call: McpBackendCall) => Promise<WireExit>, executio
     return { value, recorded };
   });
 
-/** The product before the call log: it reads only the method and arguments, and returns no reference. */
 const previousProduct = async (call: McpBackendCall): Promise<WireExit> => {
   const { reference: _reference, ...exit } = await Effect.runPromise(
     serveMcpBackendCall(productBackend({ execution: undefined }, "call_unused"), {
@@ -64,7 +55,6 @@ export const run = async () => {
     ),
   );
 
-  // A session object before the call log sends method and arguments only, and reads ok/value.
   const previous: Seen = { execution: undefined };
   const fromPreviousSession = await Effect.runPromise(
     serveMcpBackendCall(productBackend(previous, "call_previous_session"), {

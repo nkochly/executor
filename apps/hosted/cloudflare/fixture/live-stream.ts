@@ -1,9 +1,3 @@
-/**
- * A product object that serves one event stream the way the product serves a live app query, for
- * `scripts/live-stream-host.ts`. While the stream runs it counts runs, as a live query re-runs its
- * query, so the host can see whether the stream still runs after its client went away. The Worker
- * forwards to the object as the product's Worker does.
- */
 import { DurableObject } from "cloudflare:workers";
 import { Effect, Schedule, Stream } from "effect";
 import { HttpEffect, HttpServerResponse } from "effect/http";
@@ -15,8 +9,6 @@ interface Environment {
 
 export class Product extends DurableObject<Environment> {
   #runs = 0;
-  // A live query holds a subscription that re-runs its query on its own schedule, whether or not
-  // anyone reads the stream; only the stream's end releases it.
   readonly #live = HttpEffect.toWebHandler(
     addressedRequest(
       Effect.sync(() =>

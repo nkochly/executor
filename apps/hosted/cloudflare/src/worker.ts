@@ -1,19 +1,3 @@
-/**
- * Executor on stock Cloudflare Workers. One Durable Object owns the database, auth, sessions and
- * background work, as in the self-host image, with the Durable Object's own SQLite storage as the
- * database and no native helper beside it:
- * - settings come from the Worker's vars and secrets (`configuration.ts`);
- * - the dashboard's browser files are the Worker's static assets (`ASSETS`);
- * - outbound HTTP is the global `fetch`, behind the same URL policy;
- * - requests to this instance's own origin go to the product through `SELF`;
- * - telemetry is logged to the console, which Workers observability collects, unless an OTLP
- *   endpoint is configured; every public request continues this invocation's Workers trace
- *   (`trace.ts`), so one trace id follows it through the product, its apps and their calls;
- * - blobs, app repositories and the app runtime come from `platform.ts`;
- * - the product writes a backup of its storage into `BACKUPS` once a day and proves it by
- *   restoring it into the scratch object `restore-test:<product>`; `EXECUTOR_PRODUCT_RESTORE`
- *   restores a backup into a product object that stores nothing yet, before it opens.
- */
 import * as workers from "cloudflare:workers";
 import { DurableObject, WorkerEntrypoint } from "cloudflare:workers";
 import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
@@ -45,10 +29,6 @@ import {
 } from "@executor-js/hosted-cloudflare/backup";
 import { traced, type WorkersTracing } from "./trace.ts";
 
-// Only the Durable Objects build the product and the MCP sessions, and each loads its module when
-// it first opens: evaluating them at startup exceeds the CPU time Cloudflare allows a Worker to
-// start. This module and `mcp-session.ts` import nothing else at run time but
-// `@executor-js/hosted-cloudflare/product-location`.
 export { ExecutorMcpSession } from "./mcp-session.ts";
 
 export interface ProductStub {
@@ -56,11 +36,9 @@ export interface ProductStub {
   workflow(request: Request): Promise<Response>;
   mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
 }
-/** The scratch product object a backup is restored into to prove it. */
 interface RestoreTestStub {
   testRestore(stamp: string): Promise<RestoreTest>;
 }
-/** A caller's session object, as the product reaches it. */
 interface McpSessionStub {
   fetch(request: Request): Promise<Response>;
   approvalView(caller: string, address: unknown): Promise<unknown>;
@@ -68,39 +46,23 @@ interface McpSessionStub {
 }
 export interface Environment extends PlatformBindings, ProductLocationEnvironment {
   readonly PRODUCT: ProductNamespace<ProductStub & RetiredProduct & RestoreTestStub>;
-  /** Where the product writes its backups; without it, no backups are written. */
   readonly BACKUPS?: BackupBucket;
-  /**
-   * A backup to restore, `latest` or a backup's stamp, into a product object that stores nothing
-   * yet. An object that stores anything ignores it.
-   */
   readonly EXECUTOR_PRODUCT_RESTORE?: string;
-  /** Callers' MCP session objects; used when `EXECUTOR_MCP_SESSIONS` is true. */
   readonly MCP_SESSIONS?: {
     getByName(name: string, options?: { locationHint?: string }): McpSessionStub;
   };
-  /** The dashboard's browser files; the Worker runs first, so only the asset manifest is served. */
   readonly ASSETS: Fetcher;
-  /** This Worker's own `SelfOrigin` entrypoint, for requests to the dashboard origin. */
   readonly SELF: Fetcher;
-  /** Where submitted feedback goes (`agent-reports.ts`); without it, feedback is disabled. */
   readonly AGENT_REPORTS?: AgentReportsBinding;
 }
 
-/**
- * Opening the store runs schema migrations and data steps, which can take longer on a large
- * install than a `blockConcurrencyWhile` callback may run. So the store opens outside it, and
- * every entry point waits for the open product instead.
- */
 export class ExecutorProduct
   extends DurableObject<Environment>
   implements ProductStub, RetiredProduct
 {
   readonly #state: DurableObjectState;
   readonly #env: Environment;
-  /** The unnamed object of an install that names a location: it serves nothing. */
   readonly #retired: boolean;
-  /** The scratch object backups are restored into to prove them: it serves nothing. */
   readonly #restoreTest: boolean;
   #opening: Promise<ProductStub | undefined> | undefined;
   constructor(state: DurableObjectState, env: Environment) {
@@ -109,14 +71,8 @@ export class ExecutorProduct
     this.#env = env;
     this.#retired = isRetiredProduct(state.id, env.PRODUCT, env);
     this.#restoreTest = state.id.equals(env.PRODUCT.idFromName(restoreTestName(env)));
-    // Start at once, as after a restart; a failure is reported to the events that wait for it.
     if (!this.#retired && !this.#restoreTest) this.#product().catch(() => undefined);
   }
-  /**
-   * The open product. A failed open releases what it acquired, and the next event retries it.
-   * While the unnamed object this one succeeds cannot hand over its storage yet, that object
-   * serves, and the next event tries again.
-   */
   async #product(): Promise<ProductStub> {
     this.#opening ??= this.#open().catch((error: unknown) => {
       this.#opening = undefined;
@@ -142,27 +98,22 @@ export class ExecutorProduct
       open,
     });
   }
-  /** Dispatch the authenticated product routes. */
   async fetch(request: Request): Promise<Response> {
     if (this.#retired || this.#restoreTest) return this.#successor().fetch(request);
     return (await this.#product()).fetch(request);
   }
-  /** Private workflow callbacks are reached only through the named service entrypoint. */
   async workflow(request: Request): Promise<Response> {
     if (this.#retired || this.#restoreTest) return this.#successor().workflow(request);
     return (await this.#product()).workflow(request);
   }
-  /** One backend operation a caller's session object sends for the request it serves. */
   async mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit> {
     if (this.#retired || this.#restoreTest) return this.#successor().mcpBackend(request, call);
     return (await this.#product()).mcpBackend(request, call);
   }
-  /** One page of a retired object's storage, for the placed product that succeeds it. */
   async exportPage(cursor: StorageCursor | null): Promise<StoragePage> {
     if (!this.#retired) throw new Error("Only a retired product exports its storage");
     return exportStoragePage(this.#state, cursor);
   }
-  /** Delete a retired object's storage once its successor holds a copy. */
   async wipe(): Promise<void> {
     if (!this.#retired) throw new Error("Only a retired product is wiped");
     await this.#state.storage.deleteAlarm();
@@ -171,21 +122,14 @@ export class ExecutorProduct
   #successor() {
     return productStub(this.#env.PRODUCT, this.#env);
   }
-  /** Restore the background owner after an eviction or restart even when no request arrives. */
   async alarm(): Promise<void> {
-    // A retired object and the restore test object keep no background owner; their alarm ends here.
     if (this.#retired || this.#restoreTest) return;
     await this.#product();
     await this.#state.storage.setAlarm(Date.now() + 30_000);
-    // A failed backup is tried again at the next alarm and never stops the background owner.
     await this.#backUpIfDue().catch((error: unknown) =>
       console.error(JSON.stringify({ event: "product_backup_failed", error: String(error) })),
     );
   }
-  /**
-   * Once a day, write a backup and prove it: restore it into the scratch object, which compares
-   * what it holds with the backup's manifest and then deletes everything it stored.
-   */
   async #backUpIfDue(now = Date.now()): Promise<void> {
     const bucket = this.#env.BACKUPS;
     if (bucket === undefined) return;
@@ -200,7 +144,6 @@ export class ExecutorProduct
     ).testRestore(manifest.stamp);
     console.log(JSON.stringify({ event: "product_backup", ...test }));
   }
-  /** Restore a backup into the scratch object, report it, and leave the object storing nothing. */
   async testRestore(stamp: string): Promise<RestoreTest> {
     if (!this.#restoreTest) throw new Error("Only the restore test object restores a test copy");
     const bucket = this.#env.BACKUPS;
@@ -212,7 +155,6 @@ export class ExecutorProduct
       await this.#state.storage.deleteAll();
     }
   }
-  /** Restore the backup `EXECUTOR_PRODUCT_RESTORE` names, if this object stores nothing yet. */
   async #restoreIfAsked(): Promise<void> {
     const asked = this.#env.EXECUTOR_PRODUCT_RESTORE?.trim();
     const bucket = this.#env.BACKUPS;
@@ -231,18 +173,12 @@ const backupAtKey = "executor:backup-at";
 const backupInterval = 24 * 60 * 60 * 1000;
 const restoreTestName = (env: ProductLocationEnvironment) => `restore-test:${productName(env)}`;
 
-/** Service entrypoint for the app host's workflow callbacks. */
 export class WorkflowCallbacks extends WorkerEntrypoint<Environment> {
   async fetch(request: Request): Promise<Response> {
     return productStub(this.env.PRODUCT, this.env).workflow(request);
   }
 }
 
-/**
- * Requests this instance sends to its own dashboard origin, from app isolates or host egress.
- * They never cross the network, so they carry a fixed internal source instead of any client
- * address header the sender supplied.
- */
 export class SelfOrigin extends WorkerEntrypoint<Environment> {
   async fetch(request: Request): Promise<Response> {
     const internal = new Request(request);
@@ -251,14 +187,8 @@ export class SelfOrigin extends WorkerEntrypoint<Environment> {
   }
 }
 
-/** The runtime's tracing API, absent where the runtime has none (requests then run untraced). */
 const tracing = (workers as { tracing?: WorkersTracing }).tracing;
 
-/**
- * Public traffic reaches only the product's authenticated route map. The client address is the
- * one Cloudflare's edge saw; any address header the client sent is replaced. The trace context is
- * this invocation's, never the client's.
- */
 export default {
   fetch(request: Request, env: Environment): Promise<Response> {
     const addressed = new Request(request);

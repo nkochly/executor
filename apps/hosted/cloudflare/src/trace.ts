@@ -1,21 +1,3 @@
-/**
- * One trace id per request, followed across the Trifecta services as `trifecta.trace_id`.
- *
- * Executor's id is this invocation's Workers trace id. The product receives it as the request's W3C
- * `traceparent`, so the product's own tracer continues it: its spans, the app host's, and every
- * outbound request an app makes through `ctx.fetch` (which propagates `traceparent`) carry the same
- * id, and wiki_mcp and Muster record it under the same attribute. A caller's own trace context is
- * kept on the span as `mcp.client.trace_id`, linking an agent's trace to Executor's, and never
- * becomes Executor's.
- *
- * Each `/mcp` request is also one Workers span, `{mcp.method.name} {tool}` (OpenTelemetry MCP
- * conventions), and one `mcp_call` log line per JSON-RPC message, as in Executor v1, wiki_mcp and
- * Muster. Names, ids and timings only: no argument or result is ever recorded.
- *
- * This module imports nothing at run time, so the Worker's startup stays within its CPU limit.
- */
-
-/** The parts of a Workers span this module uses. */
 export interface Span {
   spanContext(): { readonly traceId: string; readonly spanId: string };
   setAttribute(key: string, value: boolean | number | string): unknown;
@@ -23,7 +5,6 @@ export interface Span {
   setStatus(status: { code: "unset" | "ok" | "error"; message?: string }): unknown;
 }
 
-/** The parts of the Workers tracing API this module uses; absent where the runtime has none. */
 export interface WorkersTracing {
   enterSpan?<T>(name: string, callback: (span: Span) => T): T;
   getActiveSpan?(): Span | undefined;
@@ -38,7 +19,6 @@ export interface TraceContext {
   readonly spanId: string;
 }
 
-/** A W3C trace context, version 00, with non-zero ids; anything else is null. */
 export const parseTraceparent = (value: unknown): TraceContext | null => {
   if (typeof value !== "string") return null;
   const [, traceId, spanId] = TRACEPARENT.exec(value.trim()) ?? [];
@@ -46,7 +26,6 @@ export const parseTraceparent = (value: unknown): TraceContext | null => {
   return { traceId, spanId };
 };
 
-/** The ids of `span`, or null when observability is off and they are all zeros. */
 const contextOf = (span: Span | undefined): TraceContext | null => {
   const ctx = span?.spanContext?.();
   if (!ctx || !ctx.traceId || ctx.traceId === ZERO_TRACE || !ctx.spanId) return null;
@@ -56,11 +35,9 @@ const contextOf = (span: Span | undefined): TraceContext | null => {
 export interface McpCall {
   readonly method: string;
   readonly tool: string | null;
-  /** The trace id of the message's own `_meta.traceparent` (MCP SEP-414), when it is valid. */
   readonly clientTraceId: string | null;
 }
 
-/** The JSON-RPC messages an `/mcp` POST carries; none for any other request or an unreadable body. */
 export const mcpCalls = async (request: Request): Promise<ReadonlyArray<McpCall>> => {
   if (request.method !== "POST" || new URL(request.url).pathname !== "/mcp") return [];
   let body: unknown;
@@ -86,23 +63,16 @@ export const mcpCalls = async (request: Request): Promise<ReadonlyArray<McpCall>
   });
 };
 
-/** `{mcp.method.name} {tool}` for the first message, as the OpenTelemetry MCP conventions name it. */
 const spanName = (calls: ReadonlyArray<McpCall>) => {
   const first = calls[0];
   const name = first ? (first.tool ? `${first.method} ${first.tool}` : first.method) : "POST mcp";
   return name.slice(0, 200);
 };
 
-/**
- * `request` as the product receives it: its `traceparent` names `context`, so the product's tracer
- * continues this trace instead of the caller's or a new one. Without a context it is unchanged.
- */
 export const continuing = (request: Request, context: TraceContext | null): Request => {
   if (context === null) return request;
   const next = new Request(request);
   next.headers.set("traceparent", `00-${context.traceId}-${context.spanId}-01`);
-  // The product's tracer reads B3 only when no W3C header is present; drop them so no caller's
-  // context can take precedence on any path that reads headers in another order.
   next.headers.delete("tracestate");
   next.headers.delete("b3");
   for (const name of ["x-b3-traceid", "x-b3-spanid", "x-b3-parentspanid", "x-b3-sampled"])
@@ -110,10 +80,6 @@ export const continuing = (request: Request, context: TraceContext | null): Requ
   return next;
 };
 
-/**
- * Run `forward` with `request` continuing this invocation's trace. An `/mcp` request also runs in
- * its own span with the MCP attributes, and logs one `mcp_call` line per message when it settles.
- */
 export const traced = async (
   tracing: WorkersTracing | undefined,
   request: Request,

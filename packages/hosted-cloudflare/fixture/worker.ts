@@ -1,8 +1,3 @@
-/**
- * A Worker that serves the Cloudflare storage adapters over HTTP, the way the Cloudflare host's
- * product Durable Object holds them: R2 for blobs, Artifacts for app source, and the object's
- * own storage for repository tokens. `scripts/storage-host.ts` runs it in local workerd.
- */
 import { Cause, Effect, Option, Redacted, Schema, Stream } from "effect";
 import { AppCodeId, BlobKey, GitObjectId, SourceCommit, SourceFile } from "@executor-js/sdk/core";
 import { r2BlobStore, type R2BucketBinding } from "@executor-js/hosted-cloudflare/blobs";
@@ -18,7 +13,6 @@ interface Fetcher {
 interface Environment {
   readonly PRODUCT: DurableObjectNamespace;
   readonly BLOBS: R2BucketBinding;
-  /** The local stand-in for the Artifacts service, reached as plain HTTP. */
   readonly ARTIFACTS_HOST: Fetcher;
   readonly ENCRYPTION_KEY: string;
   readonly ACCOUNT_ID: string;
@@ -32,7 +26,6 @@ interface DurableObjectStorage {
   put(key: string, value: unknown): Promise<void>;
 }
 
-/** An error the binding throws, with the code a real Artifacts binding carries. */
 class ArtifactsError extends Error {
   readonly code: string;
   constructor(code: string) {
@@ -42,7 +35,6 @@ class ArtifactsError extends Error {
   }
 }
 
-/** The Artifacts binding methods, each one call to the stand-in service. */
 const artifactsBinding = (host: Fetcher): ArtifactsBinding => {
   const call = async (operation: string, repository: string, input: unknown = null) => {
     const response = await host.fetch(
@@ -96,11 +88,9 @@ const CommitBody = Schema.Struct({
   message: Schema.String,
 });
 
-/** Any failure is answered as a 500 that names it, so a scenario sees what went wrong. */
 const failed = (cause: Cause.Cause<unknown>) =>
   Effect.succeed(json({ error: Cause.pretty(cause) }, 500));
 
-/** The product Durable Object: the same bindings, and the storage its tokens are kept in. */
 export class Product {
   readonly #storage: DurableObjectStorage;
   readonly env: Environment;
@@ -211,8 +201,6 @@ export class Product {
       }
       if (action === "token") {
         const stored = yield* Effect.promise(() => storage.get(`artifacts-token:${id}`));
-        // What the Durable Object holds for the repository, as stored, so a caller can see it is
-        // sealed rather than the token itself.
         const sealed = Schema.decodeUnknownOption(
           Schema.Struct({ version: Schema.Literal(1), encrypted: Schema.Uint8Array }),
         )(stored);

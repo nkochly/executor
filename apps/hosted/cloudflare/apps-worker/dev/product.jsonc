@@ -1,6 +1,4 @@
 {
-  // Development only: self-host's product Worker on wrangler, its native bindings stubbed by
-  // executor-dev-host, its app host this package's Worker.
   "name": "executor",
   "main": "../../../self-host/src/worker.ts",
   "compatibility_date": "2026-09-01",

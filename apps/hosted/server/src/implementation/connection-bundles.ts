@@ -1,10 +1,3 @@
-/**
- * Connection bundles. Admins save a bundle and its groups in one transaction; afterwards every
- * member of an assigned group holds a copy, a scoped connection of their own made by the server.
- * A copy lists the bundle's apps and tools and no accounts, so it runs as whatever accounts its
- * member links to each app. Copies are reconciled after every change that can move them: a bundle
- * write, a group write, and each member's own connection list.
- */
 import type { ConnectionPolicy } from "@executor-js/mcp-auth/connections";
 import { ConnectionId } from "@executor-js/mcp-auth/connections";
 import { mcpResource } from "@executor-js/mcp-auth";
@@ -55,7 +48,6 @@ const Copy = Schema.Struct({
 });
 const Wanted = Schema.Struct({ bundle: BundleId, user: Schema.String });
 
-/** The bundles of one organization with their assigned groups. */
 const readBundles = (sql: SqlClient.SqlClient, organization: OrganizationId) =>
   Effect.gen(function* () {
     const bundles = yield* sql`select id, name, apps, revision from hosted_connection_bundles
@@ -72,7 +64,6 @@ const readBundles = (sql: SqlClient.SqlClient, organization: OrganizationId) =>
     }));
   });
 
-/** Whether members who are not admins may make connections of their own. On unless set off. */
 export const membersCreateConnections = (sql: SqlClient.SqlClient, organization: string) =>
   sql`select members_create_connections as allowed from hosted_connection_settings
     where organization_id = ${organization}`.pipe(
@@ -82,17 +73,11 @@ export const membersCreateConnections = (sql: SqlClient.SqlClient, organization:
     }),
   );
 
-/** Whether a connection is a member's copy of a bundle, and so may be used however the setting is. */
 export const isBundleCopy = (sql: SqlClient.SqlClient, connection: string) =>
   sql`select 1 as one from hosted_connection_bundle_copies where connection_id = ${connection}`.pipe(
     Effect.map((rows) => rows.length > 0),
   );
 
-/**
- * Whether a member's MCP grant may be used under the organization's setting. Admins and owners
- * always may; a member may use a bundle's copy always, and anything else only while members may
- * make their own connections.
- */
 export const grantPermitted = (
   sql: SqlClient.SqlClient,
   organization: string,
@@ -105,7 +90,6 @@ export const grantPermitted = (
     return yield* membersCreateConnections(sql, organization);
   });
 
-/** The bundles each member of the organization should hold a copy of. */
 const wantedCopies = (sql: SqlClient.SqlClient, organization: OrganizationId) =>
   sql`select distinct bg.bundle_id as bundle, m."userId" as "user"
     from hosted_connection_bundle_groups bg
@@ -124,11 +108,6 @@ const copyPolicy = (apps: readonly BundleApp[]): ConnectionPolicy => ({
 });
 const newConnectionId = () => ConnectionId.make(`bundle-${crypto.randomUUID().replace(/-/gu, "")}`);
 
-/**
- * Make each member's copies match the bundles: create the missing ones, rewrite those whose bundle
- * changed, and revoke those whose member or bundle no longer qualifies. Idempotent; a failure part
- * way leaves rows the next reconcile finishes.
- */
 export const reconcileBundles = (organization: OrganizationId) =>
   Effect.gen(function* () {
     const sql = yield* Effect.flatten(GroupDatabase).pipe(Effect.mapError(unavailable));
@@ -169,7 +148,6 @@ export const reconcileBundles = (organization: OrganizationId) =>
       const input = { name: bundle.name, policy: copyPolicy(bundle.apps) };
       const copy = existing.get(key(row.bundle, row.user));
       if (copy !== undefined && copy.revision === bundle.revision) continue;
-      // A copy whose connection is gone (revoked elsewhere) is made again under a new ID.
       const updated =
         copy === undefined
           ? false
@@ -197,7 +175,6 @@ export const reconcileBundles = (organization: OrganizationId) =>
     Effect.catchTag("AuthenticationUnavailable", () => Effect.fail(unavailable())),
   );
 
-/** The bundle each of a member's copies came from, keyed by connection. */
 export const copiesOf = (organization: OrganizationId, user: string) =>
   Effect.gen(function* () {
     const sql = yield* Effect.flatten(GroupDatabase).pipe(Effect.mapError(unavailable));
@@ -216,10 +193,6 @@ export const copiesOf = (organization: OrganizationId, user: string) =>
     return new Map(rows.map((row) => [row.connection, { id: row.id, name: row.name }]));
   });
 
-/**
- * Name a member's connections by the bundle each came from. A copy's URL names its bundle, so
- * every member of the bundle's groups shares one URL and each reaches their own copy.
- */
 export const withBundles = <C extends { readonly id: string; readonly url: string }>(
   connections: readonly C[],
   copies: ReadonlyMap<string, { readonly id: BundleId; readonly name: string }>,
@@ -234,10 +207,6 @@ export const withBundles = <C extends { readonly id: string; readonly url: strin
     return { ...connection, url, bundle } as C & Pick<HostedConnectionView, "bundle">;
   });
 
-/**
- * The live connection a member reaches at an MCP URL naming one of their bundles by its slug, or
- * undefined when no bundle of theirs in the organization has it.
- */
 export const bundleCopyBySlug = (
   sql: SqlClient.SqlClient,
   organization: string,
@@ -254,7 +223,6 @@ export const bundleCopyBySlug = (
     }),
   );
 
-/** The current organization, when the caller is one of its owners or admins. */
 const requireAdmin = Effect.gen(function* () {
   const access = yield* CurrentOrganization;
   const user = yield* CurrentUserId;
@@ -267,10 +235,6 @@ const storageFailure = (error: SqlError.SqlError) =>
     ? new BundleConflict({ reason: "name_taken" })
     : unavailable();
 
-/**
- * Check that the bundle's name makes an MCP URL no other bundle of the organization has, and that
- * every app and group it names belongs to the organization.
- */
 const validate = (
   sql: SqlClient.SqlClient,
   organization: OrganizationId,
@@ -301,11 +265,6 @@ const validate = (
     }
   });
 
-/**
- * Share every bundle's apps with the bundle's groups, and stop the shares a bundle made once no
- * bundle needs them. An app shared with everyone needs nothing; a private app becomes shared with
- * groups. A share an admin made on the app's own page is never removed here.
- */
 const syncBundleShares = (sql: SqlClient.SqlClient, organization: OrganizationId) =>
   Effect.gen(function* () {
     const bundles = yield* readBundles(sql, organization);
@@ -314,7 +273,6 @@ const syncBundleShares = (sql: SqlClient.SqlClient, organization: OrganizationId
         bundle.apps.flatMap((app) => bundle.groups.map((group) => `${app.app} ${group}`)),
       ),
     );
-    // A share removed on the app's page, or by deleting its group, is no longer a bundle's.
     yield* sql`delete from hosted_connection_bundle_app_shares
       where organization_id = ${organization} and not exists (select 1 from hosted_app_groups g
         where g.app_id = hosted_connection_bundle_app_shares.app_id
@@ -408,7 +366,6 @@ const removeBundle = (id: BundleId, revision: BundleRevision) =>
         }),
       )
       .pipe(Effect.catchTag("SqlError", (error) => Effect.fail(storageFailure(error))));
-    // The bundle's copies are revoked here; their rows outlive it only until then.
     yield* reconcileBundles(organization);
     return { id };
   });
@@ -434,7 +391,6 @@ const listBundles = Effect.gen(function* () {
   const named = (rows: readonly Record<string, unknown>[]) =>
     rows.map((row) => ({ id: String(row["id"]), name: String(row["name"]) }));
   return {
-    // Members see the setting; bundles, apps and groups are an admin's to read.
     bundles: canManage ? bundles : [],
     membersCreateConnections: allowed,
     canManage,
@@ -463,7 +419,6 @@ const Member = Schema.Struct({
   role: OrganizationRole,
 });
 
-/** Every member's connections and connected agents, for an admin. */
 const memberConnections = Effect.gen(function* () {
   const organization = yield* requireAdmin;
   const sql = yield* Effect.flatten(GroupDatabase).pipe(Effect.mapError(unavailable));
@@ -495,7 +450,6 @@ const memberConnections = Effect.gen(function* () {
   );
 });
 
-/** A member of the current organization, by user ID; nobody outside it can be named. */
 const memberOwner = (user: string) =>
   Effect.gen(function* () {
     const organization = yield* requireAdmin;
@@ -508,7 +462,6 @@ const memberOwner = (user: string) =>
     return { userId: user, resource: organization };
   });
 
-/** Typed handlers acquire storage only after request authentication; writes need an admin. */
 export const hostedConnectionBundleHandlers = HttpApiBuilder.group(
   HostedApi,
   "connectionBundles",
@@ -536,7 +489,6 @@ export const hostedConnectionBundleHandlers = HttpApiBuilder.group(
           Effect.gen(function* () {
             const owner = yield* memberOwner(params.user);
             yield* auth.connections.revoke(owner, params.connection);
-            // A revoked copy is made again unless its bundle no longer applies to the member.
             const sql = yield* Effect.flatten(GroupDatabase).pipe(Effect.mapError(unavailable));
             yield* sql`delete from hosted_connection_bundle_copies
             where connection_id = ${params.connection}`.pipe(
