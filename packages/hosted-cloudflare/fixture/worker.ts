@@ -1,6 +1,10 @@
 import { Cause, Effect, Option, Redacted, Schema, Stream } from "effect";
 import { AppCodeId, BlobKey, GitObjectId, SourceCommit, SourceFile } from "@executor-js/sdk/core";
-import { r2BlobStore, type R2BucketBinding } from "@executor-js/hosted-cloudflare/blobs";
+import {
+  r2BlobStore,
+  r2ErrorCode,
+  type R2BucketBinding,
+} from "@executor-js/hosted-cloudflare/blobs";
 import {
   artifactsRepositories,
   type ArtifactsBinding,
@@ -103,7 +107,11 @@ export class Product {
     const url = new URL(request.url);
     const [area, ...rest] = url.pathname.slice(1).split("/").map(decodeURIComponent);
     const program =
-      area === "blobs" ? this.#blobs(request, rest.join("/"), url) : this.#source(request, rest);
+      area === "blobs"
+        ? this.#blobs(request, rest.join("/"), url)
+        : area === "r2-error-code"
+          ? this.#r2ErrorCode()
+          : this.#source(request, rest);
     return Effect.runPromise(program);
   }
 
@@ -154,6 +162,16 @@ export class Product {
         ? new Response(null, { status: 404 })
         : new Response(new Uint8Array(found.value));
     }).pipe(Effect.catchCause(failed));
+  }
+
+  #r2ErrorCode() {
+    const bucket = this.env.BLOBS;
+    return Effect.tryPromise(() => bucket.put("x".repeat(1100), new Uint8Array())).pipe(
+      Effect.match({
+        onSuccess: () => json({ code: null }),
+        onFailure: (error) => json({ code: Option.getOrNull(r2ErrorCode(error.cause)) }),
+      }),
+    );
   }
 
   #source(request: Request, [code, action, ...rest]: ReadonlyArray<string>) {

@@ -1,6 +1,6 @@
 import { expect, layer } from "@effect/vitest";
 import * as NodeServices from "@effect/platform-node/NodeServices";
-import { Context, Effect, Layer, Schema, Stream } from "effect";
+import { Context, Effect, Layer, Option, Schedule, Schema, Stream } from "effect";
 import { ChildProcess, ChildProcessSpawner } from "effect/process";
 import { FetchHttpClient, HttpClient, HttpClientRequest } from "effect/http";
 
@@ -36,6 +36,22 @@ const runs = Effect.gen(function* () {
   return yield* response.json.pipe(Effect.flatMap(Schema.decodeUnknownEffect(Schema.Number)));
 }).pipe(Effect.orDie);
 
+const risen = (from: number) =>
+  runs.pipe(
+    Effect.repeat({ until: (count) => count > from, schedule: Schedule.spaced("100 millis") }),
+    Effect.timeout("10 seconds"),
+  );
+
+const stopped = Effect.gen(function* () {
+  let last = yield* runs;
+  while (true) {
+    yield* Effect.sleep("500 millis");
+    const next = yield* runs;
+    if (next === last) return next;
+    last = next;
+  }
+}).pipe(Effect.timeout("10 seconds"));
+
 layer(liveStreamHost, { excludeTestServices: true })("Cloudflare live stream", (it) => {
   it.effect("an event stream stops running once its client has gone", () =>
     Effect.gen(function* () {
@@ -47,18 +63,17 @@ layer(liveStreamHost, { excludeTestServices: true })("Cloudflare live stream", (
           expect(response.headers["content-type"]).toContain("text/event-stream");
           yield* response.stream.pipe(Stream.take(1), Stream.runDrain);
           const opened = yield* runs;
-          yield* Effect.sleep("1 second");
-          expect(yield* runs, "runs of the stream while its client holds it").toBeGreaterThan(
-            opened,
-          );
+          expect(
+            Option.isSome(yield* risen(opened).pipe(Effect.option)),
+            "the stream runs while its client holds it",
+          ).toBe(true);
         }),
       ).pipe(Effect.orDie);
 
-      yield* Effect.sleep("2 seconds");
-      const settled = yield* runs;
-      yield* Effect.sleep("2 seconds");
-      const later = yield* runs;
-      expect(later - settled, "runs of the stream after its client went away").toBe(0);
+      expect(
+        Option.isSome(yield* stopped.pipe(Effect.option)),
+        "the stream stops running once its client has gone",
+      ).toBe(true);
     }),
   );
 });

@@ -109,6 +109,8 @@ Live queries (`fixture/live-stream.ts`, `e2e/tests/cloudflare-live-stream.spec.t
   stream, and runs only while a page holds it. The product's event streams end only when the
   runtime cancels the body the object streamed, so the test serves the stream in local workerd with
   this Worker's compatibility settings and proves a client's disconnect still reaches that body.
+  The test polls the fixture's run count until it rises, then until it stops rising, each with a
+  deadline, instead of sleeping fixed times.
 
 ## Consequences
 

@@ -9,5 +9,3 @@ export class Program extends WorkerEntrypoint<unknown> {
 }
 
 export default { fetch: () => new Response(null, { status: 404 }) };
-
-addEventListener("unhandledrejection", (event) => event.preventDefault());

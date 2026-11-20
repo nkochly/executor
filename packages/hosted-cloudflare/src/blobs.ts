@@ -24,7 +24,16 @@ export interface R2BucketBinding {
   }>;
 }
 
-const rateLimited = (cause: unknown) => cause instanceof Error && cause.message.includes("10058");
+const r2TooManyRequests = 10058;
+
+export const r2ErrorCode = (cause: unknown): Option.Option<number> => {
+  if (!(cause instanceof Error)) return Option.none();
+  const code = /\((\d+)\)$/.exec(cause.message)?.[1];
+  return code === undefined ? Option.none() : Option.some(Number(code));
+};
+
+const rateLimited = (cause: unknown) =>
+  Option.exists(r2ErrorCode(cause), (code) => code === r2TooManyRequests);
 
 const call = <A>(operation: BlobStoreError["operation"], key: string, evaluate: () => Promise<A>) =>
   Schema.decodeUnknownEffect(BlobKey)(key).pipe(

@@ -1,8 +1,8 @@
 import * as NodeRuntime from "@effect/platform-node/NodeRuntime";
 import * as NodeServices from "@effect/platform-node/NodeServices";
 import { readExecutorSkills } from "@executor-js/app-templates/executor";
-import { build } from "esbuild";
 import { Effect, FileSystem, Path } from "effect";
+import { bundleProgramSandbox } from "./program-sandbox.ts";
 
 const types: Readonly<Record<string, string>> = {
   ".html": "text/html; charset=utf-8",
@@ -47,23 +47,8 @@ const generate = Effect.gen(function* () {
     path.join(output, "skills.js"),
     `export default ${JSON.stringify(skills)};\n`,
   );
-  const sandbox = yield* Effect.promise(() =>
-    build({
-      entryPoints: [path.join(root, "src/program-sandbox.ts")],
-      bundle: true,
-      write: false,
-      platform: "browser",
-      format: "esm",
-      target: "es2024",
-      minify: true,
-      conditions: ["workerd", "worker", "browser"],
-      external: ["cloudflare:*", "node:*"],
-      logLevel: "silent",
-    }),
-  );
-  const [bundle] = sandbox.outputFiles;
-  if (bundle === undefined) return yield* Effect.die(new Error("Program sandbox did not build"));
-  const code = bundle.text;
+  const code = yield* Effect.promise(() => bundleProgramSandbox(root));
+  if (code === undefined) return yield* Effect.die(new Error("Program sandbox did not build"));
   yield* fs.writeFileString(
     path.join(output, "program-sandbox.js"),
     `export default ${JSON.stringify(code)};\n`,

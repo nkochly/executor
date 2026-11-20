@@ -1,5 +1,4 @@
-import { RpcTarget } from "cloudflare:workers";
-import type { DurableObjectStorage, WorkerLoader } from "@cloudflare/workers-types";
+import type { DurableObjectStorage } from "@cloudflare/workers-types";
 import {
   McpAccess,
   fromWire,
@@ -9,8 +8,6 @@ import {
   remoteMcpBackend,
   toWire,
   type HostedMcpRequestError,
-  type ProgramHost,
-  type StartIsolatedProgram,
 } from "@executor-js/hosted-server";
 import programSandbox from "executor:program-sandbox";
 import { selfHostMcpLimits } from "@executor-js/hosted-self-host/product";
@@ -22,49 +19,12 @@ import { withRemoteSpan } from "@executor-js/telemetry";
 import { workerConfiguration } from "./configuration.ts";
 import { mcpSessionStore } from "./mcp-session-store.ts";
 import { productStub } from "@executor-js/hosted-cloudflare/product-location";
+import { startInIsolate } from "./program-isolate.ts";
 import {
   mcpSessionAccessHeader,
   type McpSessionEnvironment,
   type McpSessionHandle,
 } from "./mcp-session.ts";
-
-const maxProgramCpuMs = 300_000;
-
-class ProgramHostTarget extends RpcTarget implements ProgramHost {
-  readonly #host: ProgramHost;
-  constructor(host: ProgramHost) {
-    super();
-    this.#host = host;
-  }
-  backend(call: Parameters<ProgramHost["backend"]>[0]) {
-    return this.#host.backend(call);
-  }
-  progress(report: Parameters<ProgramHost["progress"]>[0]) {
-    this.#host.progress(report);
-  }
-  deadline() {
-    return this.#host.deadline();
-  }
-}
-
-interface ProgramEntrypoint {
-  run(code: string, limits: unknown, host: ProgramHostTarget): Promise<unknown>;
-}
-
-const startInIsolate =
-  (loader: WorkerLoader): StartIsolatedProgram =>
-  (code, limits, host) => {
-    const worker = loader.load({
-      compatibilityDate: "2026-09-01",
-      compatibilityFlags: ["nodejs_compat"],
-      mainModule: "program.js",
-      modules: { "program.js": programSandbox },
-      globalOutbound: null,
-      limits: { cpuMs: Math.min(limits.timeoutMs, maxProgramCpuMs) },
-    });
-    const program = worker.getEntrypoint("Program") as unknown as ProgramEntrypoint;
-    return program.run(code, limits, new ProgramHostTarget(host));
-  };
 
 const decodeAccess = Schema.decodeUnknownEffect(Schema.fromJsonString(McpAccess));
 const decodeResponse = Schema.decodeUnknownEffect(ElicitationResponse);
@@ -78,7 +38,9 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
       limits,
       mcpSessionStore(storage),
       undefined,
-      env.LOADER === undefined ? undefined : isolatedProgram(startInIsolate(env.LOADER)),
+      env.LOADER === undefined
+        ? undefined
+        : isolatedProgram(startInIsolate(env.LOADER, programSandbox)),
     );
     const product = productStub(env.PRODUCT, env);
     const serve = Effect.gen(function* () {

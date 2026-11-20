@@ -8,6 +8,7 @@ export default defineConfig({
       "e2e/tests/cloudflare-product-backup.spec.ts",
       "e2e/tests/cloudflare-mcp-wire.spec.ts",
       "e2e/tests/cloudflare-live-stream.spec.ts",
+      "e2e/tests/cloudflare-isolated-program.spec.ts",
     ],
     fileParallelism: false,
     testTimeout: 90_000,
