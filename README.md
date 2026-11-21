@@ -1,5 +1,9 @@
 # Executor
 
+> This fork's work happens on the `claude/project-thread-qw4ysu` branch (v2).
+> `main` holds the retired v1 code; branch from and open pull requests against
+> `claude/project-thread-qw4ysu`.
+
 **Connect any agent to everything.**
 
 Executor is an open-source integration layer for AI agents. Configure every
