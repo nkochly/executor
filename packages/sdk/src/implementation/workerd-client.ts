@@ -37,6 +37,7 @@ import { appWorker } from "./app-runner.ts";
 import { encodeLoadedBuild, runnerResult } from "./remote-app-runner.ts";
 import { invocationWorkflowControls } from "./worker-workflow-rpc.ts";
 import { loadWorkerBuild, retainWorkerBuild, workerBuildAsset } from "./worker-build-storage.ts";
+import { workerdBuildLoader } from "./workerd-build-loader.ts";
 import { ownsDatabase } from "../contracts/apps.ts";
 import type { EvaluatedCommand } from "@executor-js/app-data/evaluated";
 import { evaluatedDeclarations } from "./evaluated-declarations.ts";
@@ -205,11 +206,7 @@ export const connectedWorkerdApps = (blobs: BlobStorage, transport: WorkerdTrans
     const rpc = transport.rpc;
     const runtime = yield* appRuntime({
       name: "runtime.workerd",
-      loadBuild: (build) =>
-        loadWorkerBuild(build).pipe(
-          provideBlobs,
-          Effect.map(({ mainModule, modules, protocol }) => ({ mainModule, modules, protocol })),
-        ),
+      loadBuild: workerdBuildLoader(blobs),
       invoke: (invocation, capabilities) =>
         Effect.gen(function* () {
           // A workflow body runs in the apps Worker's own workflow engine, never through a call.
