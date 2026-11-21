@@ -12,11 +12,11 @@ against `REVIEW.md`.
 
 ## Where AGENTS.md does not hold here
 
-- **No `notes/` folder.** Every `notes/*.md` link in `AGENTS.md` and in the
-  executor-e2e skill is dead. The decision records and `CONTEXT.md` hold what
+- **No `notes/` folder.** Every `notes/*.md` link is dead: in `AGENTS.md`,
+  the executor-e2e skill, package READMEs and `plans/`. The decision records and `CONTEXT.md` hold what
   the fork knows.
-- **CI is two workflows on GitHub-hosted runners**, on every pull request and
-  every push to the working branch. `check.yml` runs `bun run check`, then
+- **CI is two workflows on GitHub-hosted runners**, on every pull request,
+  every push to the working branch and manual dispatch. `check.yml` runs `bun run check`, then
   `e2e-sqlite`, one self-host scenario on SQLite (decision record 0006).
   `comment-ratchet.yml` runs the comment ratchet and the glossary check.
   There is no `ci.yml`, `checks.yml`, `cloud-tests.yml`, Blacksmith runner or
@@ -32,9 +32,8 @@ against `REVIEW.md`.
 - **Ports come from upstream's own commits and tests.** Never sync the whole
   of upstream.
 - **No AI attribution** in commits, pull request titles or merge messages.
-- **Subagents run Sonnet**, with the model passed explicitly.
 
-## Shared rules
+## Scope of the shared rules
 
 The shared rules below hold for fork-owned code only: every file in neither
 upstream's `v2` branch nor the commit the fork started from (decision record
