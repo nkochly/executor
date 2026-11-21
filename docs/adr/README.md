@@ -19,4 +19,4 @@ this fork started from. Upstream's files keep upstream's code comments, so ports
 | [0007](0007-one-trace-across-trifecta.md)                 | One trace across the Trifecta                                |
 | [0008](0008-sign-in-and-security-audit.md)                | Sign-in through Access, OAuth clients and the security audit |
 | [0009](0009-connection-bundles-and-person-apps.md)        | Connection bundles and the person's apps                     |
-| [0010](0010-localhost-subdomains-in-e2e.md)               | Localhost subdomains resolve to loopback in the e2e runner   |
+| [0010](0010-localhost-subdomains-in-e2e.md)               | Localhost subdomains resolve to loopback in e2e and apps     |

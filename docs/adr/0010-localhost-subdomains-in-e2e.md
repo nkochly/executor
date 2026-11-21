@@ -1,4 +1,4 @@
-# 0010. Localhost subdomains resolve to loopback in the e2e runner
+# 0010. Localhost subdomains resolve to loopback in the e2e runner and in app fetch
 
 Date: 2026-11-21. Status: accepted.
 
@@ -28,6 +28,18 @@ loopback host.
 
 - The app page scenarios run the same in a cloud container as on a GitHub-hosted runner.
 - A Node process the runner starts, other than its own workers, still uses the operating system's
-  resolver, and so does the product. An app's own `fetch` to a `*.localhost` name with private fetch
-  allowed goes through workerd's network, which asks the operating system too, so the underscore
-  host scenario in `credential-hosts.spec.ts` still fails in those containers.
+  resolver.
+
+## App fetch (2026-11-21)
+
+An app's own `fetch` with private fetch allowed goes through workerd's network, which asks the
+operating system too, so on the same hosts, and in most Docker images, a `*.localhost` name failed
+to connect (the underscore host scenario in `credential-hosts.spec.ts`).
+
+- `AppOutbound` in `packages/sdk/src/implementation/workerd-entry.ts` sends a request for a
+  `*.localhost` name to `127.0.0.1` on the same port, after the credential checks have read the
+  name. Bare `localhost` is left to the operating system, whose hosts file always names it.
+- The service sees `Host: 127.0.0.1:<port>`: workerd sets the Host header from the URL and drops
+  one set by the caller. A loopback service that answers only on `::1` is not reached through a
+  `*.localhost` name.
+- Public-only fetch is unchanged: it refuses these names before any lookup.

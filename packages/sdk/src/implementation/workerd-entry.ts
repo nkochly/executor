@@ -176,6 +176,12 @@ const OutboundProps = Schema.Struct({
 type OutboundProps = typeof OutboundProps.Type;
 /** Handles are sealed with a key derived from the secret only this host and its runner share. */
 const credentials = (env: Environment) => credentialKey(env.CREDENTIAL_SECRET);
+const throughLoopback = (request: Request): Request => {
+  const url = new URL(request.url);
+  if (!url.hostname.replace(/\.$/, "").endsWith(".localhost")) return request;
+  url.hostname = "127.0.0.1";
+  return new Request(url, request);
+};
 /**
  * Every app isolate's global `fetch`, bound to its app. It substitutes the credential handles the
  * request carries when its target is allowed; see credential-handles.ts.
@@ -201,7 +207,9 @@ export class AppOutbound extends WorkerEntrypoint<Environment> {
       send: (request) => {
         if (this.env.SELF !== undefined && new URL(request.url).origin === self)
           return this.env.SELF.fetch(request);
-        return this.env.APPS_PRIVATE_FETCH ? fetch(request) : this.env.PUBLIC_FETCH.fetch(request);
+        return this.env.APPS_PRIVATE_FETCH
+          ? fetch(throughLoopback(request))
+          : this.env.PUBLIC_FETCH.fetch(request);
       },
     });
   }
