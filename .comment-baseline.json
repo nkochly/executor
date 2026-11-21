@@ -85,7 +85,6 @@
     "packages/hosted-cloudflare/src/product-location.ts",
     "packages/mcp-auth/src/implementation/sqlite-database.ts",
     "packages/sdk/src/implementation/error-class.ts",
-    "packages/sdk/test/tool-search-store-sqlite.test.ts",
     "scripts/comment-ratchet.mjs"
   ],
   "ignore": [],
