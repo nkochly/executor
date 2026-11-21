@@ -1,0 +1,21 @@
+name: setup
+description: Node, a checksummed Bun and the workspace's frozen install
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+      with:
+        node-version: 24.22.1
+    - name: Install Bun
+      shell: bash
+      env:
+        BUN_VERSION: 1.4.4
+        BUN_SHA256: e0446eb55995772eb9894bebae9a6be368d985a8b9271ee124486f9946eedd76
+      run: |
+        curl -fsSL -o "$RUNNER_TEMP/bun.zip" \
+          "https://github.com/oven-sh/bun/releases/download/bun-v${BUN_VERSION}/bun-linux-x64-baseline.zip"
+        echo "${BUN_SHA256}  $RUNNER_TEMP/bun.zip" | sha256sum -c -
+        unzip -q "$RUNNER_TEMP/bun.zip" -d "$RUNNER_TEMP/bun"
+        echo "$RUNNER_TEMP/bun/bun-linux-x64-baseline" >> "$GITHUB_PATH"
+    - shell: bash
+      run: bun install --frozen-lockfile
