@@ -21,8 +21,8 @@ One client (`packages/fumadb-effect/src/implementation/sqlite.ts`, `sqlite-nativ
   hold a reservation of the client while they use it.
 - A statement binds at most 100 values (`sqliteMaxParameters`), the Durable Object and D1 limit,
   far below SQLite's own. The native file refuses more too, so a native run cannot hide a failure
-  a Worker would hit (`packages/sdk/test/tool-search-store-sqlite.test.ts` writes 30 tools of 9
-  values each to prove it).
+  a Worker would hit (the e2e catalog scale scenario, `e2e/tests/mcp-catalog-scale.spec.ts`,
+  writes 175-tool apps through tool search on native SQLite).
 - Booleans bind as 0 or 1, dates as epoch milliseconds (FumaDB's SQLite temporal encoding),
   undefined as null.
 - A Durable Object reports only a failure's message, and node:sqlite its own code; both name
