@@ -73,7 +73,8 @@ Platform services (`platform.ts`, `apps-worker/src/worker.ts`):
   in memory, so its decode temporaries exist once. A waiting caller polls the permit on its own
   timer rather than awaiting another request's promise, as upstream cloud's
   `runtime-build-cache.ts` does. Builds are immutable code with no credentials, held least recently
-  used first within 32 MiB and 64 builds. On 2026-11-21 forty-seven concurrent cold starts read
+  used first within 32 MiB and 64 builds, one cache per product. A build load waits and reads for at
+  most 10 s in all, then fails as unavailable; the earlier loader had no deadline. On 2026-11-21 forty-seven concurrent cold starts read
   and decoded one 2.1 MB framework at once and the product exceeded its 128 MB memory limit
   (`cloudflare-build-reads.spec.ts`).
 - App egress uses Cloudflare's global `fetch` as the public network, because it reaches only the
