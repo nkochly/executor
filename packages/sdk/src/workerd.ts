@@ -13,6 +13,7 @@ export {
 export { bindingWorkerdApps } from "./implementation/binding-workerd-apps.ts";
 export { declarationFailed } from "./implementation/worker-source-map.ts";
 export { workerdHostHandler } from "./implementation/workerd-client.ts";
+export { workerdBuildLoader } from "./implementation/workerd-build-loader.ts";
 export {
   IsolateStarted,
   makeAppRunner,
