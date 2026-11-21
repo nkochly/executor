@@ -86,6 +86,7 @@ const check = Effect.gen(function* () {
             specifier === "effect/http-api"
           )
             return;
+          if (label === `support${path.sep}localhost-names.ts` && specifier === "node:dns") return;
           if (label.startsWith(`viewer${path.sep}`) && specifier === "media-chrome/react") return;
           // The only database drivers: runner-applied legacy rows for declared scenarios, on the
           // product's PGlite or SQLite database.

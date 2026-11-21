@@ -53,6 +53,7 @@
     "apps/hosted/web/src/contracts/connection-bundles.ts",
     "apps/hosted/web/src/implementation/pages/bundles.tsx",
     "e2e/cloudflare-storage.config.ts",
+    "e2e/support/localhost-names.ts",
     "e2e/tests/cloudflare-isolated-program.spec.ts",
     "e2e/tests/cloudflare-live-stream.spec.ts",
     "e2e/tests/cloudflare-mcp-wire.spec.ts",
