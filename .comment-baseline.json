@@ -62,6 +62,7 @@
     "e2e/tests/cloudflare-storage.spec.ts",
     "e2e/tests/connection-bundles.spec.ts",
     "e2e/tests/hosted-one-sign-in.spec.ts",
+    "e2e/tests/mcp-caller-label.spec.ts",
     "e2e/tests/self-host-access-proxy.spec.ts",
     "e2e/tests/self-host-program-cap.spec.ts",
     "e2e/tests/self-host-sso-emulated.spec.ts",

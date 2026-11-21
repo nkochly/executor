@@ -4322,6 +4322,18 @@ export const scenarios = plan({
       local: na("Exercises the shared importer and app rename through hosted APIs."),
     },
   },
+  mcpCallerLabel: {
+    fixtures: "actors",
+    file: "mcp-caller-label.spec.ts",
+    title: "MCP servers an app calls hear which agent session is calling, and nothing more",
+    targets: {
+      "self-host": scheduled,
+      cloud: na("Cloud egress refuses loopback MCP hosts, so no Cloud scenario imports one."),
+      local: na(
+        "The label is added by the workerd app network, which the local runtime does not use.",
+      ),
+    },
+  },
   importApprovals: {
     fixtures: "actors",
     file: "import-approvals.spec.ts",
