@@ -138,6 +138,7 @@ const Failure = Schema.Struct({
     }),
   ),
   retryAfter: Schema.optional(Schema.String),
+  message: Schema.optional(Schema.String),
 });
 
 /** One synthetic issuer, a deployed app that reads its token, and helpers to connect accounts. */
@@ -529,6 +530,7 @@ layer(HostedLive, { excludeTestServices: true })("OAuth refresh resilience", (it
           account: refused,
           cause: { stage: "refresh", status: 400, providerError: "invalid_grant" },
         });
+        expect((yield* body(Failure, rejected)).message).toContain(refused);
         assertPrivate(rejected.body);
         const refusal = yield* spans;
         expect(

@@ -1170,7 +1170,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
       reason,
       cause,
     ),
-  presentation: ({ reason, cause, appRequirement }) =>
+  presentation: ({ account, reason, cause, appRequirement }) =>
     withCause(
       {
         title:
@@ -1178,6 +1178,7 @@ export const OAuthReconnectRequired = UserFacingError.define({
             ? "An account needs to reconnect"
             : `The app’s “${appRequirement}” account needs to reconnect`,
         description:
+          `Executor tried account ${account}. ` +
           (reason === "renewal_interrupted"
             ? "Executor stopped while renewing this account’s access, before it could save the result. The service no longer accepts the saved sign-in, most likely because that renewal had already replaced it."
             : reason === "scope_exceeded"
@@ -1191,14 +1192,12 @@ export const OAuthReconnectRequired = UserFacingError.define({
             ? {
                 action:
                   "Open the app’s Accounts tab and reconnect the affected account, then return to Tools.",
-                instructions:
-                  "Identify the selected account whose OAuth grant needs renewal. Guide the user through the supported reconnect flow for that same account. Preserve its identity and app links, then verify tool discovery. Do not replace the account or switch authentication methods as a workaround.",
+                instructions: `Account ${account} is the one whose OAuth grant needs renewal. Guide the user through the supported reconnect flow for that same account. Preserve its identity and app links, then verify tool discovery. Do not replace the account or switch authentication methods as a workaround.`,
               }
             : {
                 action:
                   "Ask someone who can edit this app to reconnect the app’s account from its Accounts tab.",
-                instructions:
-                  "The account is linked to the app for everyone for this requirement, not linked by the caller. Tell the user someone who can edit the app must reconnect it; a caller cannot replace or reconnect it. Do not link another account as a workaround. Retry once it has been reconnected.",
+                instructions: `Account ${account} is linked to the app for everyone for this requirement, not linked by the caller. Tell the user someone who can edit the app must reconnect it; a caller cannot replace or reconnect it. Do not link another account as a workaround. Retry once it has been reconnected.`,
               },
       },
       cause,
