@@ -40,6 +40,7 @@ jobs:
         with:
           persist-credentials: false
       - uses: ./.github/actions/setup
+      - run: bunx playwright install --with-deps chromium
       - run: bun run e2e:prepare
       - run: bun run e2e:self-host --test-name 'MCP execute over 7,000 tools'
       - if: failure()
