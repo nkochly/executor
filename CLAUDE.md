@@ -41,6 +41,56 @@ upstream's `v2` branch nor the commit the fork started from (decision record
 0001). Upstream's files keep upstream's code comments and conventions.
 
 <!-- shared-rules:start -->
+## Shared rules
+
+These rules hold in every Trifecta repo and are the same, byte for byte, in
+each repo's `CLAUDE.md`. Their one source is the wiki_mcp repo's `CLAUDE.md`:
+change them there and run `npm run glossary:sync` in wiki_mcp, which writes
+every copy and the digest each repo's check holds it to. Never edit them in a
+copy. This repo's own rules sit outside this block.
+
+- **SDK first.** Use the latest SDK and what it provides (`ECOSYSTEM.md` in
+  the wiki_mcp repo, Shared SDK versions). Before writing an alarm loop,
+  scheduler, retry queue, WebSocket hub, MCP extension or routing helper, use
+  the `agents` capability or MCP package that already does it; hand-roll only
+  what no SDK offers, and say so in a decision record.
+- **Bug fix: failing test first.** Commit a test that fails on the bug, then
+  make it pass without editing that test.
+- **No code comments.** Names, types and tests say what code does. An
+  important, non-obvious decision goes in a decision record (`docs/adr/`); a
+  known weakness goes in a beta Muster task. The comment ratchet
+  (`scripts/comment-ratchet.mjs`, run by each repo's tests) holds every file
+  to its count in `.comment-baseline.json`, which only goes down. Directives,
+  shebangs and license headers are exempt. `/delete-comment` clears a file.
+- **Review before merge.** Run a code review of the PR diff against this
+  repo's `REVIEW.md` (against these rules where it has none) and fix every
+  Important finding before merging.
+- **Read the solution notes first.** At the start of a build thread, search
+  this repo's `docs/solutions/` (when it exists) for the area the work
+  touches, and the common repo's `docs/solutions/` when the work sets up or
+  changes how threads, scheduled tasks, merges or deploys run.
+- **Compound check before finishing.** Before a build thread finishes its
+  task, it asks one question: did this work correct a wrong belief (an
+  approach that failed, a review finding that was a real defect, a first
+  diagnosis that was wrong)? If yes, the lesson lands in the same PR, in the
+  cheapest form below. If no, nothing is written. Either way the result goes
+  in the Muster finish summary: "no wrong belief corrected", or the lesson
+  and where it landed. Project memory is not a place a lesson lands.
+- **Cheapest form first.** A lesson goes to the first of these that can hold
+  it: make one way to do the thing; a test or check that fails on a repeat;
+  a line in this repo's `CLAUDE.md`, outside this block; a glossary proposal,
+  which Nathan approves; only then a solution note.
+- **Solution notes.** A solution note is one Markdown file in this repo's
+  `docs/solutions/`, named for its subject, with front matter `title`,
+  `tags` and `date`, and a body that says what was believed, what is true and
+  the evidence. It holds only reasoning no test or rule can hold, such as a
+  rejected approach or a measured fact. When the code changes so a note is
+  wrong, the same PR corrects or deletes it. A lesson about how threads,
+  scheduled tasks, merges or deploys run, rather than about one repo's code,
+  is a solution note in the common repo, never in the repo nearest at hand.
+- **Same mistake twice: add a line.** When an agent repeats a mistake in a
+  repo, add the correction to that repo's `CLAUDE.md`, outside this block, in
+  the fix's PR.
 <!-- shared-rules:end -->
 
 @AGENTS.md

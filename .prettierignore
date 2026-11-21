@@ -1,4 +1,7 @@
 # synced-files:start
 # Copied byte for byte from their source repository, so never formatted here.
+/CLAUDE.md
+/GLOSSARY.md
+/scripts/check-glossary.mjs
 /scripts/comment-ratchet.mjs
 # synced-files:end
