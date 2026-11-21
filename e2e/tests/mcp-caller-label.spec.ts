@@ -166,6 +166,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP caller label", (it) => {
         yield* note(second, "second one");
         yield* program(first, "first two");
         yield* note(second, "second two", { [labelKey]: { agent: "Thread B" } });
+        yield* note(first, "first three", { [labelKey]: { agent: "Zoë ✓ 线程" } });
         const direct = yield* api.request(
           actors.owner,
           "POST",
@@ -186,7 +187,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP caller label", (it) => {
           ]),
         );
         expect([...byText.keys()].sort()).toEqual(
-          ["dashboard", "first one", "first two", "second one", "second two"].sort(),
+          ["dashboard", "first one", "first three", "first two", "second one", "second two"].sort(),
         );
         const label = (text: string) => labelOf(byText.get(text));
         const firstLabel = label("first one") as { client?: string; agent?: string };
@@ -197,6 +198,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP caller label", (it) => {
         expect(secondLabel.agent).not.toEqual(firstLabel.agent);
         expect(label("first two")).toEqual(firstLabel);
         expect(label("second two")).toEqual({ client: "executor-e2e 1", agent: "Thread B" });
+        expect(label("first three")).toEqual({ client: "executor-e2e 1", agent: "Zoë ✓ 线程" });
         expect(label("dashboard")).toBeUndefined();
         for (const params of calls) {
           expect(params.name).toBe("note");
