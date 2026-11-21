@@ -19,3 +19,4 @@ jobs:
         with:
           persist-credentials: false
       - run: node scripts/comment-ratchet.mjs
+      - run: node scripts/check-glossary.mjs
