@@ -18,7 +18,7 @@ import { HttpEffect, HttpServer, HttpServerRequest, HttpServerResponse } from "e
 import { withRemoteSpan } from "@executor-js/telemetry";
 import { workerConfiguration } from "./configuration.ts";
 import { mcpSessionStore } from "./mcp-session-store.ts";
-import { productStub } from "@executor-js/hosted-cloudflare/product-location";
+import { sessionProductBackend } from "./mcp-session-product.ts";
 import { startInIsolate } from "./program-isolate.ts";
 import {
   mcpSessionAccessHeader,
@@ -42,7 +42,7 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
         ? undefined
         : isolatedProgram(startInIsolate(env.LOADER, programSandbox)),
     );
-    const product = productStub(env.PRODUCT, env);
+    const product = sessionProductBackend(env);
     const serve = Effect.gen(function* () {
       const request = yield* HttpServerRequest.HttpServerRequest;
       const encoded = request.headers[mcpSessionAccessHeader];
@@ -53,7 +53,7 @@ const open = (env: McpSessionEnvironment, storage: DurableObjectStorage) =>
       headers.delete("transfer-encoding");
       const url = new URL(request.url, origin).toString();
       const backend = remoteMcpBackend((call) =>
-        product.mcpBackend(new Request(url, { method: "POST", headers }), call),
+        product(new Request(url, { method: "POST", headers }), call),
       ) as unknown as McpBackend<HostedMcpRequestError>;
       return yield* provideHostedMcpRequest(access, backend, origin, hosted.http).pipe(
         withRemoteSpan(
