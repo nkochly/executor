@@ -66,6 +66,16 @@ Platform services (`platform.ts`, `apps-worker/src/worker.ts`):
 - The app host is upstream's shared workerd host, unchanged, on stock Workers: app isolates in
   Dynamic Workers (`LOADER`), app data in Durable Object facets (`DATA`), workflow runs on
   Cloudflare Workflows (`RUNS`). Only the product reaches it, through a service binding.
+- The app host asks the product for a build's code on every cold start, and one program's calls
+  can cold-start many app Workers at once. The product reads each build once at a time and keeps
+  the linked code in memory (`packages/sdk/src/implementation/workerd-build-loader.ts`): the
+  callers of a build take turns at one permit per build, the first reads it, and the rest find it
+  in memory, so its decode temporaries exist once. A waiting caller polls the permit on its own
+  timer rather than awaiting another request's promise, as upstream cloud's
+  `runtime-build-cache.ts` does. Builds are immutable code with no credentials, held least recently
+  used first within 32 MiB and 64 builds. On 2026-11-21 forty-seven concurrent cold starts read
+  and decoded one 2.1 MB framework at once and the product exceeded its 128 MB memory limit
+  (`cloudflare-build-reads.spec.ts`).
 - App egress uses Cloudflare's global `fetch` as the public network, because it reaches only the
   public internet, as workerd's public-only network service does in self-host. Private
   destinations are refused by name before they get there unless the operator allows them.
