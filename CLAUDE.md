@@ -33,6 +33,23 @@ against `REVIEW.md`.
   of upstream.
 - **No AI attribution** in commits, pull request titles or merge messages.
 
+## Finding your way in the fork
+
+- **The host design is in decision records 0002 to 0010**
+  (`docs/adr/README.md`): the product Durable Object, MCP session objects,
+  location and backups, storage, SQLite, tracing, sign-in, connection bundles.
+- **Fork-owned files are the `only` list in `.comment-baseline.json`.** A new
+  fork-owned file joins it in the same change.
+- **One `ExecutorMcpSession` object per caller** (decision record 0003), and
+  one `/rpc` socket from the product to the app host per app call.
+- **A framework change reaches a live app only when that app moves to the new
+  `apps` release.** Moving a person's app needs Nathan's go for that app.
+- **The MCP `call` tool takes `calls: [...]`,** so an upstream test that calls
+  one tool needs adapting when it is ported.
+- **Deploy:** wiki_mcp `ci.yml`, mode `deploy`, packages `executor-v2`, one
+  run at a time across the beta unit. The product object moves to the new
+  version about five minutes after the Worker does.
+
 ## Scope of the shared rules
 
 The shared rules below hold for fork-owned code only: every file in neither
