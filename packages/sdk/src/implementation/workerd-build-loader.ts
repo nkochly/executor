@@ -17,6 +17,7 @@ import {
 const sharedBuildBudget = { bytes: 32 * 1024 * 1024, entries: 64 };
 const concurrentReads = 4;
 const moduleOverhead = 256;
+const entryOverhead = 1024;
 const readCheck = { min: 10, max: 200 };
 const readTimeout = 10_000;
 
@@ -34,7 +35,7 @@ const modulesBytes = (modules: StoredWorkerBuild["modules"]) =>
         : "js" in module
           ? textBytes(module.js)
           : module.wasm.byteLength),
-    0,
+    entryOverhead,
   );
 
 type ExecutableBuild =
@@ -170,7 +171,7 @@ export const workerdBuildLoader = (blobs: BlobStorage) => {
               if (held !== undefined) return held;
               const value = yield* holding(
                 reads,
-                since,
+                yield* Clock.currentTimeMillis,
                 deadline,
                 Effect.gen(function* () {
                   const left = deadline - (yield* Clock.currentTimeMillis);
