@@ -86,6 +86,8 @@
     "packages/hosted-cloudflare/src/blobs.ts",
     "packages/hosted-cloudflare/src/product-location.ts",
     "packages/mcp-auth/src/implementation/sqlite-database.ts",
+    "packages/mcp/src/implementation/caller-label.ts",
+    "packages/sdk/src/implementation/caller-label.ts",
     "packages/sdk/src/implementation/error-class.ts",
     "scripts/comment-ratchet.mjs"
   ],

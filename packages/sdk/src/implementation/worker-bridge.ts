@@ -68,7 +68,7 @@ export const nodeAppEntry = (protocol: number) => (files: readonly SourceFile[])
  * app code only ever sees the global `fetch` it installs; see app-network.ts.
  */
 export const appNetworkModuleName = "__executor_network.js";
-const networkImport = `import "./${appNetworkModuleName}";`;
+const networkImport = `import { labelled } from "./${appNetworkModuleName}";`;
 
 /**
  * The app isolate's whole part of a call, on its own clock: from dispatching the request to reading
@@ -142,9 +142,9 @@ class Invocation extends RpcTarget {
     this.#dispatch = () => {
       const clock = bridge.clock;
       const started = clock?.();
-      return bridge.fetch(new Request("https://app.internal/dispatch", {
+      return labelled(headers, () => bridge.fetch(new Request("https://app.internal/dispatch", {
         method: "POST", headers: { ...headers, "content-type": "application/json" }, body, signal: this.#controller.signal
-      }), { ELICITATION: delivery, WORKFLOW: execution, WORKFLOW_CONTROLS: management, CACHE: this.#cache?.cache }).then(response => response.json()).then(value => ({ ok: true, value: dispatched(clock, started, value) }), error => ({ ok: false, error })).finally(() => this.#release());
+      }), { ELICITATION: delivery, WORKFLOW: execution, WORKFLOW_CONTROLS: management, CACHE: this.#cache?.cache }).then(response => response.json())).then(value => ({ ok: true, value: dispatched(clock, started, value) }), error => ({ ok: false, error })).finally(() => this.#release());
     };
   }
   #release() { for (const stub of this.#stubs) stub?.[Symbol.dispose](); this.#stubs = []; }
@@ -188,10 +188,10 @@ export class ExecutorAppData extends DurableObject {
     try {
       const clock = bridge.clock;
       const started = clock?.();
-      const response = await bridge.fetch(new Request("https://app.internal/dispatch", {
+      const value = await labelled(headers, () => bridge.fetch(new Request("https://app.internal/dispatch", {
         method: "POST", headers: { ...headers, "content-type": "application/json" }, body, signal: controller.signal
-      }), { STORAGE: this.#storage, ELICITATION: elicitation, WORKFLOW_CONTROLS: workflows, CACHE: session?.cache });
-      return dispatched(clock, started, await response.json());
+      }), { STORAGE: this.#storage, ELICITATION: elicitation, WORKFLOW_CONTROLS: workflows, CACHE: session?.cache }).then(response => response.json()));
+      return dispatched(clock, started, value);
     } finally { this.#calls.delete(id); }
   }
   async finish(id) { try { await this.#caches.get(id)?.drain(); } finally { this.#caches.delete(id); collect(); } }

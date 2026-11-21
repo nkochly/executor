@@ -54,6 +54,7 @@ import { appProtocol } from "./app-protocols.ts";
 import { invocationElicitation } from "./worker-elicitation.ts";
 import { invocationWorkflowControls } from "./worker-workflow-rpc.ts";
 import { runtimeCallParts } from "./tool-call-overhead.ts";
+import { callerLabelHeaders } from "./caller-label.ts";
 
 /** What telemetry records for an error an app's reply carried, beside the error's name. */
 const appErrorRecorded = "The app returned this error; its text is not recorded";
@@ -188,7 +189,10 @@ export const appRuntime = (host: AppRuntimeHost) =>
             command,
             accounts: Redacted.value(input.accounts),
             // Workers RPC structured-clones its arguments; Effect headers carry a prototype it rejects.
-            headers: Object.fromEntries(Object.entries(yield* traceHeaders)),
+            headers: {
+              ...Object.fromEntries(Object.entries(yield* traceHeaders)),
+              ...(yield* callerLabelHeaders),
+            },
             ...(input.hostApi === undefined ? {} : { hostApi: input.hostApi }),
             ...(input.approval === undefined ? {} : { approval: input.approval }),
             ...(input.replay === undefined ? {} : { replay: input.replay }),
