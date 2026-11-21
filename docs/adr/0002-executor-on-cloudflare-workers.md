@@ -67,14 +67,17 @@ Platform services (`platform.ts`, `apps-worker/src/worker.ts`):
   Dynamic Workers (`LOADER`), app data in Durable Object facets (`DATA`), workflow runs on
   Cloudflare Workflows (`RUNS`). Only the product reaches it, through a service binding.
 - The app host asks the product for a build's code on every cold start, and one program's calls
-  can cold-start many app Workers at once. The product reads each build once at a time and keeps
-  the linked code in memory (`packages/sdk/src/implementation/workerd-build-loader.ts`): the
-  callers of a build take turns at one permit per build, the first reads it, and the rest find it
-  in memory, so its decode temporaries exist once. A waiting caller polls the permit on its own
-  timer rather than awaiting another request's promise, as upstream cloud's
-  `runtime-build-cache.ts` does. Builds are immutable code with no credentials, held least recently
-  used first within 32 MiB and 64 builds, one cache per product. A build load waits and reads for at
-  most 10 s in all, then fails as unavailable; the earlier loader had no deadline. On 2026-11-21 forty-seven concurrent cold starts read
+  can cold-start many app Workers at once. The product keeps each build's record and each framework
+  in memory under its own key (`packages/sdk/src/implementation/workerd-build-loader.ts`), as
+  upstream cloud's `runtime-build-cache.ts` does, so builds sharing a framework hold and read it
+  once. The callers of one key take turns at one permit per key, the first reads it, and the rest
+  find it in memory, so its decode temporaries exist once. Reads of different keys share four
+  permits in all, so a burst across many builds decodes at most four objects at a time; upstream
+  has no such bound, because each of its isolates serves fewer builds than one product does. A
+  waiting caller polls a permit on its own timer rather than awaiting another request's promise.
+  Records and frameworks are immutable code with no credentials, held least recently used first
+  within 32 MiB and 64 entries, one cache per product. A build load waits and reads for at most
+  10 s in all, then fails as unavailable. On 2026-11-21 forty-seven concurrent cold starts read
   and decoded one 2.1 MB framework at once and the product exceeded its 128 MB memory limit
   (`cloudflare-build-reads.spec.ts`).
 - App egress uses Cloudflare's global `fetch` as the public network, because it reaches only the
