@@ -90,6 +90,7 @@ import {
   ToolInvocation,
   ToolInputs,
   type ToolInvocationOptions,
+  ToolCallAttribution,
   type ToolListOptions,
   toolPageChars,
   type ToolResumeResult,
@@ -1662,7 +1663,10 @@ export const makeTools = (
           ),
           Effect.provideService(AppCodeEntered, appCode),
         );
-      }).pipe(Effect.withSpan("sdk.tools.call")),
+      }).pipe(
+        Effect.provideService(ToolCallAttribution, options?.attribution),
+        Effect.withSpan("sdk.tools.call"),
+      ),
     pruneApprovals: (input: Parameters<Executor["tools"]["pruneApprovals"]>[0] = {}) =>
       Schema.decodeUnknownEffect(ToolInputs.pruneApprovals)(input)
         .pipe(
@@ -1828,6 +1832,9 @@ export const makeTools = (
             ),
           ),
         )
-        .pipe(Effect.withSpan("sdk.tools.resume")),
+        .pipe(
+          Effect.provideService(ToolCallAttribution, options?.attribution),
+          Effect.withSpan("sdk.tools.resume"),
+        ),
   };
 };

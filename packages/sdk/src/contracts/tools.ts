@@ -91,7 +91,17 @@ export type ToolApprovalIssuer = typeof ToolApprovalIssuer.Type;
 export interface ToolInvocationOptions {
   readonly elicitation?: ElicitationHandler;
   readonly issuer?: ToolApprovalIssuer;
+  readonly attribution?: ToolAttribution;
 }
+export const ToolAttribution = Schema.Struct({
+  client: Schema.optionalKey(Schema.String),
+  agent: Schema.optionalKey(Schema.String),
+});
+export type ToolAttribution = typeof ToolAttribution.Type;
+export const ToolCallAttribution = Context.Reference<ToolAttribution | undefined>(
+  "executor/sdk/ToolCallAttribution",
+  { defaultValue: () => undefined },
+);
 /** How an in-process caller with its own wait bound reads a tool listing. Not an HTTP input. */
 export interface ToolListOptions extends CatalogReadOptions {
   /**

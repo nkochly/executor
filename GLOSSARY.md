@@ -202,9 +202,13 @@ These are the Trifecta's names for what agents meet through it.
   (that is an agent), or a judgment.
   *Code:* repo `lookout` (`runChecks` in `src/checks.ts`), Worker and
   package `lookout`.
-- **alert**: One failing lookout check, reported once as a beta Muster
-  task and a Webex message to the stage's admin, and closed with one more
-  message when the check passes again.
+- **alert**: One failing lookout check. It is reported once on a beta Muster
+  task, with a Webex message to the stage's admin, and closes when the check
+  passes again: a comment on that task and one more message. A check that
+  fails again while its last alert's task is still open is reported as a
+  comment on that task, not a new one. An alert about a stuck task files no
+  task and closes without a message. The lookout never closes a task. Full
+  lifecycle: lookout decision record 0001.
   *Not:* a finding, a judgment, a diagnostic or a filing.
   *Code:* lookout `Alert` (`src/alerts.ts`).
 
