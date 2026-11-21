@@ -143,8 +143,34 @@ function scanC(src, css) {
         prev = "{";
         return;
       }
+      if (ch === "<" && !css) {
+        const tag = /^<(script|style)\b[^>`$]*>/i.exec(src.slice(i, i + 2000));
+        if (tag) {
+          i += tag[0].length;
+          embedded(tag[1].toLowerCase() === "style");
+          continue;
+        }
+      }
       i++;
     }
+  };
+  const embedded = (style) => {
+    const end = `</${style ? "style" : "script"}`;
+    let stop = i;
+    while (stop < n) {
+      if (src[stop] === "\\") stop += 2;
+      else if (src[stop] === "`" || (src[stop] === "$" && src[stop + 1] === "{")) break;
+      else if (src.slice(stop, stop + end.length).toLowerCase() === end) break;
+      else stop++;
+    }
+    stop = Math.min(stop, n);
+    const body = src.slice(i, stop);
+    scanC(body.replace(/\\([^\n])/g, "$1"), style).forEach((l, k) => {
+      if (l?.comment) mark(line + k, "comment");
+      if (l?.code) mark(line + k, "code");
+    });
+    line += body.split("\n").length - 1;
+    i = stop;
   };
   while (i < n) {
     const ch = src[i];
