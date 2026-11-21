@@ -12,7 +12,7 @@ interface Environment {
 interface ProductStub {
   prepare(build: string): Promise<void>;
   load(build: string): Promise<number>;
-  reads(): Promise<number>;
+  reads(): Promise<{ readonly reads: number; readonly peak: number }>;
 }
 
 const frameworkModule = "x".repeat(512 * 1024);
@@ -20,12 +20,24 @@ const frameworkModule = "x".repeat(512 * 1024);
 export class Product extends DurableObject<Environment> {
   readonly #stored = memoryBlobStore();
   #reads = 0;
+  #reading = 0;
+  #peak = 0;
   readonly #counted: BlobStorage = {
     ...this.#stored,
     get: (key) =>
       Effect.sync(() => {
         this.#reads += 1;
-      }).pipe(Effect.andThen(Effect.sleep("30 millis")), Effect.andThen(this.#stored.get(key))),
+        this.#reading += 1;
+        this.#peak = Math.max(this.#peak, this.#reading);
+      }).pipe(
+        Effect.andThen(Effect.sleep("30 millis")),
+        Effect.andThen(this.#stored.get(key)),
+        Effect.ensuring(
+          Effect.sync(() => {
+            this.#reading -= 1;
+          }),
+        ),
+      ),
   };
   readonly #load = workerdBuildLoader(this.#counted);
 
@@ -48,20 +60,27 @@ export class Product extends DurableObject<Environment> {
     const loaded = await Effect.runPromise(this.#load(build as BuildId));
     return Object.keys(loaded.modules).length;
   }
-  async reads(): Promise<number> {
-    return this.#reads;
+  async reads(): Promise<{ readonly reads: number; readonly peak: number }> {
+    return { reads: this.#reads, peak: this.#peak };
   }
 }
 
 export default {
   async fetch(request: Request, env: Environment): Promise<Response> {
-    const callers = Number(new URL(request.url).searchParams.get("callers") ?? "1");
-    const build = `bld_${crypto.randomUUID()}`;
-    const product = env.PRODUCT.getByName(build);
-    await product.prepare(build);
-    const loaded = await Promise.all(
-      Array.from({ length: callers }, () => env.PRODUCT.getByName(build).load(build)),
+    const query = new URL(request.url).searchParams;
+    const callers = Number(query.get("callers") ?? "1");
+    const builds = Array.from(
+      { length: Number(query.get("builds") ?? "1") },
+      () => `bld_${crypto.randomUUID()}`,
     );
-    return Response.json({ loaded, reads: await product.reads() });
+    const name = crypto.randomUUID();
+    const product = env.PRODUCT.getByName(name);
+    for (const build of builds) await product.prepare(build);
+    const loaded = await Promise.all(
+      builds.flatMap((build) =>
+        Array.from({ length: callers }, () => env.PRODUCT.getByName(name).load(build)),
+      ),
+    );
+    return Response.json({ loaded, ...(await product.reads()) });
   },
 };
