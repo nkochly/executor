@@ -12,6 +12,7 @@ import { scenarios } from "../test-plan.ts";
 const audience = "synthetic-access-application";
 const shared = "synthetic-shared-sign-in";
 const owner = "owner@access.example.test";
+const deployCheck = "synthetic-deploy-check.access";
 
 layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Access", (it) => {
   it.effect(scenarios.selfHostAccessProxyMcp.title, (context) =>
@@ -30,6 +31,7 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               EXECUTOR_ACCESS_TEAM_DOMAIN: new URL(team.issuer).host,
               EXECUTOR_ACCESS_AUD: audience,
               EXECUTOR_ACCESS_SHARED_AUD: shared,
+              EXECUTOR_ACCESS_DEPLOY_CHECK_CLIENT_ID: deployCheck,
               NODE_EXTRA_CA_CERTS: team.certificate,
             });
             yield* serverControl("start");
@@ -100,6 +102,121 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               yield* team.accessAssertion("stranger@access.example.test", audience),
             ),
           ).toBe(403);
+
+          expect(
+            yield* initialize(
+              "The deploy check's service token",
+              yield* team.serviceAssertion(deployCheck, audience),
+            ),
+          ).toBe(200);
+          expect(
+            yield* initialize(
+              "Another service token",
+              yield* team.serviceAssertion("another-service.access", audience),
+            ),
+          ).toBe(401);
+          expect(
+            yield* initialize(
+              "The deploy check's service token for another Access application",
+              yield* team.serviceAssertion(deployCheck, "another-access-application"),
+            ),
+          ).toBe(401);
+          expect(
+            yield* initialize(
+              "The deploy check naming a connection",
+              yield* team.serviceAssertion(deployCheck, audience),
+              `/mcp?connection=${randomUUID()}`,
+            ),
+          ).toBe(401);
+
+          const rpc = (
+            step: string,
+            assertion: string,
+            message: Record<string, unknown>,
+            session?: string,
+          ) =>
+            browser.use(step, (page) =>
+              page
+                .context()
+                .request.post(`${origin}/mcp`, {
+                  headers: {
+                    accept: "application/json, text/event-stream",
+                    "content-type": "application/json",
+                    "cf-access-jwt-assertion": assertion,
+                    ...(session === undefined
+                      ? {}
+                      : { "mcp-session-id": session, "mcp-protocol-version": "2025-06-18" }),
+                  },
+                  data: { jsonrpc: "2.0", ...message },
+                })
+                .then((response) =>
+                  response.text().then((text) => ({
+                    status: response.status(),
+                    session: response.headers()["mcp-session-id"],
+                    text,
+                  })),
+                ),
+            );
+          const RpcResult = Schema.Struct({
+            result: Schema.Struct({
+              tools: Schema.optional(Schema.Array(Schema.Struct({ name: Schema.String }))),
+              isError: Schema.optional(Schema.Boolean),
+              structuredContent: Schema.optional(
+                Schema.Struct({ items: Schema.optional(Schema.Array(Schema.Unknown)) }),
+              ),
+              content: Schema.optional(
+                Schema.Array(
+                  Schema.Struct({ type: Schema.String, text: Schema.optional(Schema.String) }),
+                ),
+              ),
+            }),
+          });
+          const resultOf = (text: string) =>
+            Schema.decodeUnknownEffect(Schema.fromJsonString(RpcResult))(
+              text.trimStart().startsWith("{")
+                ? text
+                : (text
+                    .split("\n")
+                    .find((line) => line.startsWith("data:"))
+                    ?.slice(5) ?? ""),
+            );
+          const checkAssertion = yield* team.serviceAssertion(deployCheck, audience);
+          const opened = yield* rpc("The deploy check opens a session", checkAssertion, {
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-06-18",
+              capabilities: {},
+              clientInfo: { name: "deploy-check-e2e", version: "1.0.0" },
+            },
+          });
+          expect(opened.status, opened.text).toBe(200);
+          yield* rpc(
+            "The deploy check finishes initializing",
+            checkAssertion,
+            { method: "notifications/initialized" },
+            opened.session,
+          );
+          const tools = yield* rpc(
+            "The deploy check lists tools",
+            checkAssertion,
+            { id: 2, method: "tools/list" },
+            opened.session,
+          );
+          expect(tools.status, tools.text).toBe(200);
+          expect(
+            ((yield* resultOf(tools.text)).result.tools ?? []).map((tool) => tool.name).sort(),
+          ).toEqual(["call", "describe", "execute", "resume", "search", "skills"]);
+          const searched = yield* rpc(
+            "The deploy check searches every app",
+            checkAssertion,
+            { id: 3, method: "tools/call", params: { name: "search", arguments: {} } },
+            opened.session,
+          );
+          expect(searched.status, searched.text).toBe(200);
+          const found = (yield* resultOf(searched.text)).result;
+          expect(found.isError ?? false, searched.text).toBe(false);
+          expect(found.structuredContent?.items, searched.text).toEqual([]);
 
           const personApps = (step: string, assertion?: string) =>
             browser.use(step, (page) =>
@@ -172,6 +289,12 @@ layer(TestLive, { excludeTestServices: true })("Self-host behind Cloudflare Acce
               yield* team.accessAssertion("stranger@access.example.test", shared),
             )).status,
           ).toBe(403);
+          expect(
+            (yield* personApps(
+              "Apps for the deploy check",
+              yield* team.serviceAssertion(deployCheck, shared),
+            )).status,
+          ).toBe(401);
           expect(
             yield* initialize(
               "The shared sign-in on /mcp",

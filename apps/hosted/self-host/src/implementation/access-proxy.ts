@@ -1,7 +1,11 @@
 import { Config, Effect, Option } from "effect";
 
+export type AccessCaller =
+  | { readonly kind: "person"; readonly email: string }
+  | { readonly kind: "deployCheck" };
+
 export interface AccessProxy {
-  readonly verify: (headers: Headers) => Effect.Effect<Option.Option<string>>;
+  readonly verify: (headers: Headers) => Effect.Effect<Option.Option<AccessCaller>>;
 }
 
 interface Jwk extends JsonWebKey {
@@ -26,6 +30,7 @@ const certsLifetimeMs = 60 * 60 * 1000;
 export const makeAccessProxy = (
   teamDomain: string,
   accepted: readonly string[],
+  deployCheckClientId: string | undefined,
   fetchCerts: () => Promise<readonly Jwk[]> = async () => {
     const response = await fetch(`https://${teamDomain}/cdn-cgi/access/certs`);
     if (!response.ok) throw new Error(`Access certs answered ${response.status}`);
@@ -58,7 +63,7 @@ export const makeAccessProxy = (
     }
     return cached.keys;
   };
-  const verifyToken = async (token: string): Promise<string | undefined> => {
+  const verifyToken = async (token: string): Promise<AccessCaller | undefined> => {
     const parts = token.split(".");
     if (parts.length !== 3) return undefined;
     const [head, body, signature] = parts as [string, string, string];
@@ -80,6 +85,7 @@ export const makeAccessProxy = (
       exp?: unknown;
       nbf?: unknown;
       email?: unknown;
+      common_name?: unknown;
     };
     const audiences = Array.isArray(claims.aud) ? claims.aud : [claims.aud];
     if (!audiences.some((audience) => accepted.includes(audience))) return undefined;
@@ -87,8 +93,15 @@ export const makeAccessProxy = (
     const seconds = now() / 1000;
     if (typeof claims.exp !== "number" || claims.exp <= seconds) return undefined;
     if (typeof claims.nbf === "number" && claims.nbf > seconds + 60) return undefined;
-    if (typeof claims.email !== "string" || !claims.email.includes("@")) return undefined;
-    return claims.email;
+    if (typeof claims.email === "string" && claims.email.includes("@"))
+      return { kind: "person", email: claims.email };
+    if (
+      claims.email === undefined &&
+      deployCheckClientId !== undefined &&
+      claims.common_name === deployCheckClientId
+    )
+      return { kind: "deployCheck" };
+    return undefined;
   };
   return {
     verify: (headers) => {
@@ -110,12 +123,14 @@ export const accessProxies = Effect.gen(function* () {
   const team = yield* setting("EXECUTOR_ACCESS_TEAM_DOMAIN");
   const audience = yield* setting("EXECUTOR_ACCESS_AUD");
   const shared = yield* setting("EXECUTOR_ACCESS_SHARED_AUD");
+  const deployCheck = yield* setting("EXECUTOR_ACCESS_DEPLOY_CHECK_CLIENT_ID");
   if (Option.isNone(team) || Option.isNone(audience)) return { mcp: noProxy, reader: noProxy };
-  const mcp = makeAccessProxy(team.value, [audience.value]);
   return {
-    mcp,
-    reader: Option.isSome(shared)
-      ? makeAccessProxy(team.value, [audience.value, shared.value])
-      : mcp,
+    mcp: makeAccessProxy(team.value, [audience.value], Option.getOrUndefined(deployCheck)),
+    reader: makeAccessProxy(
+      team.value,
+      Option.isSome(shared) ? [audience.value, shared.value] : [audience.value],
+      undefined,
+    ),
   };
 });

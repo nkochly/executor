@@ -1472,7 +1472,7 @@ export const scenarios = plan({
   selfHostAccessProxyMcp: {
     file: "self-host-access-proxy.spec.ts",
     title:
-      "Self-host behind Cloudflare Access takes a verified Access assertion as the MCP caller, on its scoped connections and bundle URLs too, and refuses forged, foreign or non-member ones; the shared sign-in reads the person's apps and nothing else",
+      "Self-host behind Cloudflare Access takes a verified Access assertion as the MCP caller, on its scoped connections and bundle URLs too, and refuses forged, foreign or non-member ones; the shared sign-in reads the person's apps and nothing else; the deploy check's service token opens a session that lists the tools and reaches no app",
     targets: {
       "self-host": scheduled,
       cloud: na("Cloud is not served behind Cloudflare Access."),

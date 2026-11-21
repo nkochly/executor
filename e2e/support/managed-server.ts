@@ -65,6 +65,7 @@ export const OperatorSettings = Schema.Struct({
   EXECUTOR_ACCESS_AUD: Schema.optionalKey(Schema.NonEmptyString),
   /** A shared Access sign-in, accepted only on the person's read routes. */
   EXECUTOR_ACCESS_SHARED_AUD: Schema.optionalKey(Schema.NonEmptyString),
+  EXECUTOR_ACCESS_DEPLOY_CHECK_CLIENT_ID: Schema.optionalKey(Schema.NonEmptyString),
   /** Programs the product works on at once, and the bytes of a program value it returns. */
   EXECUTOR_MCP_MAX_PROGRAMS: Schema.optionalKey(Schema.NonEmptyString),
   EXECUTOR_MCP_MAX_OUTPUT_BYTES: Schema.optionalKey(Schema.NonEmptyString),

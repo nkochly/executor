@@ -14,6 +14,17 @@ Access (`apps/hosted/self-host/src/implementation/access-proxy.ts`):
 - `EXECUTOR_ACCESS_SHARED_AUD` names a second Access application, one sign-in shared by several
   hosts, whose assertion another Worker forwards. It is accepted only on the person's read routes
   (`/api/me/*`), never on `/mcp` or a route that changes something.
+- `EXECUTOR_ACCESS_DEPLOY_CHECK_CLIENT_ID` names one Access service token, the Trifecta deploy's
+  agent check. An assertion for this audience with no email whose `common_name` is that client ID
+  is the deploy check, on `/mcp` only: never on the shared sign-in, a scoped connection URL or a
+  browser approval. Its first call makes the account `deploy-check@executor.invalid` ("Deploy
+  check"), a member of the instance's one organization, because every tool call checks
+  membership. It holds a grant of no apps, so it can open a session, list the tools and call them,
+  and reach no app, account or person's data. No session or password exists for it, and single
+  sign-on admits no `.invalid` address. Its grant id is not a proxy grant's, so
+  nothing derives wider authority from it. Without the setting no service token is a caller. The
+  check exists because a deploy could leave the product or a session serving the old version,
+  which only a fresh session on the live host shows (`e2e/tests/self-host-access-proxy.spec.ts`).
 - Any failure to verify is no identity; the request then needs a credential of its own.
 
 Operator OAuth clients (`apps/hosted/server/src/implementation/fork-oauth-clients.ts`):

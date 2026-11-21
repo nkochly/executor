@@ -168,5 +168,10 @@ export const selfHostSsoIdp = (application: string) =>
           Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ token: Schema.String }))),
           Effect.map(({ token }) => token),
         ),
+      serviceAssertion: (clientId: string, aud: string) =>
+        emulatorRequest(origin, "/control/access-assertion", { serviceToken: clientId, aud }).pipe(
+          Effect.flatMap(Schema.decodeUnknownEffect(Schema.Struct({ token: Schema.String }))),
+          Effect.map(({ token }) => token),
+        ),
     };
   });

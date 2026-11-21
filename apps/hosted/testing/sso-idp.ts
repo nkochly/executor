@@ -59,7 +59,8 @@ const decode = <A>(schema: Schema.Decoder<A>, value: unknown) =>
 const escape = (text: string) =>
   text.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;");
 const AccessAssertion = Schema.Struct({
-  email: Schema.String,
+  email: Schema.optionalKey(Schema.String),
+  serviceToken: Schema.optionalKey(Schema.String),
   aud: Schema.String,
   unpublished: Schema.optionalKey(Schema.Boolean),
 });
@@ -232,9 +233,10 @@ const command = Command.make("sso-idp", {
                 // The unpublished key claims the published key's id, so only its signature is wrong.
                 const { signed, signature } = signJwt(key, "synthetic", {
                   aud: [body.aud],
-                  email: body.email,
+                  ...(body.serviceToken === undefined
+                    ? { email: body.email, sub: randomUUID() }
+                    : { common_name: body.serviceToken, sub: "" }),
                   iss: origin,
-                  sub: randomUUID(),
                   iat: now,
                   nbf: now,
                   exp: now + 300,
