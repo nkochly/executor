@@ -8,7 +8,7 @@ Self-host serves each app page on its own subdomain of the dashboard's localhost
 `private-ui-<id>.executor.localhost`. RFC 6761 reserves every `*.localhost` name for loopback.
 Chromium and Bun follow it themselves. Node asks the operating system, and only some systems
 answer: a GitHub-hosted runner does, through systemd's resolver, but a cloud container whose
-`/etc/nsswitch.conf` reads `hosts: files dns` answers `ENOTFOUND`. In those containers 14
+`/etc/nsswitch.conf` reads `hosts: files dns` answers `ENOTFOUND`. In those containers 12
 self-host scenarios failed on every branch, wherever the runner itself (an Effect HTTP client, or
 Playwright's request context, which calls `dns.promises.lookup`) fetched an app page or a named
 loopback host.
@@ -28,4 +28,6 @@ loopback host.
 
 - The app page scenarios run the same in a cloud container as on a GitHub-hosted runner.
 - A Node process the runner starts, other than its own workers, still uses the operating system's
-  resolver.
+  resolver, and so does the product. An app's own `fetch` to a `*.localhost` name with private fetch
+  allowed goes through workerd's network, which asks the operating system too, so the underscore
+  host scenario in `credential-hosts.spec.ts` still fails in those containers.
