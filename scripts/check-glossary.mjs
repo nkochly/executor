@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 
 const BLOCKS = [
   { file: "GLOSSARY.md", what: "shared core", start: "<!-- glossary-core:start -->", end: "<!-- glossary-core:end -->", sha256: "4faea2b129b26c39cb6457126fb49d603ee0ed26fb6042d6a515b75c9f20f4c4" },
-  { file: "CLAUDE.md", what: "shared rules", start: "<!-- shared-rules:start -->", end: "<!-- shared-rules:end -->", sha256: "4b4a998d89f75f298eee1d1b7028179218e660ae0918b267cd7ba1f706f9440a" },
+  { file: "CLAUDE.md", what: "shared rules", start: "<!-- shared-rules:start -->", end: "<!-- shared-rules:end -->", sha256: "0af76b183907c40417ee3e07193d0e2a1d701ed1162cbdf699aa0a44f9df0a54" },
 ];
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
