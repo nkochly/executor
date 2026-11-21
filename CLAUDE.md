@@ -89,6 +89,10 @@ copy. This repo's own rules sit outside this block.
   glossary term or a changed meaning, a delete of live data, accounts or
   resources, creating a token or secret, a CVE override, a reviewed-push
   entry, and a change of a task's scope (Nathan, 2026-11-21).
+- **Cloud first.** Do the work in the cloud: the session's own container,
+  CI and the deploy stack. Fall back to Nathan's Mac (his folders or a
+  Remote Control session) only for a step the cloud truly cannot do, and
+  say in your reply why it could not (Nathan, 2026-11-21).
 - **Read the solution notes first.** At the start of a build thread, search
   this repo's `docs/solutions/` (when it exists) for the area the work
   touches, and the common repo's `docs/solutions/` when the work sets up or
