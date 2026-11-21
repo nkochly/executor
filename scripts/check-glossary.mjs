@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const BLOCKS = [
-  { file: "GLOSSARY.md", what: "shared core", start: "<!-- glossary-core:start -->", end: "<!-- glossary-core:end -->", sha256: "8a0be34a7f739f135cc0a42b6de4b822382f41b09e8659ce3de230dc0d48e805" },
+  { file: "GLOSSARY.md", what: "shared core", start: "<!-- glossary-core:start -->", end: "<!-- glossary-core:end -->", sha256: "4faea2b129b26c39cb6457126fb49d603ee0ed26fb6042d6a515b75c9f20f4c4" },
   { file: "CLAUDE.md", what: "shared rules", start: "<!-- shared-rules:start -->", end: "<!-- shared-rules:end -->", sha256: "4b4a998d89f75f298eee1d1b7028179218e660ae0918b267cd7ba1f706f9440a" },
 ];
 

@@ -208,6 +208,18 @@ These are the Trifecta's names for what agents meet through it.
   *Not:* a finding, a judgment, a diagnostic or a filing.
   *Code:* lookout `Alert` (`src/alerts.ts`).
 
+### The live check
+
+- **live check**: One opening of a deployed Trifecta page in Chromium on
+  the deploy's CI runner, through Cloudflare Access with a service token the
+  runner adds at egress, so the token never enters the container. It records
+  the HTTP status, a screenshot and the console errors, and fails the deploy
+  on a bad page.
+  *Not:* a lookout check (scheduled, fixed rules, no browser),
+  AgentJobCheck (a Muster job over MCP, no browser), or a wiki page.
+  *Code:* wiki_mcp `trifecta/ci/live-check.mjs`, stage setting `liveCheck`;
+  each checked service's `LIVE_CHECK_CLIENT_ID`.
+
 ### How the repos are built
 
 - **shared rules**: The coding rules every Trifecta repo follows, written
