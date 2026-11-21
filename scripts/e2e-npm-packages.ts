@@ -15,6 +15,7 @@ import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import apps from "../packages/apps/package.json" with { type: "json" };
+import liveInbox from "../playground/demo-apps/live-inbox/package.json" with { type: "json" };
 import tailwind from "../packages/sdk/node_modules/tailwindcss/package.json" with { type: "json" };
 
 type Root = { readonly name: string; readonly range: string; readonly transitive: boolean };
@@ -45,6 +46,7 @@ const roots: ReadonlyArray<Root> = [
   dependency("react", "^19.2.0"),
   dependency("react-dom", "19.2.0"),
   dependency("react-dom", "^19.2.0"),
+  ...Object.entries(liveInbox.dependencies).map(([name, range]) => dependency(name, range)),
   dependency("graphql", "16.11.0"),
   // Workflow fixture apps (support/workflow-app.ts).
   dependency("brotli-wasm", "3.0.1"),
