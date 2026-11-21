@@ -19,6 +19,11 @@ Session objects (`apps/hosted/cloudflare/src/mcp-session.ts`, `mcp-session-open.
   (`remoteMcpBackend`), with the headers the client sent, which the product authenticates again;
   the access header is the product's own and does not go back. Each operation is sent without the
   request's body.
+- The session object takes a new product stub for every operation (`sessionProductBackend`). A
+  stub that has seen its object reset stays broken, and a session object that keeps getting calls
+  is never evicted. On 2026-11-21 the product exceeded its memory limit and reset, and every live
+  session answered `RemoteBackendUnavailable` until a deploy restarted them
+  (`cloudflare-product-reset.spec.ts`).
 - The product's errors come back rebuilt by class, so they are the request's own errors.
 - The product hands over the request's trace context, and the session continues it, so the
   session's spans, its programs and every app call stay in the caller's trace.
