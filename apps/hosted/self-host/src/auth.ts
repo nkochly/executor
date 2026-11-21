@@ -39,6 +39,7 @@ import { AuthDatabase } from "./contracts/database.ts";
 import { HttpServerRequest, HttpServerResponse } from "effect/http";
 import { accessProxies, type AccessProxy } from "./implementation/access-proxy.ts";
 import { selfHostAuthAudit } from "./implementation/auth-audit.ts";
+import { deployCheckMcpAccess } from "./implementation/deploy-check-access.ts";
 import { AsyncLocalStorage } from "node:async_hooks";
 
 /** Initialize auth before listening; the database owns persistent users and sessions. */
@@ -122,10 +123,14 @@ export const selfHostAuth = Effect.gen(function* () {
     (signedIn: AccessProxy): McpAuthentication["Service"]["authenticate"] =>
     (headers, mode, organization, connection) =>
       signedIn.verify(headers).pipe(
-        Effect.flatMap((email) =>
-          Option.isSome(email)
-            ? proxyMcpAccess(email.value, { headers, mode, organization, connection })
-            : mcpBearerAccess(origins, { headers, mode, organization }),
+        Effect.flatMap((caller) =>
+          Option.isNone(caller)
+            ? mcpBearerAccess(origins, { headers, mode, organization })
+            : caller.value.kind === "person"
+              ? proxyMcpAccess(caller.value.email, { headers, mode, organization, connection })
+              : connection === undefined
+                ? deployCheckMcpAccess(context.adapter, mode)
+                : Effect.fail(new McpUnauthorized()),
         ),
         Effect.provideService(SqlClient.SqlClient, sql),
         Effect.tap(({ access, userId }) =>
@@ -141,10 +146,10 @@ export const selfHostAuth = Effect.gen(function* () {
       const grant = proxyGrantOf(id);
       if (Option.isSome(grant))
         return proxy.verify(headers).pipe(
-          Effect.flatMap((email) =>
-            Option.isNone(email)
+          Effect.flatMap((caller) =>
+            Option.isNone(caller) || caller.value.kind !== "person"
               ? Effect.fail(new McpUnauthorized())
-              : proxyMcpAccess(email.value, {
+              : proxyMcpAccess(caller.value.email, {
                   headers,
                   mode: grant.value.mode,
                   organization: grant.value.organization,
