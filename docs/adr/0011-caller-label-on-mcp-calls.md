@@ -27,11 +27,15 @@ knowing every such server, not only Muster, sees it. It carries no credentials.
   starts; the execution keeps it and passes it as `attribution` in the tool invocation options of
   every call and resumed call it makes, across the product's backend socket.
 - `packages/sdk/src/implementation/caller-label.ts` gives it to the app invocation as the
-  `x-executor-attribution` header beside the trace headers. In the app isolate, the runtime's
-  network module (`app-network.ts`), which already wraps the app's `fetch`, holds each running
-  invocation's label by its trace ID. A JSON-RPC `tools/call` POST whose `traceparent` carries that
-  trace gets the label in `params._meta`, unless the request already names one. Every other
-  request goes out unchanged.
+  `x-executor-attribution` header beside the trace headers, as URI-encoded JSON so a name outside
+  Latin-1 stays a valid header value. In the app isolate, the runtime's network module
+  (`app-network.ts`), which already wraps the app's `fetch`, holds each running invocation's label
+  by its trace ID. A JSON-RPC `tools/call` POST whose `traceparent` carries that trace gets the
+  label in `params._meta`, unless the request already names one. Two running invocations on one
+  trace with different labels, or the all-zero trace ID of a host without tracing, give no label,
+  so one session's label never reaches another session's request.
+- Only while a labelled invocation runs is a JSON POST on its trace read whole to look for
+  `tools/call`; any other request, and any other request body, goes out unchanged.
 - It is host code, not the app framework, so it reaches every app build without moving any app to
   a new `apps` release. The framework's MCP client already propagates the invocation's trace in
   `traceparent`.
@@ -50,4 +54,6 @@ knowing every such server, not only Muster, sees it. It carries no credentials.
   runtime carry no label. The local runtime has no network module.
 - Every MCP server an app calls sees the client name and the session tag. The tag stays the same
   for the life of the session.
+- The tag is 32 bits of a hash: it tells sessions apart in a list, and is not an identifier.
+- A JSON-RPC batch and any method but `tools/call` go out without a label.
 - Held by `e2e/tests/mcp-caller-label.spec.ts`.
