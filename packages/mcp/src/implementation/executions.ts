@@ -8,6 +8,7 @@ import {
   invocationAccounts,
   type ToolCallResult,
   type ToolPending,
+  type ToolAttribution,
 } from "@executor-js/sdk/core";
 import {
   defaultElicitationLimits,
@@ -52,6 +53,7 @@ import {
 } from "../contracts/execute.ts";
 import type { BrowserApprovalView, BrowserApprovalAcknowledgement } from "../contracts/browser.ts";
 import { parkedPrograms, programScheduler } from "./program-scheduler.ts";
+import { CallerLabel } from "./caller-label.ts";
 import { failureReference, reportFailure } from "./diagnostics.ts";
 import {
   executionProgress,
@@ -140,12 +142,15 @@ type Event =
   | { readonly kind: "operation"; readonly handle: Work }
   | { readonly kind: "wake" }
   | { readonly kind: "done"; readonly result: typeof ExecuteResult.Type };
+const labelled = (run: { readonly label: ToolAttribution | undefined }) =>
+  run.label === undefined ? {} : { attribution: run.label };
 type Run = {
   readonly id: string;
   readonly transport: PendingTransport;
   readonly approval: ApprovalMode;
   readonly scheduling: ReturnType<typeof programScheduler>;
   readonly caller: string;
+  readonly label: ToolAttribution | undefined;
   readonly scope: Scope.Closeable;
   readonly events: Queue.Queue<Event>;
   readonly pending: Map<InteractionId, Pending>;
@@ -447,6 +452,7 @@ export const makeExecutions = (
                 accounts: invocationAccounts(request.invocation),
               }),
             ),
+            ...labelled(run),
           },
         )
         .pipe(
@@ -550,6 +556,7 @@ export const makeExecutions = (
                 backend
                   .callTool(input, {
                     elicitation: elicitation(run, operation, interactionTool(input)),
+                    ...labelled(run),
                   })
                   .pipe(
                     Effect.provideService(ToolCallRecorded, recorded),
@@ -772,6 +779,7 @@ export const makeExecutions = (
             transport,
             approval,
             caller,
+            label: yield* CallerLabel,
             scheduling: programScheduler(scheduler),
             scope: yield* Scope.make(),
             events: yield* Queue.unbounded<Event>(),
@@ -877,6 +885,7 @@ export const makeExecutions = (
                         accounts: invocationAccounts(pending.request.invocation),
                       }),
                     ),
+                    ...labelled(run),
                   })
                   .pipe(
                     // The approved call runs here, so this span carries its Executor time.

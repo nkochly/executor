@@ -14,6 +14,7 @@
 import { Schema } from "effect";
 import { RecordedMessage } from "@executor-js/utils/recorded-message";
 import { hostApiChangingCode } from "../contracts/host-api.ts";
+import { callerLabelNetwork } from "./caller-label.ts";
 
 /**
  * Executor's app network failed before the service answered an app's request. The request may have
@@ -114,10 +115,11 @@ class SubrequestLimitReached extends PlatformError {
   }
 }
 const platformFetch = globalThis.fetch;
+${callerLabelNetwork}
 async function fetch(input, init) {
   let response;
   try {
-    response = await apply(platformFetch, globalThis, [input, init]);
+    response = await apply(platformFetch, globalThis, await callerLabelled(input, init));
   } catch (error) {
     if (error instanceof PlatformError && apply(test, limited, [error.message])) throw new SubrequestLimitReached(error);
     throw error;

@@ -30,6 +30,7 @@ import { callTools, describeCatalog, executeProgram, searchCatalog } from "./exe
 import { decodeSkillsInput, skills } from "./skills.ts";
 import { eventsHandler } from "./events.ts";
 import { withOperationSpan } from "./telemetry.ts";
+import { CallerLabel, callerLabel } from "./caller-label.ts";
 
 // Observe the final protocol value after timeout, admission and resume handling.
 const observeExecution =
@@ -38,7 +39,9 @@ const observeExecution =
     Effect.gen(function* () {
       const started = yield* Clock.currentTimeMillis;
       yield* Effect.annotateCurrentSpan("executor.attempt.id", crypto.randomUUID());
+      const label = yield* callerLabel;
       return yield* work.pipe(
+        Effect.provideService(CallerLabel, label),
         Effect.onExit((exit) =>
           Effect.gen(function* () {
             yield* Effect.annotateCurrentSpan(
