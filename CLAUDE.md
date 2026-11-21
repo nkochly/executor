@@ -81,6 +81,14 @@ copy. This repo's own rules sit outside this block.
 - **Review before merge.** Run a code review of the PR diff against this
   repo's `REVIEW.md` (against these rules where it has none) and fix every
   Important finding before merging.
+- **Small rulings are the thread's.** Decide these without asking Nathan,
+  take the option you would recommend, and say what you chose in your reply:
+  a glossary edit that only makes an entry match code already shipped (a
+  Code line, a missed case); deleting or archiving a file git tracks; an
+  A-or-B choice inside a task he already approved. Still ask him for a new
+  glossary term or a changed meaning, a delete of live data, accounts or
+  resources, creating a token or secret, a CVE override, a reviewed-push
+  entry, and a change of a task's scope (Nathan, 2026-11-21).
 - **Read the solution notes first.** At the start of a build thread, search
   this repo's `docs/solutions/` (when it exists) for the area the work
   touches, and the common repo's `docs/solutions/` when the work sets up or
