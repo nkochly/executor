@@ -10295,6 +10295,19 @@ export const scenarios = plan({
       local: na("This scenario tests hosted organization consent, which Local does not have."),
     },
   },
+  mcpOfflineGrantOutlivesSession: {
+    fixtures: "actors",
+    file: "mcp-oauth-refresh.spec.ts",
+    title:
+      "An MCP client with offline access keeps working after the browser session that approved it expires",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Advances the wall clock of a runner-owned product process; bearerAuthRefusals covers Cloud's stored states.",
+      ),
+      local: na("The fork ships only the hosted server; Local's scenario was not ported."),
+    },
+  },
   mcpProtocol: {
     fixtures: "actors",
     file: "mcp-server.spec.ts",
