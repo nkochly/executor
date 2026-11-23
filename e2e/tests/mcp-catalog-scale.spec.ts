@@ -9,7 +9,7 @@ import { Api, body, type Session } from "../support/api.ts";
 import { Actors } from "../support/actors.ts";
 import { App, Resource } from "../support/contracts.ts";
 import { saveAndDeploy } from "../support/app-authoring.ts";
-import { Evidence } from "../support/evidence.ts";
+import { Evidence, Telemetry } from "../support/evidence.ts";
 import { HostedLive, withHostedCase } from "../support/case.ts";
 import { McpClient } from "../support/mcp-client.ts";
 import { expireEvaluated, writeRows } from "../support/cloud-rows.ts";
@@ -121,8 +121,20 @@ const SearchValue = Schema.Struct({
  * machine (about 1.9 s; 4.9 s cold).
  */
 const trivialBoundMs = 1_000;
-/** One call loads one app's catalog, 175 tools and about 1.2 MB of schemas, not all 29 apps. */
-const oneAppBoundMs = 1_500;
+/**
+ * SQL statements a call into one app runs the first time, when it evaluates that app: those of
+ * `return 1`, the app's row, access checks, account bindings and invocation snapshot, the call and
+ * its log, and the app's 175 search rows in batches. A later call runs fewer. Listing every app
+ * runs at least one more per app, 29 or more.
+ *
+ * A call into one app is checked by what its trace records, not by its time. On a CI runner whose
+ * disk syncs were slow, the first call into a new app took 2 s against a 1.5 s bound while it
+ * loaded that app alone: its data supervisor created its database, about seven disk syncs, before
+ * it answered. That cost is the disk's, and the same on any catalog size.
+ */
+const oneAppStatements = 37;
+/** Statements beyond `oneAppStatements` for one-off cases; fewer than one more per app adds. */
+const statementMargin = 10;
 /**
  * The first catalog-wide search evaluates all 29 apps and ranks 7,000 tools, 3.7–10.4 s on an
  * M-series laptop depending on its load when search still rendered every signature. It must leave
@@ -458,6 +470,7 @@ layer(HostedLive, { excludeTestServices: true })("MCP catalog scale", (it) => {
         const client = yield* mcp.connect(key.key, "catalog-scale", {
           organization: actors.organization.id,
         });
+        const telemetry = yield* Telemetry;
         const samples: Array<{ label: string; elapsed: number }> = [];
         const execute = (label: string, code: string) =>
           Effect.gen(function* () {
@@ -472,11 +485,56 @@ layer(HostedLive, { excludeTestServices: true })("MCP catalog scale", (it) => {
             samples.push({ label, elapsed });
             yield* evidence.json("catalog-scale.json", { deployMs, samples });
             yield* Console.log(JSON.stringify({ label, elapsed }));
+            const request = (yield* evidence.requests)
+              .filter((entry) => entry.path === "/mcp")
+              .at(-1);
+            if (request === undefined) return yield* Effect.die(new Error("Missing MCP request"));
             return {
               elapsed,
+              traceId: request.traceId,
               completed: yield* Schema.decodeUnknownEffect(Completed)(result.structuredContent),
             };
           });
+        /**
+         * What a program's trace records of the apps it loaded: discovery reached only `reached`,
+         * loaded only its tools, listed and evaluated no other app, and ran no statement for any
+         * other.
+         */
+        const loadsOnly = (label: string, traceId: string, reached: typeof App.Type) =>
+          telemetry.query(traceId).pipe(
+            Effect.map((trace) => trace.data.map(({ span }) => span)),
+            Effect.flatMap((spans) =>
+              spans.some((span) => span.operationName === "mcp.execute")
+                ? Effect.succeed(spans)
+                : Effect.fail(new Error(`${label}: the program's spans have not arrived`)),
+            ),
+            Effect.retry({ schedule: Schedule.spaced("500 millis"), times: 40 }),
+            Effect.tap((spans) =>
+              Effect.gen(function* () {
+                const named = (operation: string) =>
+                  spans.filter((span) => span.operationName === operation);
+                const catalog = named("mcp.catalog")[0]?.tags;
+                const work = {
+                  label,
+                  apps: Number(catalog?.["executor.discovery.apps"]),
+                  reachable: Number(catalog?.["executor.discovery.reachable"]),
+                  tools: Number(catalog?.["executor.discovery.tools"]),
+                  listed: named("sdk.tools.listing").map((span) => span.tags["executor.app.id"]),
+                  evaluated: named("sdk.tools.listing.evaluate").length,
+                  statements: named("sql.execute").length,
+                };
+                yield* Console.log(JSON.stringify(work));
+                expect(work.apps, `${label}: apps in the catalog`).toBeGreaterThan(appCount);
+                expect(work.reachable, `${label}: apps discovery reached`).toBe(1);
+                expect(work.tools, `${label}: tools discovery loaded`).toBe(toolsPerApp);
+                expect(work.listed, `${label}: apps listed`).toEqual([reached.id]);
+                expect(work.evaluated, `${label}: listings evaluated`).toBeLessThanOrEqual(1);
+                expect(work.statements, `${label}: SQL statements`).toBeLessThanOrEqual(
+                  oneAppStatements + statementMargin,
+                );
+              }),
+            ),
+          );
         const target = apps[17]!;
         const call = `return await tools[${JSON.stringify(target.slug)}].op123({ path: { id: "rec_1" } });`;
         const large = apps[largeApp]!;
@@ -501,7 +559,7 @@ return { items: [...small.items, ...large.items] };`;
           ok: true,
           value: { app: 17, tool: 123, id: "rec_1" },
         });
-        expect(called.elapsed).toBeLessThan(oneAppBoundMs);
+        yield* loadsOnly("Call one tool", called.traceId, target);
         // A catalog-wide search lists every app and finds the one matching tool.
         const searchedAll = yield* execute("Search the whole catalog", needle);
         expect(searchedAll.completed.execution.ok).toBe(true);
@@ -549,7 +607,7 @@ return { items: [...small.items, ...large.items] };`;
         expect(unaffected.elapsed).toBeLessThan(trivialBoundMs);
         const calledAgain = yield* execute("Call one tool beside stalled apps", call);
         expect(calledAgain.completed.execution).toMatchObject({ ok: true });
-        expect(calledAgain.elapsed).toBeLessThan(oneAppBoundMs);
+        yield* loadsOnly("Call one tool beside stalled apps", calledAgain.traceId, target);
 
         // A catalog-wide search finds both tools and reports only the stalled apps, all of them
         // within one discovery wait rather than one per stalled listing.
