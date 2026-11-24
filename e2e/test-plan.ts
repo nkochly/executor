@@ -10423,6 +10423,18 @@ export const scenarios = plan({
       local: na("Local has no organization members or shared accounts."),
     },
   },
+  remoteMcpSkills: {
+    fixtures: "actors",
+    file: "hosted-shared.spec.ts",
+    title: "an imported MCP server's skills are served as the app's skills",
+    targets: {
+      "self-host": scheduled,
+      cloud: na(
+        "Cloud egress refuses loopback MCP hosts; the live check imports a real skills server.",
+      ),
+      local: na("This scenario tests the hosted custom-import endpoint and organization roles."),
+    },
+  },
   remoteMcp: {
     fixtures: "actors",
     file: "hosted-shared.spec.ts",
