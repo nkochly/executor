@@ -17,6 +17,7 @@ import {
   type ProtocolAppOptions,
 } from "../contracts/templates.ts";
 import { appsPeerVersion, packageFile, sourceFiles } from "./files.ts";
+import { mcpSkillsSource, mcpSkillsSourcePath } from "./mcp-skills-source.ts";
 
 const json = (value: unknown) => JSON.stringify(value, null, 2);
 const key = (name: string) => `[${JSON.stringify(name)}]`;
@@ -495,8 +496,9 @@ export const mcpAppSource = (options: ProtocolAppOptions & { readonly url: strin
     ];
     const index = accounts
       ? `${appImports(["defineApp", "dynamicSkills", ...routerImports])}
-import { mcpRouter, mcpSkills } from "apps/mcp"
+import { mcpRouter } from "apps/mcp"
 import { always } from "apps/operations/approval"
+import { serverSkills } from "./skills.ts"
 import { ${fixedAccount ? "fixedProvider, " : ""}provider, target } from "./provider.ts"
 ${rules ? `import { approval, exposedName } from "./tools.ts"\n` : ""}
 export default defineApp(${scopes.requirements}, async ({ ${scopes.context}, signal, cache }) => ({
@@ -513,18 +515,19 @@ export default defineApp(${scopes.requirements}, async ({ ${scopes.context}, sig
       const [account] = ${scopes.accounts}
       if (account === undefined) return []
       const request = target(account${fixedAccount ? ", app.accounts.fixed" : ""})
-      return mcpSkills({ url: request.url, account, cache, headers: request.headers, signal })
+      return serverSkills({ url: request.url, account, cache, headers: request.headers })
     },
   }),
 }))
 `
       : `${appImports(["defineApp", "dynamicSkills", ...routerImports])}
-import { mcpRouter, mcpSkills } from "apps/mcp"
+import { mcpRouter } from "apps/mcp"
 import { always } from "apps/operations/approval"
+import { serverSkills } from "./skills.ts"
 ${rules ? `import { approval, exposedName } from "./tools.ts"\n` : ""}
 export default defineApp({}, async ({ signal, cache }) => ({
   tools: ${ruled(`await mcpRouter({ url: ${JSON.stringify(fixedUrl)}, ${publicHeaders(options.headers)}cache, signal })`, rules, defaultRule)},
-  dynamicSkills: dynamicSkills({ list: () => mcpSkills({ url: ${JSON.stringify(fixedUrl)}, ${publicHeaders(options.headers)}cache, signal }) }),
+  dynamicSkills: dynamicSkills({ list: () => serverSkills({ url: ${JSON.stringify(fixedUrl)}, ${publicHeaders(options.headers)}cache }) }),
 }))
 `;
     const host = accounts ? yield* credentialHost(options.url) : undefined;
@@ -568,6 +571,7 @@ export const target = (account: Account) => {
     return {
       files: yield* sourceFiles([
         { path: "index.ts", content: index },
+        { path: mcpSkillsSourcePath, content: mcpSkillsSource },
         ...(provider === undefined ? [] : [{ path: "provider.ts", content: provider }]),
         ...(tools === undefined ? [] : [{ path: "tools.ts", content: tools }]),
         packageFile(options.name, {

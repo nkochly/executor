@@ -306,10 +306,7 @@ function withClient<A, E>(
               { name: "executor-apps", version: "0.1.0" },
               {
                 jsonSchemaValidator: mcpJsonSchemaValidator,
-                capabilities:
-                  mode === "call"
-                    ? { elicitation: { form: {} } }
-                    : { extensions: { "io.modelcontextprotocol/skills": {} } },
+                capabilities: mode === "call" ? { elicitation: { form: {} } } : {},
               },
             );
             if (changed !== undefined) {
