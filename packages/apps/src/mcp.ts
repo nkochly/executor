@@ -5,19 +5,6 @@ import type { McpHealthOptions } from "./contracts/mcp.ts";
 import type { AccountCheckContext, AuthMethods } from "./contracts/provider.ts";
 import { mcpCatalog, type McpCatalogOptions } from "./implementation/mcp-catalog.ts";
 import { mcpHealthEffect } from "./implementation/mcp.ts";
-import { mcpSkillsEffect } from "./implementation/mcp-skills.ts";
-import type { CatalogAccount } from "./implementation/catalog-cache.ts";
-import type { McpToolsOptions } from "./contracts/mcp.ts";
-import type { SkillCacheOptions } from "./contracts/skills.ts";
-
-/**
- * The server whose skills to load and whose access reads them: its `url`, and for a server that
- * needs sign-in the `account` and the `headers` that send its credentials. The catalog is kept in
- * that account's scope of `cache`.
- */
-export type McpSkillsOptions = Omit<McpToolsOptions, "accountId" | "headers"> &
-  SkillCacheOptions &
-  CatalogAccount;
 export type { McpCatalogOptions } from "./implementation/mcp-catalog.ts";
 export {
   McpCredentialsUnverified,
@@ -58,17 +45,5 @@ export const mcpHealth = <Auth extends AuthMethods>(
   check: AccountCheckContext<Auth>,
   options: McpHealthOptions,
 ): Promise<void> => Effect.runPromise(mcpHealthEffect(check, options), { signal: check.signal });
-
-/**
- * Load the skills an MCP server publishes over the MCP skills extension, as app skills. Pass the
- * same `url`, `account` and `headers` as its `mcpRouter`, and `cache: ctx.cache` to reuse the
- * catalog. Declare it with `dynamicSkills({ list: () => mcpSkills({...}) })` so only skill reads
- * call it. A server without the extension has no skills.
- */
-export const mcpSkills = (options: McpSkillsOptions) =>
-  Effect.runPromise(
-    mcpSkillsEffect(options),
-    options.signal === undefined ? {} : { signal: options.signal },
-  );
 
 export type { OperationKinds } from "./implementation/protocol-operations.ts";

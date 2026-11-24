@@ -698,6 +698,41 @@ const checkSkillsOverMcp = (credentials: Readonly<Record<string, string>>, slug:
       }),
     );
     yield* evidence.step(
+      "A 2025-11-25 session declares the skills extension and lists the app's skill",
+      Effect.gen(function* () {
+        const opened = yield* initialize(credentials, "2025-11-25");
+        const initialized = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            capabilities: Schema.Struct({
+              resources: Schema.Struct({}),
+              extensions: Schema.Struct({ "io.modelcontextprotocol/skills": Schema.Struct({}) }),
+            }),
+          }),
+        )(opened.reply?.result);
+        const session = {
+          ...credentials,
+          "mcp-session-id": yield* Schema.decodeUnknownEffect(SessionId)(opened.session),
+        };
+        expect((yield* post(session, { method: "notifications/initialized" })).status).toBe(202);
+        const listed = yield* post(session, { id: 2, method: "skills/list" });
+        const { skills } = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ skills: Schema.Array(SkillEntry) }),
+        )(listed.reply?.result);
+        expect(skills.map((entry) => entry.uri)).toContain(`${root}/SKILL.md`);
+        const got = yield* post(session, {
+          id: 3,
+          method: "skills/get",
+          params: { uri: `${root}/SKILL.md` },
+        });
+        expect(
+          (yield* Schema.decodeUnknownEffect(Schema.Struct({ skill: SkillEntry }))(
+            got.reply?.result,
+          )).skill.uri,
+        ).toBe(`${root}/SKILL.md`);
+        outcomes.session = initialized.capabilities;
+      }),
+    );
+    yield* evidence.step(
       "An unknown skill is an invalid-params error",
       Effect.gen(function* () {
         const missing = yield* stateless(credentials, "skills/get", {
