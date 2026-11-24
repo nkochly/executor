@@ -578,6 +578,138 @@ const checkNativeInputRequired = (credentials: Readonly<Record<string, string>>,
     yield* evidence.json("native-input-required.json", outcomes);
   });
 
+const stateless = (
+  credentials: Readonly<Record<string, string>>,
+  method: string,
+  params: object = {},
+  name?: string,
+) =>
+  post(
+    credentials,
+    {
+      id: crypto.randomUUID(),
+      method,
+      params: {
+        ...params,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": {},
+        },
+      },
+    },
+    {
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": method,
+      ...(name === undefined ? {} : { "mcp-name": name }),
+    },
+  );
+
+const SkillEntry = Schema.Struct({
+  uri: Schema.String,
+  frontmatter: Schema.Struct({ name: Schema.String, description: Schema.String }),
+  resources: Schema.Literal("dynamic"),
+});
+const skillDocument =
+  "---\nname: search-messages\ndescription: Search cached messages.\n---\nRead [examples](references/examples.md).\n";
+
+const checkSkillsOverMcp = (credentials: Readonly<Record<string, string>>, slug: string) =>
+  Effect.gen(function* () {
+    const evidence = yield* Evidence;
+    const root = `skill://${slug}/search-messages`;
+    const outcomes: Record<string, unknown> = {};
+    yield* evidence.step(
+      "server/discover declares resources and the skills extension",
+      Effect.gen(function* () {
+        const discovered = yield* stateless(credentials, "server/discover");
+        const result = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            capabilities: Schema.Struct({
+              resources: Schema.Struct({}),
+              extensions: Schema.Struct({ "io.modelcontextprotocol/skills": Schema.Struct({}) }),
+            }),
+          }),
+        )(discovered.reply?.result);
+        outcomes.discover = result.capabilities;
+      }),
+    );
+    yield* evidence.step(
+      "skills/list and skills/get name the app's skill under the app's slug",
+      Effect.gen(function* () {
+        const listed = yield* stateless(credentials, "skills/list");
+        const { skills } = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ skills: Schema.Array(SkillEntry) }),
+        )(listed.reply?.result);
+        const skill = skills.find((entry) => entry.uri === `${root}/SKILL.md`);
+        expect(skill?.frontmatter).toMatchObject({
+          name: "search-messages",
+          description: "Search cached messages.",
+        });
+        const got = yield* stateless(credentials, "skills/get", { uri: `${root}/SKILL.md` });
+        const { skill: entry } = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({ skill: SkillEntry }),
+        )(got.reply?.result);
+        expect(entry.uri).toBe(`${root}/SKILL.md`);
+        outcomes.listed = skill;
+      }),
+    );
+    yield* evidence.step(
+      "resources/read serves the skill's files and resources/directory/read lists them",
+      Effect.gen(function* () {
+        const Contents = Schema.Struct({
+          contents: Schema.Tuple([Schema.Struct({ uri: Schema.String, text: Schema.String })]),
+        });
+        const main = yield* stateless(
+          credentials,
+          "resources/read",
+          { uri: `${root}/SKILL.md` },
+          `${root}/SKILL.md`,
+        );
+        expect(
+          (yield* Schema.decodeUnknownEffect(Contents)(main.reply?.result)).contents[0].text,
+        ).toBe(skillDocument);
+        const reference = yield* stateless(
+          credentials,
+          "resources/read",
+          { uri: `${root}/references/examples.md` },
+          `${root}/references/examples.md`,
+        );
+        expect(
+          (yield* Schema.decodeUnknownEffect(Contents)(reference.reply?.result)).contents[0].text,
+        ).toBe("Examples");
+        const directory = yield* stateless(credentials, "resources/directory/read", { uri: root });
+        const { resources } = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            resources: Schema.Array(
+              Schema.Struct({ uri: Schema.String, name: Schema.String, mimeType: Schema.String }),
+            ),
+          }),
+        )(directory.reply?.result);
+        expect(resources).toContainEqual({
+          uri: `${root}/SKILL.md`,
+          mimeType: "text/markdown",
+          name: "SKILL.md",
+        });
+        expect(resources).toContainEqual({
+          uri: `${root}/references`,
+          mimeType: "inode/directory",
+          name: "references",
+        });
+        outcomes.directory = resources;
+      }),
+    );
+    yield* evidence.step(
+      "An unknown skill is an invalid-params error",
+      Effect.gen(function* () {
+        const missing = yield* stateless(credentials, "skills/get", {
+          uri: `skill://${slug}/missing/SKILL.md`,
+        });
+        const error = yield* Schema.decodeUnknownEffect(RpcError)(missing.reply?.error);
+        expect(error.code).toBe(-32602);
+      }),
+    );
+    yield* evidence.json("skills-over-mcp.json", outcomes);
+  });
+
 /** An API key for the actors' organization, deleted when the case ends. */
 const keyCredentials = (name: string) =>
   Effect.gen(function* () {
@@ -674,6 +806,37 @@ export default defineApp({}, { tools: router({
           api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
         );
         yield* checkNativeInputRequired(credentials, app.slug);
+      }),
+    ),
+  );
+
+  it.effect(scenarios.mcpSkillsExtension.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          actors = yield* Actors;
+        const credentials = yield* keyCredentials("MCP skills extension");
+        const root = `/api/organizations/${actors.organization.id}`;
+        const deployed = yield* api.request(actors.owner, "POST", `${root}/apps/deploy`, {
+          name: "Skills over MCP",
+          files: [
+            {
+              path: "index.ts",
+              content: `import { defineApp } from "apps";
+export default defineApp({}, async () => ({}));`,
+            },
+            { path: "skills/search-messages/SKILL.md", content: skillDocument },
+            { path: "skills/search-messages/references/examples.md", content: "Examples" },
+            appsManifest,
+          ],
+        });
+        expect(deployed.status, JSON.stringify(deployed.body)).toBe(200);
+        const app = yield* body(App, deployed);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
+        );
+        yield* checkSkillsOverMcp(credentials, app.slug);
       }),
     ),
   );

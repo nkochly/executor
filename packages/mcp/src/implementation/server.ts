@@ -15,6 +15,7 @@ import {
 import { McpProtocol, McpServer } from "effect/ai";
 import { HttpBody, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { ElicitationMode } from "../contracts/elicitation.ts";
+import { appSkillSource } from "./skill-source.ts";
 import {
   McpToolkit,
   NativeMcpToolkit,
@@ -342,6 +343,7 @@ export const makeMcp = (options: McpOptions) =>
         return yield* Layer.mergeAll(
           toolkit,
           McpServer.events(eventsHandler(options.backend)),
+          Layer.effectDiscard(McpServer.registerSkillSource(appSkillSource(options.backend))),
         ).pipe(
           Layer.provide(
             McpServer.layerHttp({
