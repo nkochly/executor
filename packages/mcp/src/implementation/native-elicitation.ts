@@ -6,6 +6,12 @@ import { NativeElicitationFailed } from "../contracts/elicitation.ts";
 import type { McpBackend } from "../contracts/backend.ts";
 import type { ApprovalMode, makeExecutions } from "./executions.ts";
 import type { Program } from "./execute.ts";
+import {
+  ElicitationResponseInvalid,
+  InteractionId,
+  type McpExecutionResult,
+  type PendingInteraction,
+} from "../contracts/execute.ts";
 
 /** Drive the shared continuation manager using the requesting client's elicitation responses. */
 export const executeNative = (
@@ -18,11 +24,12 @@ export const executeNative = (
   Effect.scoped(
     Effect.gen(function* () {
       const client = yield* Effect.serviceOption(McpSchema.McpServerClient);
+      if (Option.isNone(client))
+        return yield* executeNativeByInput(executions, caller, backend, work, approval);
       const { clientCapabilities } = yield* McpSchema.McpRequestContext;
       const capability = clientCapabilities.elicitation;
       // Older elicitation capabilities used an empty object to advertise form support.
       if (
-        Option.isNone(client) ||
         capability === undefined ||
         (capability.form === undefined && capability.url !== undefined)
       ) {
@@ -65,3 +72,59 @@ export const executeNative = (
       return result;
     }),
   );
+
+const isPending = (result: McpExecutionResult): result is PendingInteraction =>
+  result.status === "approval-required" || result.status === "input-required";
+
+const inputRequired = (pending: PendingInteraction) =>
+  new McpSchema.InputRequired({
+    inputRequests: {
+      [pending.requestId]: { method: "elicitation/create", params: pending.elicitation },
+    },
+    requestState: pending.requestId,
+  });
+
+const answer = (
+  executions: Effect.Success<ReturnType<typeof makeExecutions>>,
+  caller: string,
+  backend: McpBackend<Error>,
+  requestId: InteractionId,
+  response: unknown,
+) =>
+  response === undefined
+    ? executions
+        .pendingInteraction(caller, requestId)
+        .pipe(
+          Effect.flatMap((pending) =>
+            pending === undefined
+              ? executions.unavailable(caller, requestId)
+              : Effect.succeed<McpExecutionResult>(pending),
+          ),
+        )
+    : Schema.decodeUnknownEffect(ElicitationResponse)(response).pipe(
+        Effect.mapError(() => new ElicitationResponseInvalid()),
+        Effect.flatMap((decoded) =>
+          executions.resume(caller, backend, { requestId, response: decoded }),
+        ),
+      );
+
+export const executeNativeByInput = (
+  executions: Effect.Success<ReturnType<typeof makeExecutions>>,
+  caller: string,
+  backend: McpBackend<Error>,
+  work: Program,
+  approval: ApprovalMode = "ask",
+) =>
+  Effect.gen(function* () {
+    const { inputResponses, requestState } = yield* McpSchema.McpRequestContext;
+    const result =
+      requestState === undefined
+        ? yield* executions.execute(caller, backend, work, "prompt", approval)
+        : yield* Schema.decodeUnknownEffect(InteractionId)(requestState).pipe(
+            Effect.mapError(() => new ElicitationResponseInvalid()),
+            Effect.flatMap((requestId) =>
+              answer(executions, caller, backend, requestId, inputResponses?.[requestId]),
+            ),
+          );
+    return isPending(result) ? yield* Effect.fail(inputRequired(result)) : result;
+  });

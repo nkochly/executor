@@ -664,7 +664,7 @@ index 0d27695a965ebb5bb573fc7636e66ea9eb877177..4181db28a6cd1c994b450ae0a3bd8f62
   * Utility type that validates a completion-handler record against the allowed
   * parameter keys.
 diff --git a/dist/ai/McpServer.js b/dist/ai/McpServer.js
-index d675c7feba0f00b8d573427d154608e3dc0ccfe5..c225d835202ee99c6c9ee5ade72b726755b9c054 100644
+index d675c7feba0f00b8d573427d154608e3dc0ccfe5..22a78740d199663e32d16164a26efd64e0760317 100644
 --- a/dist/ai/McpServer.js
 +++ b/dist/ai/McpServer.js
 @@ -894,39 +894,17 @@ const requestSpanOptions = (method, request, options) => {
@@ -886,7 +886,17 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..c225d835202ee99c6c9ee5ade72b7267
      const isDeclaredFailure = Schema.is(tool.failureSchema);
      // MCP content is JSON. Failures raised in "error" mode skip the Toolkit's encoding, so they use the JSON codec here.
      const encodeFailureJson = Schema.encodeUnknownEffect(Schema.toCodecJson(tool.failureSchema));
-@@ -2230,6 +2245,10 @@ export const registerToolkit = /*#__PURE__*/Effect.fnUntraced(function* (toolkit
+@@ -2199,6 +2214,9 @@ export const registerToolkit = /*#__PURE__*/Effect.fnUntraced(function* (toolkit
+             message: error.reason.message
+           }));
+         }
++        if (origin === "handler" && error instanceof McpSchema.InputRequired) {
++          return Effect.succeed(error);
++        }
+         if (origin === "handler" && isDeclaredFailure(error)) {
+           return Effect.catchCause(declaredFailureResult(error), internalToolError);
+         }
+@@ -2230,6 +2248,10 @@ export const registerToolkit = /*#__PURE__*/Effect.fnUntraced(function* (toolkit
          return built.handle(tool.name, payload ?? {}, undefined, decodeOptions).pipe(Stream.unwrap, Stream.runLast, Effect.flatMap(Effect.fromOption), Effect.flatMap(result => {
            // The Toolkit encodes successes and "return"-mode failures with their JSON codec.
            if (!result.isFailure) {
@@ -897,7 +907,7 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..c225d835202ee99c6c9ee5ade72b7267
              // An absent result, such as `Schema.Void`, has no structured form.
              return Effect.succeed(result.result === undefined ? new CallToolResult({
                isError: false,
-@@ -2281,6 +2300,34 @@ const toolJsonSchema = (schema, strict) => {
+@@ -2281,6 +2303,34 @@ const toolJsonSchema = (schema, strict) => {
   * @since 4.0.0
   */
  export const toolkit = toolkit => Layer.effectDiscard(registerToolkit(toolkit));
@@ -2005,7 +2015,7 @@ index ba6c8308c32c069d47aee10daf8361a244c4d9e6..49e207340576873874653ce5ecc88efe
 + */
 +export type UnsubscribeEventParams = typeof UnsubscribeEventParams.Type
 diff --git a/src/ai/McpServer.ts b/src/ai/McpServer.ts
-index b544b6f138b5550bc4fbb465f879d1d04e6443c2..80f4371ec8f69f4c1e0e2f402fa14d4c7a4ad2ae 100644
+index b544b6f138b5550bc4fbb465f879d1d04e6443c2..217c02b7c3c2cff6b89e01736b99914e9fa24da7 100644
 --- a/src/ai/McpServer.ts
 +++ b/src/ai/McpServer.ts
 @@ -1533,36 +1533,17 @@ const requestSpanOptions = (
@@ -2223,7 +2233,12 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..80f4371ec8f69f4c1e0e2f402fa14d4c
 +          return admission.isSubscription || response.body._tag === "Stream" || hasMultipleMessages
 +            ? toServerSentEvents(response, admission.isSubscription)
 +            : response
-+        }
+         }
+-        // Only fully cancelled request POSTs may return an empty SSE response.
+-        // https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server
+-        return httpPostResponses.get(request)?.expected === 0
+-          ? Effect.succeed(HttpServerResponse.stream(Stream.empty, { contentType: "text/event-stream" }))
+-          : Effect.die(new Error("MCP request ended without writing its response"))
 +        const answered = admission.acknowledge
 +          ? Effect.catchCause(
 +            Effect.map(httpEffect, toResponse),
@@ -2244,12 +2259,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..80f4371ec8f69f4c1e0e2f402fa14d4c
 +          // that ends without opening it gives the place back.
 +          const release = admission.release
 +          return release === undefined ? restore(answered) : Effect.ensuring(restore(answered), Effect.sync(release))
-         }
--        // Only fully cancelled request POSTs may return an empty SSE response.
--        // https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server
--        return httpPostResponses.get(request)?.expected === 0
--          ? Effect.succeed(HttpServerResponse.stream(Stream.empty, { contentType: "text/event-stream" }))
--          : Effect.die(new Error("MCP request ended without writing its response"))
++        }
 +        // Executor: the session is kept until this request's response has been sent, so a reply,
 +        // cancellation or answer that belongs to it can still reach it when newer sessions pass the
 +        // bound. The hold belongs to the request's scope, which closes once the response has been
@@ -2311,7 +2321,17 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..80f4371ec8f69f4c1e0e2f402fa14d4c
      const isDeclaredFailure = Schema.is(tool.failureSchema)
      // MCP content is JSON. Failures raised in "error" mode skip the Toolkit's encoding, so they use the JSON codec here.
      const encodeFailureJson = Schema.encodeUnknownEffect(Schema.toCodecJson(tool.failureSchema)) as (
-@@ -3399,6 +3492,10 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+@@ -3345,6 +3438,9 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+         if (origin === "parameters" && isParameterValidationError(error)) {
+           return Effect.fail(new InvalidParams({ message: error.reason.message }))
+         }
++        if (origin === "handler" && error instanceof McpSchema.InputRequired) {
++          return Effect.succeed(error)
++        }
+         if (origin === "handler" && isDeclaredFailure(error)) {
+           return Effect.catchCause(declaredFailureResult(error), internalToolError)
+         }
+@@ -3399,6 +3495,10 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
            > => {
              // The Toolkit encodes successes and "return"-mode failures with their JSON codec.
              if (!result.isFailure) {
@@ -2322,7 +2342,16 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..80f4371ec8f69f4c1e0e2f402fa14d4c
                // An absent result, such as `Schema.Void`, has no structured form.
                return Effect.succeed(
                  result.result === undefined
-@@ -3464,6 +3561,71 @@ export const toolkit = <Tools extends Record<string, Tool.Any>>(
+@@ -3415,7 +3515,7 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+               ))
+           }),
+           Effect.catchCause(handleCause)
+-        ) as Effect.Effect<CallToolResult, InvalidParams, never>
++        ) as Effect.Effect<CallToolResult | McpSchema.InputRequired, InvalidParams, never>
+       },
+       services
+     })
+@@ -3464,6 +3564,71 @@ export const toolkit = <Tools extends Record<string, Tool.Any>>(
    toolkit: Toolkit.Toolkit<Tools>
  ): Layer.Layer<never, never, ToolkitRequirements<Tools>> => Layer.effectDiscard(registerToolkit(toolkit))
  
