@@ -484,6 +484,100 @@ const checkCancelledCalls = (
     }
   });
 
+const statelessCall = (
+  credentials: Readonly<Record<string, string>>,
+  capabilities: object,
+  code: string,
+  input: object = {},
+) =>
+  post(
+    credentials,
+    {
+      id: crypto.randomUUID(),
+      method: "tools/call",
+      params: {
+        name: "execute",
+        arguments: { code },
+        ...input,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": capabilities,
+        },
+      },
+    },
+    { "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "execute" },
+    "/mcp?elicitation_mode=native",
+  );
+
+const InputRequired = Schema.Struct({
+  resultType: Schema.Literal("input_required"),
+  inputRequests: Schema.Record(
+    Schema.String,
+    Schema.Struct({
+      method: Schema.Literal("elicitation/create"),
+      params: Schema.Struct({ message: Schema.String, requestedSchema: Schema.Unknown }),
+    }),
+  ),
+  requestState: Schema.String,
+});
+
+const checkNativeInputRequired = (credentials: Readonly<Record<string, string>>, slug: string) =>
+  Effect.gen(function* () {
+    const evidence = yield* Evidence;
+    const code = `return await tools[${JSON.stringify(slug)}].approved({})`;
+    const form = { elicitation: { form: {} } };
+    const asked = () =>
+      Effect.gen(function* () {
+        const first = yield* statelessCall(credentials, form, code);
+        expect(first.status).toBe(200);
+        const required = yield* Schema.decodeUnknownEffect(InputRequired)(first.reply?.result);
+        const keys = Object.keys(required.inputRequests);
+        expect(keys).toEqual([required.requestState]);
+        return { key: required.requestState };
+      });
+    const outcomes: Record<string, unknown> = {};
+    yield* evidence.step(
+      "A 2026-07-28 client that declares form elicitation gets the approval as input_required and its retry runs the call",
+      Effect.gen(function* () {
+        const { key } = yield* asked();
+        const retried = yield* statelessCall(credentials, form, code, {
+          inputResponses: { [key]: { action: "accept" } },
+          requestState: key,
+        });
+        expect(retried.status).toBe(200);
+        const result = yield* Schema.decodeUnknownEffect(CallResult)(retried.reply?.result);
+        expect(result.content[0].text.execution.value).toBe("approved");
+        outcomes.accepted = result.content[0].text.execution.value;
+      }),
+    );
+    yield* evidence.step(
+      "A retry without the answer asks for the same approval again",
+      Effect.gen(function* () {
+        const { key } = yield* asked();
+        const again = yield* statelessCall(credentials, form, code, { requestState: key });
+        const required = yield* Schema.decodeUnknownEffect(InputRequired)(again.reply?.result);
+        expect(required.requestState).toBe(key);
+        const declined = yield* statelessCall(credentials, form, code, {
+          inputResponses: { [key]: { action: "decline" } },
+          requestState: key,
+        });
+        expect(declined.status).toBe(200);
+        expect(JSON.stringify(declined.reply?.result)).toContain("ApprovalDenied");
+        outcomes.declined = declined.reply?.result;
+      }),
+    );
+    yield* evidence.step(
+      "A 2026-07-28 client without form elicitation is refused before its program runs",
+      Effect.gen(function* () {
+        const refused = yield* statelessCall(credentials, {}, code);
+        expect(refused.status).toBe(200);
+        expect(JSON.stringify(refused.reply?.result)).toContain("Native elicitation requires");
+        outcomes.missingCapability = refused.reply?.result;
+      }),
+    );
+    yield* evidence.json("native-input-required.json", outcomes);
+  });
+
 /** An API key for the actors' organization, deleted when the case ends. */
 const keyCredentials = (name: string) =>
   Effect.gen(function* () {
@@ -548,6 +642,38 @@ export default defineApp({}, { tools: router({
           api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
         );
         yield* checkCancelledCalls(credentials, app.slug, signals.started);
+      }),
+    ),
+  );
+
+  it.effect(scenarios.mcpNativeInputRequired.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          actors = yield* Actors;
+        const credentials = yield* keyCredentials("MCP native input required");
+        const root = `/api/organizations/${actors.organization.id}`;
+        const deployed = yield* api.request(actors.owner, "POST", `${root}/apps/deploy`, {
+          name: "Native input required",
+          files: [
+            {
+              path: "index.ts",
+              content: `import { defineApp, mutation, object, router } from "apps";
+import { always } from "apps/operations/approval";
+export default defineApp({}, { tools: router({
+  approved: mutation({ input: object({}), approval: always() }, async () => "approved"),
+}) });`,
+            },
+            appsManifest,
+          ],
+        });
+        expect(deployed.status, JSON.stringify(deployed.body)).toBe(200);
+        const app = yield* body(App, deployed);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
+        );
+        yield* checkNativeInputRequired(credentials, app.slug);
       }),
     ),
   );

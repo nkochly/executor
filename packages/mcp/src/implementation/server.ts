@@ -108,7 +108,11 @@ const protocols = [
   McpProtocol.v2025_03_26,
 ] as const;
 /** Native approval needs form elicitation, which 2025-06-18 introduced. */
-const nativeProtocols = [McpProtocol.v2025_11_25, McpProtocol.v2025_06_18] as const;
+const nativeProtocols = [
+  McpProtocol.v2026_07_28,
+  McpProtocol.v2025_11_25,
+  McpProtocol.v2025_06_18,
+] as const;
 
 const query = Schema.Struct({ elicitation_mode: Schema.optionalKey(ElicitationMode) });
 // Model, native and automatic programs belong to the authenticated caller, so a client may resume

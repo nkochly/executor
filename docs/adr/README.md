@@ -21,3 +21,4 @@ this fork started from. Upstream's files keep upstream's code comments, so ports
 | [0009](0009-connection-bundles-and-person-apps.md)        | Connection bundles and the person's apps                      |
 | [0010](0010-localhost-subdomains-in-e2e.md)               | Localhost subdomains resolve to loopback in e2e and apps      |
 | [0011](0011-caller-label-on-mcp-calls.md)                 | Every MCP server an app calls hears which agent session calls |
+| [0012](0012-native-approvals-as-input-required.md)        | Native approvals as input required on MCP 2026-07-28          |

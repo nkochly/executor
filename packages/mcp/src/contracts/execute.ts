@@ -536,7 +536,12 @@ export const NativeExecuteTool = McpTool.make("execute", {
   dependencies: [HttpServerRequest.HttpServerRequest, McpSchema.McpRequestContext],
   parameters: ExecuteInput,
   success: McpExecutionResult,
-  failure: Schema.Union([NativeElicitationFailed, ElicitationResponseInvalid, ExecutionRejected]),
+  failure: Schema.Union([
+    NativeElicitationFailed,
+    ElicitationResponseInvalid,
+    ExecutionRejected,
+    Schema.instanceOf(McpSchema.InputRequired),
+  ]),
 })
   .annotate(McpTool.Meta, ExecutionResultMeta)
   .annotate(McpServer.ResultContent, executionResultContent);
@@ -590,7 +595,12 @@ export const NativeCallTool = McpTool.make("call", {
   dependencies: [HttpServerRequest.HttpServerRequest, McpSchema.McpRequestContext],
   parameters: CallInput,
   success: McpExecutionResult,
-  failure: Schema.Union([NativeElicitationFailed, ElicitationResponseInvalid, ExecutionRejected]),
+  failure: Schema.Union([
+    NativeElicitationFailed,
+    ElicitationResponseInvalid,
+    ExecutionRejected,
+    Schema.instanceOf(McpSchema.InputRequired),
+  ]),
 })
   .annotate(McpTool.Meta, ExecutionResultMeta)
   .annotate(McpServer.ResultContent, executionResultContent)

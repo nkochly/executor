@@ -7617,6 +7617,16 @@ export const scenarios = plan({
       local: na("Cancellation is a hosted MCP session behavior."),
     },
   },
+  mcpNativeInputRequired: {
+    fixtures: "actors",
+    file: "mcp-protocol-versions.spec.ts",
+    title: "Hosted MCP asks a 2026-07-28 client for native approval as input required",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local serves the same MCP server code; the self-host case covers it."),
+    },
+  },
   mcpToolInput: {
     fixtures: "actors",
     file: "mcp-tool-input.spec.ts",
