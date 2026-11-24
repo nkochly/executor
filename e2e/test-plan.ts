@@ -7627,6 +7627,16 @@ export const scenarios = plan({
       local: na("Local serves the same MCP server code; the self-host case covers it."),
     },
   },
+  mcpSkillsExtension: {
+    fixtures: "actors",
+    file: "mcp-protocol-versions.spec.ts",
+    title: "Hosted MCP serves the caller's app skills over the MCP skills extension",
+    targets: {
+      "self-host": scheduled,
+      cloud: scheduled,
+      local: na("Local serves the same MCP server code; the self-host case covers it."),
+    },
+  },
   mcpToolInput: {
     fixtures: "actors",
     file: "mcp-tool-input.spec.ts",
