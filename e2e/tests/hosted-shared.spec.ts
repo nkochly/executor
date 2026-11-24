@@ -16,6 +16,7 @@ import { Evidence } from "../support/evidence.ts";
 import { HostedLive, withHostedCase } from "../support/case.ts";
 import { App, Resource, Inventory } from "../support/contracts.ts";
 import { appsManifest } from "../support/apps-release.ts";
+import { Workspace } from "../support/app-authoring.ts";
 import { docsMcpFixture, docsOrigin, docsSearchTool } from "../support/docs-mcp-fixture.ts";
 import {
   skillsFixtureDocument,
@@ -480,6 +481,13 @@ layer(HostedLive, { excludeTestServices: true })("Hosted parity", (it) => {
           ),
         );
         expect(guide.content).toBe("Send the welcome pack.\n");
+        const source = yield* body(
+          Workspace,
+          yield* api.request(actors.owner, "GET", `${path}/workspace`),
+        );
+        const index = source.files.find((file) => file.path === "index.ts")?.content ?? "";
+        expect(index).toContain('import { mcpRouter } from "apps/mcp"');
+        expect(index).toContain('import { serverSkills } from "./skills.ts"');
         const methods = yield* fixture.methods;
         expect(methods).toContain("skills/list");
         expect(methods).toContain("resources/directory/read");
