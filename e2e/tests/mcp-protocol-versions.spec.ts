@@ -567,12 +567,12 @@ const checkNativeInputRequired = (credentials: Readonly<Record<string, string>>,
       }),
     );
     yield* evidence.step(
-      "A 2026-07-28 client without form elicitation is told the capability it lacks",
+      "A 2026-07-28 client without form elicitation is refused before its program runs",
       Effect.gen(function* () {
         const refused = yield* statelessCall(credentials, {}, code);
-        const error = yield* Schema.decodeUnknownEffect(RpcError)(refused.reply?.error);
-        expect(error.code).toBe(-32021);
-        outcomes.missingCapability = error;
+        expect(refused.status).toBe(200);
+        expect(JSON.stringify(refused.reply?.result)).toContain("Native elicitation requires");
+        outcomes.missingCapability = refused.reply?.result;
       }),
     );
     yield* evidence.json("native-input-required.json", outcomes);

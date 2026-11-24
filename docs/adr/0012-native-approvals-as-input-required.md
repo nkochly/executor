@@ -30,8 +30,11 @@ neither.
 - Effect's toolkit could not return `input_required`, only a hand-registered tool could.
   `effect@4.1.4.patch` lets a toolkit handler fail with `McpSchema.InputRequired`, and the server
   sends it as the call's result (`patches/effect-mcp-tool-input-required.md`).
-- A client that does not declare form elicitation gets Effect's `-32021` naming the capability.
-  Native mode stays opt-in: an unattended agent whose client declares elicitation would otherwise
+- The retry is matched by `requestState` alone, not by the tool or arguments it names. Only the
+  same caller can reach the request, and that caller's client holds the person's answer.
+- A 2026-07-28 client that does not declare form elicitation is refused before its program
+  runs, with the same `NativeElicitationFailed` the session path gives, so no program is left
+  parked on a prompt the client cannot show. Native mode stays opt-in: an unattended agent whose client declares elicitation would otherwise
   wait on a prompt nobody answers.
 
 ## Consequences
@@ -40,4 +43,4 @@ neither.
   `?elicitation_mode=native`.
 - The session-based path is unchanged for older revisions.
 - `mcp-protocol-versions.spec.ts` ("Hosted MCP asks a 2026-07-28 client for native approval as
-  input required") holds the round trip, the retry without an answer and the missing capability.
+  input required") holds the round trip, the retry without an answer, a decline and the refused client.

@@ -116,7 +116,10 @@ export const executeNativeByInput = (
   approval: ApprovalMode = "ask",
 ) =>
   Effect.gen(function* () {
-    const { inputResponses, requestState } = yield* McpSchema.McpRequestContext;
+    const { clientCapabilities, inputResponses, requestState } = yield* McpSchema.McpRequestContext;
+    const capability = clientCapabilities.elicitation;
+    if (capability === undefined || (capability.form === undefined && capability.url !== undefined))
+      return yield* new NativeElicitationFailed({ reason: "unsupported" });
     const result =
       requestState === undefined
         ? yield* executions.execute(caller, backend, work, "prompt", approval)

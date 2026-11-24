@@ -7623,7 +7623,7 @@ export const scenarios = plan({
     title: "Hosted MCP asks a 2026-07-28 client for native approval as input required",
     targets: {
       "self-host": scheduled,
-      cloud: managedCloud,
+      cloud: scheduled,
       local: na("Local serves the same MCP server code; the self-host case covers it."),
     },
   },
