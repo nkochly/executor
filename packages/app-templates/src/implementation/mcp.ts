@@ -9,6 +9,7 @@ import {
 } from "../contracts/templates.ts";
 import { appsPeerVersion, packageFile, sourceFiles } from "./files.ts";
 import { mcpAppSource } from "./protocol-apps.ts";
+import { mcpSkillsSource, mcpSkillsSourcePath } from "./mcp-skills-source.ts";
 
 /** The server's host, so an OAuth account's tokens are only ever sent to the server itself. */
 const credentialHost = (url: string) =>
@@ -93,8 +94,9 @@ export const generateMcpSource = (
 // each account's token to mcpRouter, as Executor's OAuth MCP apps do.
 `
           }import { defineApp, dynamicSkills, toolAnnotations, withApprovals } from "apps"
-import { mcpRouter, mcpSkills } from "apps/mcp"
+import { mcpRouter } from "apps/mcp"
 import { always } from "apps/operations/approval"
+import { serverSkills } from "./skills.ts"
 
 export default defineApp({}, async ({ signal, cache }) => ({
   tools: withApprovals(await mcpRouter({
@@ -103,13 +105,14 @@ export default defineApp({}, async ({ signal, cache }) => ({
     signal,
   }),${approvalRule}),
   // The skills the server publishes, read only when skills are read.
-  dynamicSkills: dynamicSkills({ list: () => mcpSkills({ url: ${serialize(url)}, cache, signal }) }),
+  dynamicSkills: dynamicSkills({ list: () => serverSkills({ url: ${serialize(url)}, cache }) }),
 }))
 `
         : access.accounts === "app"
           ? `import { defineApp, dynamicSkills, toolAnnotations, withApprovals } from "apps"
-import { mcpRouter, mcpSkills } from "apps/mcp"
+import { mcpRouter } from "apps/mcp"
 import { always } from "apps/operations/approval"
+import { serverSkills } from "./skills.ts"
 import { headers, provider, url } from "./provider.ts"
 
 // One service account for the whole app: its managers link it for everyone, and every call uses it.
@@ -123,7 +126,7 @@ export default defineApp({ app: { accounts: { service: provider } } }, async ({ 
   }),${approvalRule}),
   // The skills the server publishes, read with the service account only when skills are read.
   dynamicSkills: dynamicSkills({
-    list: () => mcpSkills({ url, account: app.accounts.service, cache, headers: headers(app.accounts.service), signal }),
+    list: () => serverSkills({ url, account: app.accounts.service, cache, headers: headers(app.accounts.service) }),
   }),
 }))
 `
@@ -131,8 +134,9 @@ export default defineApp({ app: { accounts: { service: provider } } }, async ({ 
             // keeps its own tools' hints. The app runs without a caller only for app-scope work,
             // which it has none of; there it has no accounts and no tools.
             `import { defineApp, accountRouter, dynamicSkills, toolAnnotations, withApprovals } from "apps"
-import { mcpRouter, mcpSkills } from "apps/mcp"
+import { mcpRouter } from "apps/mcp"
 import { always } from "apps/operations/approval"
+import { serverSkills } from "./skills.ts"
 import { headers, provider, url } from "./provider.ts"
 
 // Each member links their own accounts, and each tool takes the account to use.
@@ -148,7 +152,7 @@ export default defineApp({ user: { accounts: { service: provider.many() } } }, a
   dynamicSkills: dynamicSkills({
     list: async () => {
       const [account] = user?.accounts.service ?? []
-      return account === undefined ? [] : mcpSkills({ url, account, cache, headers: headers(account), signal })
+      return account === undefined ? [] : serverSkills({ url, account, cache, headers: headers(account) })
     },
   }),
 }))
@@ -157,6 +161,7 @@ export default defineApp({ user: { accounts: { service: provider.many() } } }, a
     return {
       files: yield* sourceFiles([
         { path: "index.ts", content: index },
+        { path: mcpSkillsSourcePath, content: mcpSkillsSource },
         ...(oauth
           ? [
               {

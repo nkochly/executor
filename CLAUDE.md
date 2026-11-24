@@ -44,6 +44,9 @@ against `REVIEW.md`.
   one `/rpc` socket from the product to the app host per app call.
 - **A framework change reaches a live app only when that app moves to the new
   `apps` release.** Moving a person's app needs Nathan's go for that app.
+- **Live app builds take `apps` from npm,** not from this checkout. App source the fork
+  generates or edits may import only what a published `apps` release exports; a fork-only
+  framework export passes the e2e suite and fails the live build (decision record 0015).
 - **The MCP `call` tool takes `calls: [...]`,** so an upstream test that calls
   one tool needs adapting when it is ported.
 - **Deploy:** wiki_mcp `ci.yml`, mode `deploy`, packages `executor-v2`, one

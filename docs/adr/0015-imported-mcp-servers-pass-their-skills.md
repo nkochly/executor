@@ -9,29 +9,35 @@ An MCP server can publish Agent Skills over the MCP skills extension (`skills/li
 `dynamic`). An app imported from such a server served its tools and dropped its skills, so a
 server whose whole purpose is its skills gave agents nothing through Executor.
 
+Live app builds resolve `apps` from the public npm registry, not from this checkout: the stack
+sets no `EXECUTOR_APPS_VERSION`. A framework export the fork adds is not in any published
+release, so app source that imports it fails to build live, even though the e2e suite, whose
+registry serves this checkout's `apps`, passes. The first version of this record added
+`mcpSkills` to `apps/mcp`, and every MCP app imported after it would not have built.
+
 ## Decision
 
-- The framework gains `mcpSkills` in `apps/mcp` (`packages/apps/src/implementation/mcp-skills.ts`).
-  It reads a server's published skills with the same `url`, `account` and `headers` as its
-  `mcpRouter`, and returns them as app skills. A server whose initialization does not declare the
-  extension has no skills, so the call costs one session and never fails an app's skill read.
-- Every generated MCP app (`generateMcpSource`, `mcpAppSource`) declares
-  `dynamicSkills({ list: () => mcpSkills(...) })`, so only skill reads reach the server. An app
-  whose members each link an account reads with the caller's first account, the same account set
-  its tools use. Skill reads are already evaluated with the caller's own accounts and kept per
-  account set (`packages/sdk/src/implementation/skills.ts`), so one person's skills never reach
-  another.
-- Every file is loaded when the catalog loads, within the shared skill limits (1,000 files,
-  2 MB a file, 20 MB in all), and kept in the account's scope of the app cache. The publication
-  check is one `skills/list` walk: its URIs, frontmatter and file digests identify the catalog, so
-  an unchanged server is not read again. A server that lists any skill as `dynamic` cannot be
-  identified that way and is loaded on every check. Nathan chose loading every file over a host
-  protocol change for lazy file reads (2026-11-24).
-- The framework's discovery sessions declare the skills extension in their client capabilities.
+- Every generated MCP app (`generateMcpSource`, `mcpAppSource`) gets its own `skills.ts`
+  (`packages/app-templates/src/implementation/mcp-skills-source.ts`). Its `serverSkills` reads a
+  server's published skills with the MCP SDK the app already depends on, and builds them with
+  `fileSkill`, using only what published `apps` releases export. A server whose initialization
+  does not declare the extension has no skills.
+- The app declares `dynamicSkills({ list: () => serverSkills(...) })`, so only skill reads reach
+  the server, with the same `url`, `account` and `headers` as its `mcpRouter`. An app whose
+  members each link an account reads with the caller's first account. Skill reads are already
+  evaluated with the caller's own accounts and kept per account set
+  (`packages/sdk/src/implementation/skills.ts`), so one person's skills never reach another.
+- Every file is loaded with the catalog, within the shared skill limits (1,000 files, 2 MB a
+  file, 20 MB in all), and the catalog is kept for five minutes in the account's scope of the app
+  cache. Nathan chose loading every file over a host protocol change for lazy file reads
+  (2026-11-24).
+- The generated app imports from `apps/mcp` only `mcpRouter`; the hosted-parity scenario
+  "an imported MCP server's skills are served as the app's skills" holds that.
+- Rejected: a framework `mcpSkills`. It reaches no live app until upstream publishes it.
 
 ## Consequences
 
-A newly imported MCP app passes its server's skills with no code. An app imported before this
-change keeps dropping them until its source gains the `dynamicSkills` line and it is redeployed,
-which needs Nathan's go for each app. A server past the limits fails its app's skill reads with
-the limit error; serving it would need lazy file reads in the host protocol.
+A newly imported MCP app passes its server's skills with no code, and the reader is editable
+source like the rest of the app. An app imported earlier keeps dropping them until it gains
+`skills.ts` and the `dynamicSkills` line and is redeployed, which needs Nathan's go for each app.
+A fix to the reader reaches an existing app only when its source changes.

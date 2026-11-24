@@ -69,7 +69,7 @@
     "e2e/tests/self-host-sso-emulated.spec.ts",
     "e2e/tests/source-editing.spec.ts",
     "osv-scanner.toml",
-    "packages/apps/src/implementation/mcp-skills.ts",
+    "packages/app-templates/src/implementation/mcp-skills-source.ts",
     "packages/fumadb-effect/src/dialect.ts",
     "packages/fumadb-effect/src/implementation/dialect.ts",
     "packages/fumadb-effect/src/implementation/sqlite-native.ts",
