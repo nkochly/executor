@@ -494,8 +494,8 @@ export const mcpAppSource = (options: ProtocolAppOptions & { readonly url: strin
       ...(accounts ? ["accountRouter"] : []),
     ];
     const index = accounts
-      ? `${appImports(["defineApp", ...routerImports])}
-import { mcpRouter } from "apps/mcp"
+      ? `${appImports(["defineApp", "dynamicSkills", ...routerImports])}
+import { mcpRouter, mcpSkills } from "apps/mcp"
 import { always } from "apps/operations/approval"
 import { ${fixedAccount ? "fixedProvider, " : ""}provider, target } from "./provider.ts"
 ${rules ? `import { approval, exposedName } from "./tools.ts"\n` : ""}
@@ -508,14 +508,23 @@ export default defineApp(${scopes.requirements}, async ({ ${scopes.context}, sig
       defaultRule,
     )}
   }, { signal }),
+  dynamicSkills: dynamicSkills({
+    list: async () => {
+      const [account] = ${scopes.accounts}
+      if (account === undefined) return []
+      const request = target(account${fixedAccount ? ", app.accounts.fixed" : ""})
+      return mcpSkills({ url: request.url, account, cache, headers: request.headers, signal })
+    },
+  }),
 }))
 `
-      : `${appImports(["defineApp", ...routerImports])}
-import { mcpRouter } from "apps/mcp"
+      : `${appImports(["defineApp", "dynamicSkills", ...routerImports])}
+import { mcpRouter, mcpSkills } from "apps/mcp"
 import { always } from "apps/operations/approval"
 ${rules ? `import { approval, exposedName } from "./tools.ts"\n` : ""}
 export default defineApp({}, async ({ signal, cache }) => ({
   tools: ${ruled(`await mcpRouter({ url: ${JSON.stringify(fixedUrl)}, ${publicHeaders(options.headers)}cache, signal })`, rules, defaultRule)},
+  dynamicSkills: dynamicSkills({ list: () => mcpSkills({ url: ${JSON.stringify(fixedUrl)}, ${publicHeaders(options.headers)}cache, signal }) }),
 }))
 `;
     const host = accounts ? yield* credentialHost(options.url) : undefined;

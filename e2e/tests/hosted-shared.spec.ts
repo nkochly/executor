@@ -17,6 +17,11 @@ import { HostedLive, withHostedCase } from "../support/case.ts";
 import { App, Resource, Inventory } from "../support/contracts.ts";
 import { appsManifest } from "../support/apps-release.ts";
 import { docsMcpFixture, docsOrigin, docsSearchTool } from "../support/docs-mcp-fixture.ts";
+import {
+  skillsFixtureDocument,
+  skillsFixtureTool,
+  skillsMcpFixture,
+} from "../support/skills-mcp-fixture.ts";
 
 const files = [
   {
@@ -398,6 +403,86 @@ layer(HostedLive, { excludeTestServices: true })("Hosted parity", (it) => {
         });
         // The admin's call reached the upstream server with its input.
         expect(yield* docs.queries).toEqual(["Workers KV"]);
+      }),
+    ),
+  );
+  it.effect(scenarios.remoteMcpSkills.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const actors = yield* Actors,
+          api = yield* Api;
+        const fixture = yield* skillsMcpFixture;
+        const prefix = `/api/organizations/${actors.organization.id}`;
+        const imported = yield* api.request(actors.owner, "POST", `${prefix}/apps/import`, {
+          source: {
+            kind: "mcp",
+            name: `Fixture Skills ${randomUUID().slice(0, 8)}`,
+            url: fixture.url,
+          },
+        });
+        expect(imported.status, JSON.stringify(imported.body)).toBe(200);
+        const app = (yield* body(App, imported)).id;
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${prefix}/apps/${app}`).pipe(Effect.ignore),
+        );
+        const access = yield* body(
+          Schema.Struct({ revision: Schema.String }),
+          yield* api.request(actors.owner, "GET", `${prefix}/apps/${app}/access`),
+        );
+        expect(
+          (yield* api.request(actors.owner, "PATCH", `${prefix}/apps/${app}/access`, {
+            revision: access.revision,
+            audience: { kind: "everyone" },
+          })).status,
+        ).toBe(200);
+        const path = `${prefix}/apps/${app}`;
+        const tools = yield* body(
+          Schema.Struct({ items: Schema.Array(Schema.Struct({ name: Schema.String })) }),
+          yield* api.request(actors.member, "GET", `${path}/tools`),
+        );
+        expect(tools.items.map((tool) => tool.name)).toContain(skillsFixtureTool);
+        const listed = yield* api.request(actors.member, "GET", `${path}/skills`);
+        expect(listed.status, JSON.stringify(listed.body)).toBe(200);
+        const catalog = yield* body(
+          Schema.Struct({
+            skills: Schema.Array(
+              Schema.Struct({ name: Schema.String, description: Schema.String }),
+            ),
+          }),
+          listed,
+        );
+        expect(
+          catalog.skills
+            .filter((skill) => skill.name === "refunds" || skill.name === "onboarding")
+            .map((skill) => [skill.name, skill.description])
+            .sort(),
+        ).toEqual([
+          ["onboarding", "Onboard a customer"],
+          ["refunds", "Issue refunds"],
+        ]);
+        const Document = Schema.Struct({
+          content: Schema.String,
+          files: Schema.Array(Schema.String),
+        });
+        const refunds = yield* body(
+          Document,
+          yield* api.request(actors.member, "GET", `${path}/skills/refunds`),
+        );
+        expect(refunds.content).toBe(skillsFixtureDocument("refunds", "Issue refunds"));
+        expect(refunds.files).toContain("references/guide.md");
+        const guide = yield* body(
+          Document,
+          yield* api.request(
+            actors.member,
+            "GET",
+            `${path}/skills/onboarding?file=references%2Fguide.md`,
+          ),
+        );
+        expect(guide.content).toBe("Send the welcome pack.\n");
+        const methods = yield* fixture.methods;
+        expect(methods).toContain("skills/list");
+        expect(methods).toContain("resources/directory/read");
       }),
     ),
   );

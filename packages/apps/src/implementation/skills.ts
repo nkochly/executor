@@ -35,7 +35,7 @@ import {
   type SkillTransport,
 } from "../contracts/skills.ts";
 
-const failed = (reason: SkillLoadFailed["reason"]) => new SkillLoadFailed({ reason });
+export const failed = (reason: SkillLoadFailed["reason"]) => new SkillLoadFailed({ reason });
 /** Keep only the status the request returned and whether it reported a rate limit. */
 const rejected = (status: number, headers: Readonly<Record<string, string>>) =>
   new SkillLoadFailed({
@@ -85,10 +85,10 @@ export const withService =
 /** Keep network refusals and the loader's own failures; anything else did not load. */
 const loaderFailure = (error: unknown, otherwise: () => SkillLoadFailed) =>
   Schema.is(SkillLoadFailed)(error) || Schema.is(NetworkRefused)(error) ? error : otherwise();
-const parse = <S extends Schema.Top>(schema: S, input: unknown) =>
+export const parse = <S extends Schema.Top>(schema: S, input: unknown) =>
   Schema.decodeUnknownEffect(schema)(input).pipe(Effect.mapError(() => failed("document")));
 
-const resourcePath = (path: string) => {
+export const resourcePath = (path: string) => {
   if (!Schema.is(SkillFilePath)(path)) return false;
   try {
     return path.split("/").every((part) => {
@@ -385,18 +385,18 @@ const cachedSkillDirectories = (
  * `id`s have equal skills, so a kept catalog with the same `id` is still current. A source that
  * cannot tell from that request has no `id`.
  */
-interface Publication {
+export interface Publication {
   readonly id: string | undefined;
   readonly load: Effect.Effect<typeof AppSkills.Type, SkillLoadFailed | NetworkRefused>;
 }
 /** Hex SHA-256 of a value's JSON. */
-const digest = (value: unknown) =>
+export const digest = (value: unknown) =>
   // oxlint-disable-next-line executor/authored-code-through-adapter -- Web Crypto
   Effect.promise(() =>
     crypto.subtle.digest("SHA-256", new TextEncoder().encode(JSON.stringify(value))),
   ).pipe(Effect.map((bytes) => Hex.encode(new Uint8Array(bytes))));
 /** The one request that checks a publication, bounded so a slow source fails the read promptly. */
-const checked = <A, E>(request: Effect.Effect<A, E>) =>
+export const checked = <A, E>(request: Effect.Effect<A, E>) =>
   request.pipe(
     Effect.timeoutOrElse({
       duration: skillLoadLimits.checkMillis,
@@ -411,7 +411,7 @@ const checked = <A, E>(request: Effect.Effect<A, E>) =>
  * refresh replaces moments later. A failed check fails the read; the kept catalog stays for the
  * next one. The check keeps the author's fetch and uses the cache's signal.
  */
-const cachedCatalog = (
+export const cachedCatalog = (
   options: SkillCacheOptions & SkillTransport,
   prefix: readonly JsonValue[],
   publication: (

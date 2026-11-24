@@ -11,6 +11,7 @@ import {
   ErrorCode,
   ListToolsResultSchema,
   McpError as ProtocolError,
+  ResultSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { Effect, Exit, Option, Schema } from "effect";
 import {
@@ -178,8 +179,38 @@ export function mcpClient(
       owned("upstream", "provider.mcp.call", { attributes: { "mcp.tool.name": name } }),
     );
 
-  return { list, check, call };
+  const session = <A, E>(
+    use: (
+      request: McpRequest,
+      extensions: Readonly<Record<string, unknown>>,
+    ) => Effect.Effect<A, E>,
+  ) =>
+    withClient("discover", (client) =>
+      use(
+        (method, params) =>
+          // oxlint-disable-next-line executor/authored-code-through-adapter -- MCP SDK
+          Effect.tryPromise({
+            try: (signal) =>
+              client.request({ method, params }, ResultSchema, { signal, timeout: timeoutMs }),
+            catch: (error) => failure("discover", error),
+          }).pipe(
+            Effect.map((result): unknown => result),
+            owned("upstream", "provider.mcp.request", {
+              kind: "client",
+              attributes: { "rpc.system.name": "jsonrpc", "rpc.method": method },
+            }),
+          ),
+        client.getServerCapabilities()?.extensions ?? {},
+      ),
+    );
+
+  return { list, check, call, session };
 }
+
+export type McpRequest = (
+  method: string,
+  params: Readonly<Record<string, unknown>>,
+) => Effect.Effect<unknown, McpError | ProviderError | NetworkRefused>;
 
 /** Transport-independent operations consumed by the app tool adapter. */
 export type McpClient = ReturnType<typeof mcpClient>;
