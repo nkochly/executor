@@ -5,6 +5,7 @@ import { ElicitationResponse } from "apps/contracts";
 import { NativeElicitationFailed } from "../contracts/elicitation.ts";
 import type { McpBackend } from "../contracts/backend.ts";
 import type { ApprovalMode, makeExecutions } from "./executions.ts";
+import { declaresTasks, type McpTasks } from "./mcp-tasks.ts";
 import type { Program } from "./execute.ts";
 import {
   ElicitationResponseInvalid,
@@ -20,12 +21,13 @@ export const executeNative = (
   backend: McpBackend<Error>,
   work: Program,
   approval: ApprovalMode = "ask",
+  tasks?: McpTasks,
 ) =>
   Effect.scoped(
     Effect.gen(function* () {
       const client = yield* Effect.serviceOption(McpSchema.McpServerClient);
       if (Option.isNone(client))
-        return yield* executeNativeByInput(executions, caller, backend, work, approval);
+        return yield* executeNativeByInput(executions, caller, backend, work, approval, tasks);
       const { clientCapabilities } = yield* McpSchema.McpRequestContext;
       const capability = clientCapabilities.elicitation;
       // Older elicitation capabilities used an empty object to advertise form support.
@@ -114,15 +116,19 @@ export const executeNativeByInput = (
   backend: McpBackend<Error>,
   work: Program,
   approval: ApprovalMode = "ask",
+  tasks?: McpTasks,
 ) =>
   Effect.gen(function* () {
     const { clientCapabilities, inputResponses, requestState } = yield* McpSchema.McpRequestContext;
     const capability = clientCapabilities.elicitation;
     if (capability === undefined || (capability.form === undefined && capability.url !== undefined))
       return yield* new NativeElicitationFailed({ reason: "unsupported" });
+    const start = executions.execute(caller, backend, work, "prompt", approval);
     const result =
       requestState === undefined
-        ? yield* executions.execute(caller, backend, work, "prompt", approval)
+        ? yield* tasks !== undefined && declaresTasks(clientCapabilities)
+            ? tasks.start(caller, backend, start)
+            : start
         : yield* Schema.decodeUnknownEffect(InteractionId)(requestState).pipe(
             Effect.mapError(() => new ElicitationResponseInvalid()),
             Effect.flatMap((requestId) =>

@@ -710,6 +710,183 @@ const checkSkillsOverMcp = (credentials: Readonly<Record<string, string>>, slug:
     yield* evidence.json("skills-over-mcp.json", outcomes);
   });
 
+const tasksClient = {
+  elicitation: { form: {} },
+  extensions: { "io.modelcontextprotocol/tasks": {} },
+};
+
+const native = (
+  credentials: Readonly<Record<string, string>>,
+  method: string,
+  params: object,
+  capabilities: object,
+  name: string,
+) =>
+  post(
+    credentials,
+    {
+      id: crypto.randomUUID(),
+      method,
+      params: {
+        ...params,
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientCapabilities": capabilities,
+        },
+      },
+    },
+    { "mcp-protocol-version": "2026-07-28", "mcp-method": method, "mcp-name": name },
+    "/mcp?elicitation_mode=native",
+  );
+
+const CreatedTask = Schema.Struct({
+  resultType: Schema.Literal("task"),
+  taskId: Schema.String,
+  status: Schema.Literal("working"),
+  ttlMs: Schema.Number,
+  pollIntervalMs: Schema.Number,
+});
+const PolledTask = Schema.Struct({
+  resultType: Schema.Literal("complete"),
+  taskId: Schema.String,
+  status: Schema.Literals(["working", "input_required", "completed", "failed", "cancelled"]),
+  inputRequests: Schema.optional(
+    Schema.Record(
+      Schema.String,
+      Schema.Struct({ method: Schema.Literal("elicitation/create"), params: Schema.Unknown }),
+    ),
+  ),
+  result: Schema.optional(Schema.Unknown),
+});
+
+const startTask = (credentials: Readonly<Record<string, string>>, code: string) =>
+  Effect.gen(function* () {
+    const started = yield* native(
+      credentials,
+      "tools/call",
+      { name: "execute", arguments: { code } },
+      tasksClient,
+      "execute",
+    );
+    expect(started.status).toBe(200);
+    return yield* Schema.decodeUnknownEffect(CreatedTask)(started.reply?.result);
+  });
+
+const getTask = (credentials: Readonly<Record<string, string>>, taskId: string) =>
+  native(credentials, "tasks/get", { taskId }, tasksClient, taskId).pipe(
+    Effect.flatMap((reply) => Schema.decodeUnknownEffect(PolledTask)(reply.reply?.result)),
+  );
+
+const pollTask = (
+  credentials: Readonly<Record<string, string>>,
+  taskId: string,
+  until: typeof PolledTask.Type.status,
+) =>
+  Effect.gen(function* () {
+    for (let attempt = 0; attempt < 40; attempt += 1) {
+      const task = yield* getTask(credentials, taskId);
+      if (task.status === until) return task;
+      expect(["working", "input_required"]).toContain(task.status);
+      yield* Effect.sleep("500 millis");
+    }
+    return yield* Effect.die(`Task ${taskId} never reached ${until}`);
+  });
+
+const taskValue = (task: typeof PolledTask.Type) =>
+  Schema.decodeUnknownEffect(CallResult)(task.result).pipe(
+    Effect.map((result) => result.content[0].text.execution.value),
+  );
+
+const checkMcpTasks = (credentials: Readonly<Record<string, string>>, slug: string) =>
+  Effect.gen(function* () {
+    const evidence = yield* Evidence;
+    const tool = (name: string) => `tools[${JSON.stringify(slug)}].${name}({})`;
+    const outcomes: Record<string, unknown> = {};
+    yield* evidence.step(
+      "server/discover on the native endpoint declares the tasks extension",
+      Effect.gen(function* () {
+        const discovered = yield* native(credentials, "server/discover", {}, tasksClient, "");
+        const result = yield* Schema.decodeUnknownEffect(
+          Schema.Struct({
+            capabilities: Schema.Struct({
+              extensions: Schema.Struct({ "io.modelcontextprotocol/tasks": Schema.Struct({}) }),
+            }),
+          }),
+        )(discovered.reply?.result);
+        outcomes.discover = result.capabilities.extensions;
+      }),
+    );
+    yield* evidence.step(
+      "A long call answers with a task that tasks/get later reports completed with the call's result",
+      Effect.gen(function* () {
+        const task = yield* startTask(credentials, `return await ${tool("slow")}`);
+        const refused = yield* native(
+          credentials,
+          "tasks/get",
+          { taskId: task.taskId },
+          { elicitation: { form: {} } },
+          task.taskId,
+        );
+        expect((yield* Schema.decodeUnknownEffect(RpcError)(refused.reply?.error)).code).toBe(
+          -32021,
+        );
+        const completed = yield* pollTask(credentials, task.taskId, "completed");
+        expect(yield* taskValue(completed)).toBe("slow done");
+        outcomes.completed = completed;
+      }),
+    );
+    yield* evidence.step(
+      "A task that reaches an approval waits as input_required, and tasks/update answers it",
+      Effect.gen(function* () {
+        const task = yield* startTask(
+          credentials,
+          `await ${tool("slow")}; return await ${tool("approved")}`,
+        );
+        const waiting = yield* pollTask(credentials, task.taskId, "input_required");
+        const keys = Object.keys(waiting.inputRequests ?? {});
+        expect(keys).toHaveLength(1);
+        const updated = yield* native(
+          credentials,
+          "tasks/update",
+          { taskId: task.taskId, inputResponses: { [keys[0]!]: { action: "accept" } } },
+          tasksClient,
+          task.taskId,
+        );
+        expect(updated.reply?.result).toMatchObject({ resultType: "complete" });
+        const completed = yield* pollTask(credentials, task.taskId, "completed");
+        expect(yield* taskValue(completed)).toBe("approved");
+        outcomes.approved = completed;
+      }),
+    );
+    yield* evidence.step(
+      "tasks/cancel stops a working task, and an unknown task is invalid params",
+      Effect.gen(function* () {
+        const task = yield* startTask(credentials, `return await ${tool("slow")}`);
+        const cancelled = yield* native(
+          credentials,
+          "tasks/cancel",
+          { taskId: task.taskId },
+          tasksClient,
+          task.taskId,
+        );
+        expect(cancelled.reply?.result).toMatchObject({ resultType: "complete" });
+        expect((yield* getTask(credentials, task.taskId)).status).toBe("cancelled");
+        const unknown = crypto.randomUUID();
+        const missing = yield* native(
+          credentials,
+          "tasks/get",
+          { taskId: unknown },
+          tasksClient,
+          unknown,
+        );
+        expect((yield* Schema.decodeUnknownEffect(RpcError)(missing.reply?.error)).code).toBe(
+          -32602,
+        );
+      }),
+    );
+    yield* evidence.json("mcp-tasks.json", outcomes);
+  });
+
 /** An API key for the actors' organization, deleted when the case ends. */
 const keyCredentials = (name: string) =>
   Effect.gen(function* () {
@@ -837,6 +1014,41 @@ export default defineApp({}, async () => ({}));`,
           api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
         );
         yield* checkSkillsOverMcp(credentials, app.slug);
+      }),
+    ),
+  );
+  it.effect(scenarios.mcpTasks.title, (context) =>
+    withHostedCase(
+      context,
+      Effect.gen(function* () {
+        const api = yield* Api,
+          actors = yield* Actors;
+        const credentials = yield* keyCredentials("MCP tasks");
+        const root = `/api/organizations/${actors.organization.id}`;
+        const deployed = yield* api.request(actors.owner, "POST", `${root}/apps/deploy`, {
+          name: "MCP tasks",
+          files: [
+            {
+              path: "index.ts",
+              content: `import { defineApp, mutation, object, router } from "apps";
+import { always } from "apps/operations/approval";
+export default defineApp({}, { tools: router({
+  slow: mutation({ input: object({}) }, async () => {
+    await new Promise((resolve) => setTimeout(resolve, 6000));
+    return "slow done";
+  }),
+  approved: mutation({ input: object({}), approval: always() }, async () => "approved"),
+}) });`,
+            },
+            appsManifest,
+          ],
+        });
+        expect(deployed.status, JSON.stringify(deployed.body)).toBe(200);
+        const app = yield* body(App, deployed);
+        yield* Effect.addFinalizer(() =>
+          api.request(actors.owner, "DELETE", `${root}/apps/${app.id}`).pipe(Effect.orDie),
+        );
+        yield* checkMcpTasks(credentials, app.slug);
       }),
     ),
   );
