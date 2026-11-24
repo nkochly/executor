@@ -147,10 +147,74 @@ index 92e5585c8b28d0b35ad1af408d74906a1299d374..6af5f4caa305422dc9da4b72383e4557
            waiter.resume = undefined;
            resume?.(internal.void);
 diff --git a/dist/ai/McpSchema.d.ts b/dist/ai/McpSchema.d.ts
-index f5e7ced5d92d423859b80f7bd17e865b48c0a401..f35eb4f0975aac9977ea3b92d349ced6c9a7cdb7 100644
+index f5e7ced5d92d423859b80f7bd17e865b48c0a401..d3e45573a3469962aaf0289c33998a8c89063b5e 100644
 --- a/dist/ai/McpSchema.d.ts
 +++ b/dist/ai/McpSchema.d.ts
-@@ -4674,5 +4674,204 @@ declare const EnabledWhen_base: Context.ServiceClass<EnabledWhen, "effect/ai/Mcp
+@@ -3841,6 +3841,63 @@ export declare class InputRequired extends InputRequired_base<{
+         readonly requestState: string;
+     });
+ }
++/**
++ * The state of an MCP task in the tasks extension (`io.modelcontextprotocol/tasks`).
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export type McpTaskStatus = "working" | "input_required" | "completed" | "failed" | "cancelled";
++/**
++ * An MCP task as the tasks extension reports it. Times are ISO 8601 strings.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export interface McpTask {
++    readonly taskId: string;
++    readonly status: McpTaskStatus;
++    readonly statusMessage?: string | undefined;
++    readonly createdAt: string;
++    readonly lastUpdatedAt: string;
++    readonly ttlMs: number | null;
++    readonly pollIntervalMs?: number | undefined;
++}
++/**
++ * An MCP task with what its status carries: the input it waits for, the
++ * wire-encoded result of the request that started it, or its JSON-RPC error.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export interface McpDetailedTask extends McpTask {
++    readonly inputRequests?: Readonly<Record<string, McpInputRequest>> | undefined;
++    readonly result?: Readonly<Record<string, unknown>> | undefined;
++    readonly error?: {
++        readonly code: number;
++        readonly message: string;
++        readonly data?: unknown;
++    } | undefined;
++}
++declare const TaskCreated_base: new <A extends Record<string, any> = {}>(args: import("../Types.ts").VoidIfEmpty<{ readonly [P in keyof A as P extends "_tag" ? never : P]: A[P]; }>) => Readonly<A> & {
++    readonly _tag: "TaskCreated";
++} & import("../Pipeable.ts").Pipeable;
++/**
++ * Answers a tool call with an MCP task instead of its result. The client then
++ * polls the task with `tasks/get`. Only a client that declared the tasks
++ * extension receives it; any other client gets a missing-capability error.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export declare class TaskCreated extends TaskCreated_base<{
++    readonly task: McpTask;
++}> {
++}
+ declare const Elicit_base: Rpc.Rpc<"elicitation/create", Schema.Union<readonly [typeof ElicitRequestFormParams, typeof ElicitRequestURLParams]>, Schema.Union<readonly [typeof ElicitAcceptResult, typeof ElicitDeclineResult]>, Schema.Union<readonly [typeof ParseError, typeof InvalidRequest, typeof MethodNotFound, typeof InvalidParams, typeof InternalError, typeof McpErrorBase]>, never, never>;
+ /**
+  * Sent from the server asking the client to collect structured input from the
+@@ -4674,5 +4731,204 @@ declare const EnabledWhen_base: Context.ServiceClass<EnabledWhen, "effect/ai/Mcp
   */
  export declare class EnabledWhen extends EnabledWhen_base {
  }
@@ -357,10 +421,27 @@ index f5e7ced5d92d423859b80f7bd17e865b48c0a401..f35eb4f0975aac9977ea3b92d349ced6
  //# sourceMappingURL=McpSchema.d.ts.map
 \ No newline at end of file
 diff --git a/dist/ai/McpSchema.js b/dist/ai/McpSchema.js
-index bff6370f579aee3b70b79e70ef319c149501007f..8ebdfcca6a9573c10605ca656a85932a0d5ba9d4 100644
+index bff6370f579aee3b70b79e70ef319c149501007f..94c8ba8b8d9659e0c4525d79f1fe0aa7197cc643 100644
 --- a/dist/ai/McpSchema.js
 +++ b/dist/ai/McpSchema.js
-@@ -2732,4 +2732,158 @@ export function param(name, schema) {
+@@ -2543,6 +2543,16 @@ export class InputRequired extends /*#__PURE__*/Data.TaggedClass("InputRequired"
+     super(fields);
+   }
+ }
++/**
++ * Answers a tool call with an MCP task instead of its result. The client then
++ * polls the task with `tasks/get`. Only a client that declared the tasks
++ * extension receives it; any other client gets a missing-capability error.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export class TaskCreated extends /*#__PURE__*/Data.TaggedClass("TaskCreated") {}
+ /**
+  * Sent from the server asking the client to collect structured input from the
+  * user.
+@@ -2732,4 +2742,158 @@ export function param(name, schema) {
   * @since 4.0.0
   */
  export class EnabledWhen extends /*#__PURE__*/Context.Service()("effect/ai/McpSchema/EnabledWhen") {}
@@ -521,9 +602,27 @@ index bff6370f579aee3b70b79e70ef319c149501007f..8ebdfcca6a9573c10605ca656a85932a
  //# sourceMappingURL=McpSchema.js.map
 \ No newline at end of file
 diff --git a/dist/ai/McpServer.d.ts b/dist/ai/McpServer.d.ts
-index 0d27695a965ebb5bb573fc7636e66ea9eb877177..ca015635b20925dba44af5d948b0ac67b3ccace9 100644
+index 0d27695a965ebb5bb573fc7636e66ea9eb877177..fbe4f898c7d59b714366ed87f5b4141555713900 100644
 --- a/dist/ai/McpServer.d.ts
 +++ b/dist/ai/McpServer.d.ts
+@@ -418,7 +418,7 @@ declare const McpServer_base: Context.ServiceClass<McpServer, "effect/ai/McpServ
+         readonly tool: McpTool;
+         readonly annotations: Context.Context<never>;
+         readonly services?: Context.Context<never> | undefined;
+-        readonly handle: (payload: any) => Effect.Effect<CallToolResult | McpSchema.InputRequired, InternalError | InvalidParams, McpRequestContext>;
++        readonly handle: (payload: any) => Effect.Effect<CallToolResult | McpSchema.InputRequired | McpSchema.TaskCreated, InternalError | InvalidParams, McpRequestContext>;
+     }) => Effect.Effect<void>;
+     readonly callTool: (requests: typeof CallTool.payloadSchema.Type) => Effect.Effect<CallToolResult, McpErrorBase | InternalError | InvalidParams, McpServerClient>;
+     readonly resources: ReadonlyArray<{
+@@ -492,7 +492,7 @@ export declare class McpServer extends McpServer_base {
+             readonly tool: McpTool;
+             readonly annotations: Context.Context<never>;
+             readonly services?: Context.Context<never> | undefined;
+-            readonly handle: (payload: any) => Effect.Effect<CallToolResult | McpSchema.InputRequired, InternalError | InvalidParams, McpRequestContext>;
++            readonly handle: (payload: any) => Effect.Effect<CallToolResult | McpSchema.InputRequired | McpSchema.TaskCreated, InternalError | InvalidParams, McpRequestContext>;
+         }) => Effect.Effect<void>;
+         readonly callTool: (requests: typeof CallTool.payloadSchema.Type) => Effect.Effect<CallToolResult, McpErrorBase | InternalError | InvalidParams, McpServerClient>;
+         readonly resources: ReadonlyArray<{
 @@ -610,8 +610,8 @@ export interface CacheHints {
   *
   * Each request handled by the server runs in a server span that follows the
@@ -620,7 +719,7 @@ index 0d27695a965ebb5bb573fc7636e66ea9eb877177..ca015635b20925dba44af5d948b0ac67
  /**
   * The requirements of a toolkit registration.
   *
-@@ -919,6 +983,42 @@ export declare const registerToolkit: <Tools extends Record<string, Tool.Any>>(t
+@@ -919,6 +983,77 @@ export declare const registerToolkit: <Tools extends Record<string, Tool.Any>>(t
   * @since 4.0.0
   */
  export declare const toolkit: <Tools extends Record<string, Tool.Any>>(toolkit: Toolkit.Toolkit<Tools>) => Layer.Layer<never, never, ToolkitRequirements<Tools>>;
@@ -660,10 +759,45 @@ index 0d27695a965ebb5bb573fc7636e66ea9eb877177..ca015635b20925dba44af5d948b0ac67
 + * @since 4.0.0
 + */
 +export declare const events: <R>(handler: EventsHandler<R>) => Layer.Layer<never, never, McpServer | Exclude<R, McpRequestContext>>;
++/**
++ * Handlers for the MCP tasks extension (`io.modelcontextprotocol/tasks`). Each runs with the
++ * request's `McpRequestContext`, so it can authorize the principal that sent it. Failures are
++ * MCP errors and reach the client unchanged, such as invalid params for an unknown task.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export interface TasksHandler<R = never> {
++    readonly get: (taskId: string) => Effect.Effect<McpSchema.McpDetailedTask, McpSchema.McpError, R>;
++    readonly update: (taskId: string, inputResponses: Readonly<Record<string, McpSchema.McpInputResponse>>) => Effect.Effect<void, McpSchema.McpError, R>;
++    readonly cancel: (taskId: string) => Effect.Effect<void, McpSchema.McpError, R>;
++}
++/**
++ * Registers the server's MCP tasks handlers. The server then declares the tasks extension
++ * (`io.modelcontextprotocol/tasks`) and serves `tasks/get`, `tasks/update` and `tasks/cancel`
++ * to clients that declared it. A tool handler creates a task by failing with
++ * `McpSchema.TaskCreated`. The services the handlers need are taken when they are registered.
++ *
++ * Only protocols that define tasks serve these methods; currently `2026-07-28`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export declare const registerTasks: <R>(handler: TasksHandler<R>) => Effect.Effect<void, never, McpServer | Exclude<R, McpRequestContext>>;
++/**
++ * Registers MCP tasks handlers as a layer. Pass it to a transport's `registrations`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export declare const tasks: <R>(handler: TasksHandler<R>) => Layer.Layer<never, never, McpServer | Exclude<R, McpRequestContext>>;
  /**
   * Utility type that validates a completion-handler record against the allowed
   * parameter keys.
-@@ -1162,6 +1262,37 @@ export interface SkillOptions {
+@@ -1162,6 +1297,37 @@ export interface SkillOptions {
      } & Readonly<Record<string, SkillFile>>;
      readonly annotations?: Context.Context<never> | undefined;
  }
@@ -702,9 +836,27 @@ index 0d27695a965ebb5bb573fc7636e66ea9eb877177..ca015635b20925dba44af5d948b0ac67
   * Registers an Agent Skill under the MCP Skills extension (SEP-2640).
   *
 diff --git a/dist/ai/McpServer.js b/dist/ai/McpServer.js
-index d675c7feba0f00b8d573427d154608e3dc0ccfe5..5c544a44e1679f8e7ada1f0030b059f29df2dec7 100644
+index d675c7feba0f00b8d573427d154608e3dc0ccfe5..6e5402786a07b5e95fc6bdf5dcd10b01b3e717df 100644
 --- a/dist/ai/McpServer.js
 +++ b/dist/ai/McpServer.js
+@@ -663,7 +663,7 @@ export class McpServer extends /*#__PURE__*/Context.Service()("effect/ai/McpServ
+               name: options.tool.name,
+               message: error.message
+             }))
+-          }), Effect.map(result => Predicate.isTagged(result, "InputRequired") ? McpCore.OperationOutcome.InputRequired(result) : McpCore.OperationOutcome.Complete(result)))
++          }), Effect.map(result => Predicate.isTagged(result, "InputRequired") ? McpCore.OperationOutcome.InputRequired(result) : Predicate.isTagged(result, "TaskCreated") ? McpCore.OperationOutcome.Task(result.task) : McpCore.OperationOutcome.Complete(result)))
+         });
+         yield* notifications.client["notifications/tools/list_changed"]({});
+       }),
+@@ -672,7 +672,7 @@ export class McpServer extends /*#__PURE__*/Context.Service()("effect/ai/McpServ
+         const result = yield* internalCore.tools.call(request, McpProtocolInternal.invocationFromClient(client)).pipe(Effect.catch(error => error._tag === "RequestRejected" ? rejectedError(error) : Effect.fail(new InvalidParams({
+           message: error._tag === "ToolNotFound" ? `Tool '${error.name}' not found` : error.message
+         }))));
+-        if (result._tag === "InputRequired") {
++        if (result._tag !== "Complete") {
+           return yield* new InvalidParams({
+             message: "Client input is not supported by this MCP protocol"
+           });
 @@ -894,39 +894,17 @@ const requestSpanOptions = (method, request, options) => {
    if (request.isNotification !== true) attributes["jsonrpc.request.id"] = String(request.id);
    if (options.sessionId !== undefined) attributes["mcp.session.id"] = options.sessionId;
@@ -928,7 +1080,7 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..5c544a44e1679f8e7ada1f0030b059f2
              message: error.reason.message
            }));
          }
-+        if (origin === "handler" && error instanceof McpSchema.InputRequired) {
++        if (origin === "handler" && (error instanceof McpSchema.InputRequired || error instanceof McpSchema.TaskCreated)) {
 +          return Effect.succeed(error);
 +        }
          if (origin === "handler" && isDeclaredFailure(error)) {
@@ -945,7 +1097,7 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..5c544a44e1679f8e7ada1f0030b059f2
              // An absent result, such as `Schema.Void`, has no structured form.
              return Effect.succeed(result.result === undefined ? new CallToolResult({
                isError: false,
-@@ -2281,6 +2303,34 @@ const toolJsonSchema = (schema, strict) => {
+@@ -2281,6 +2303,64 @@ const toolJsonSchema = (schema, strict) => {
   * @since 4.0.0
   */
  export const toolkit = toolkit => Layer.effectDiscard(registerToolkit(toolkit));
@@ -977,10 +1129,40 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..5c544a44e1679f8e7ada1f0030b059f2
 + * @since 4.0.0
 + */
 +export const events = handler => Layer.effectDiscard(registerEvents(handler));
++/**
++ * Registers the server's MCP tasks handlers. The server then declares the tasks extension
++ * (`io.modelcontextprotocol/tasks`) and serves `tasks/get`, `tasks/update` and `tasks/cancel`
++ * to clients that declared it. A tool handler creates a task by failing with
++ * `McpSchema.TaskCreated`. The services the handlers need are taken when they are registered.
++ *
++ * Only protocols that define tasks serve these methods; currently `2026-07-28`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export const registerTasks = handler => Effect.gen(function* () {
++  const server = yield* McpServer;
++  const services = omitRequestServices(yield* Effect.context());
++  const run = (effect, invocation) => provideInvocationContext(effect, invocation).pipe(Effect.provideContext(services));
++  yield* internalState.get(server).core.tasks.register({
++    get: (taskId, invocation) => run(handler.get(taskId), invocation),
++    update: (taskId, inputResponses, invocation) => run(handler.update(taskId, inputResponses), invocation),
++    cancel: (taskId, invocation) => run(handler.cancel(taskId), invocation)
++  });
++});
++/**
++ * Registers MCP tasks handlers as a layer. Pass it to a transport's `registrations`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export const tasks = handler => Layer.effectDiscard(registerTasks(handler));
  // Leave defects and interruption to makeInvoke; convert only expected failures.
  const handlerFailureToInternalError = cause => Cause.hasDies(cause) || Cause.hasInterrupts(cause) ? Effect.failCause(cause) : Effect.fail(new InternalError({
    message: Cause.prettyErrors(cause)[0].message
-@@ -2417,6 +2467,20 @@ const toSkillSourceFile = (path, file) => {
+@@ -2417,6 +2497,20 @@ const toSkillSourceFile = (path, file) => {
   * @category handlers
   * @since 4.1.1
   */
@@ -1002,10 +1184,21 @@ index d675c7feba0f00b8d573427d154608e3dc0ccfe5..5c544a44e1679f8e7ada1f0030b059f2
    const files = Object.entries(options.files).map(([path, file]) => toSkillSourceFile(path, file));
    const skill = yield* McpSkills.makeStaticSkill({
 diff --git a/dist/ai/internal/mcpCore.js b/dist/ai/internal/mcpCore.js
-index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c2714571f52 100644
+index 4c416a837fd627e48c53d7b10fb73198484c40f3..4e0d13db40797482a6dea4391d2a5171e619a3dc 100644
 --- a/dist/ai/internal/mcpCore.js
 +++ b/dist/ai/internal/mcpCore.js
-@@ -91,6 +91,7 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -17,6 +17,10 @@ export const OperationOutcome = {
+   InputRequired: fields => ({
+     _tag: "InputRequired",
+     ...fields
++  }),
++  Task: task => ({
++    _tag: "Task",
++    task
+   })
+ };
+ // NOTE: McpInvocation is runtime context, not a wire DTO. It combines the
+@@ -91,6 +95,7 @@ export const make = /*#__PURE__*/Effect.sync(() => {
    const promptRegistrations = new Map();
    const skillRegistrations = new Map();
    const skillFiles = new Set();
@@ -1013,7 +1206,7 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
    const completionRegistrations = new Map();
    const filterList = (registrations, invocation) => Effect.map(Effect.filter(Arr.filter(registrations, entry => entry.isVisible(invocation.protocol)), entry => entry.visible === undefined ? Effect.succeed(true) : entry.visible(invocation)), entries => entries.map(entry => entry.descriptor));
    const tools = {
-@@ -143,6 +144,10 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -143,6 +148,10 @@ export const make = /*#__PURE__*/Effect.sync(() => {
            return yield* template.read(uri, params, invocation);
          }
        }
@@ -1024,7 +1217,7 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
        return yield* new ResourceNotFound({
          uri
        });
-@@ -185,6 +190,9 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -185,6 +194,9 @@ export const make = /*#__PURE__*/Effect.sync(() => {
      })
    };
    const skills = {
@@ -1034,7 +1227,7 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
      register: registration => Effect.suspend(() => {
        const {
          uri,
-@@ -209,12 +217,17 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -209,12 +221,17 @@ export const make = /*#__PURE__*/Effect.sync(() => {
        descriptor: registration.entry,
        isVisible: registration.isVisible,
        visible: registration.visible
@@ -1055,7 +1248,7 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
      }),
      readDirectory: Effect.fnUntraced(function* (uri, invocation) {
        const children = new Map();
-@@ -226,6 +239,13 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -226,6 +243,13 @@ export const make = /*#__PURE__*/Effect.sync(() => {
          found = true;
          for (const child of own) children.set(child.uri, child);
        }
@@ -1069,7 +1262,7 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
        if (!found) {
          return yield* new DirectoryNotFound({
            uri
-@@ -234,11 +254,19 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -234,11 +258,27 @@ export const make = /*#__PURE__*/Effect.sync(() => {
        return Array.from(children.values()).sort((a, b) => a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0);
      })
    };
@@ -1080,6 +1273,13 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
 +    }),
 +    current: Effect.sync(() => eventsHandler)
 +  };
++  let tasksHandler;
++  const tasks = {
++    register: handler => Effect.sync(() => {
++      tasksHandler = handler;
++    }),
++    current: Effect.sync(() => tasksHandler)
++  };
    const registrationPresence = Effect.sync(() => ({
      tools: registrations.size > 0,
 -    resources: resourceRegistrations.length > 0 || resourceTemplateRegistrations.length > 0,
@@ -1087,23 +1287,52 @@ index 4c416a837fd627e48c53d7b10fb73198484c40f3..e6d922ae17821ad18d65d7d940618c27
      prompts: promptRegistrations.size > 0,
 -    skills: skillRegistrations.size > 0
 +    skills: skillRegistrations.size > 0 || skillSource !== undefined,
-+    events: eventsHandler !== undefined
++    events: eventsHandler !== undefined,
++    tasks: tasksHandler !== undefined
    }));
    return {
      tools,
-@@ -246,6 +274,7 @@ export const make = /*#__PURE__*/Effect.sync(() => {
+@@ -246,6 +286,8 @@ export const make = /*#__PURE__*/Effect.sync(() => {
      prompts,
      completions,
      skills,
 +    events,
++    tasks,
      registrationPresence
    };
  });
 diff --git a/dist/ai/internal/mcpProtocol/v2026_07_28.js b/dist/ai/internal/mcpProtocol/v2026_07_28.js
-index af1ceed91e3edfce4ffd56b150de8b40088d61e8..a9fd56c5a8b5c093e7e96fb522d292f526a2ee88 100644
+index af1ceed91e3edfce4ffd56b150de8b40088d61e8..c4ab539ad45be667d2a93bf8c4ce522b512dc0f9 100644
 --- a/dist/ai/internal/mcpProtocol/v2026_07_28.js
 +++ b/dist/ai/internal/mcpProtocol/v2026_07_28.js
-@@ -260,6 +260,14 @@ export const makeHandlers = (core, _lifecycle, context) => {
+@@ -75,7 +75,9 @@ const projectInputRequired = (outcome, serverInfo) => omitUndefined({
+   inputRequests: outcome.inputRequests,
+   requestState: outcome.requestState
+ });
+-const decodeCallToolOutcome = /*#__PURE__*/Schema.decodeUnknownEffect(/*#__PURE__*/Schema.Union([McpSchema.CallToolResult, McpSchema.InputRequiredResult]));
++const decodeCallToolOutcome = /*#__PURE__*/Schema.decodeUnknownEffect(/*#__PURE__*/Schema.Union([McpSchema.CallToolResult, McpSchema.InputRequiredResult, McpSchema.CreateTaskResult]));
++const TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks";
++const declaresTasks = capabilities => capabilities.extensions?.[TASKS_EXTENSION_ID] !== undefined;
+ /**
+  * @internal
+  */
+@@ -88,6 +90,15 @@ export const projectCallToolOutcome = /*#__PURE__*/Effect.fnUntraced(function* (
+       resultType: "complete"
+     });
+   }
++  if (outcome._tag === "Task") {
++    return yield* decodeCallToolOutcome(omitUndefined({
++      ...outcome.task,
++      _meta: {
++        "io.modelcontextprotocol/serverInfo": encodedServerInfo
++      },
++      resultType: "task"
++    }));
++  }
+   return yield* decodeCallToolOutcome(projectInputRequired(outcome, encodedServerInfo));
+ });
+ const requiredCapabilitiesForInputRequests = (inputRequests, capabilities) => {
+@@ -260,6 +271,40 @@ export const makeHandlers = (core, _lifecycle, context) => {
    const decodeListSkillsResult = Schema.decodeUnknownEffect(McpSkills.ListSkillsResult);
    const decodeGetSkillResult = Schema.decodeUnknownEffect(McpSkills.GetSkillResult);
    const decodeReadResourceDirectoryResult = Schema.decodeUnknownEffect(McpSkills.ReadResourceDirectoryResult);
@@ -1115,10 +1344,49 @@ index af1ceed91e3edfce4ffd56b150de8b40088d61e8..a9fd56c5a8b5c093e7e96fb522d292f5
 +    code: PublicMcpSchema.METHOD_NOT_FOUND_ERROR_CODE,
 +    message: "Method not found"
 +  })) : Effect.succeed(handler));
++  const tasksHandler = Effect.flatMap(core.tasks.current, handler => handler === undefined ? failWithHttpStatus(404, new McpProtocol.ProtocolError({
++    code: PublicMcpSchema.METHOD_NOT_FOUND_ERROR_CODE,
++    message: "Method not found"
++  })) : Effect.succeed(handler));
++  const missingTasksCapability = failWithHttpStatus(400, new McpProtocol.ProtocolError({
++    code: McpSchema.MISSING_REQUIRED_CLIENT_CAPABILITY,
++    message: "The request requires client capabilities that were not declared",
++    data: {
++      requiredCapabilities: {
++        extensions: {
++          [TASKS_EXTENSION_ID]: {}
++        }
++      }
++    }
++  }));
++  const decodeGetTaskResult = Schema.decodeUnknownEffect(McpSchema.GetTaskResult);
++  const decodeTaskAcknowledgedResult = Schema.decodeUnknownEffect(McpSchema.TaskAcknowledgedResult);
++  const taskInvocation = Effect.gen(function* () {
++    const handler = yield* tasksHandler;
++    const invocation = yield* getInvocation;
++    if (!declaresTasks(invocation.protocol.clientCapabilities)) return yield* missingTasksCapability;
++    return {
++      handler,
++      invocation
++    };
++  });
    const sendNotification = context.sendNotification;
    const supportsSubscriptions = sendNotification !== undefined;
    // Older adapters accept arbitrary JSON; this binding requires extension settings objects.
-@@ -291,6 +299,7 @@ export const makeHandlers = (core, _lifecycle, context) => {
+@@ -277,7 +322,11 @@ export const makeHandlers = (core, _lifecycle, context) => {
+       completions: {},
+       logging: {}
+     };
+-    const declared = McpSkills.declareExtension(extensions, presence.skills);
++    const skillsDeclared = McpSkills.declareExtension(extensions, presence.skills);
++    const declared = presence.tasks ? {
++      ...skillsDeclared,
++      [TASKS_EXTENSION_ID]: {}
++    } : skillsDeclared;
+     if (declared !== undefined) capabilities.extensions = declared;
+     if (presence.tools) capabilities.tools = {
+       listChanged: supportsSubscriptions
+@@ -291,6 +340,7 @@ export const makeHandlers = (core, _lifecycle, context) => {
      if (presence.prompts) capabilities.prompts = {
        listChanged: supportsSubscriptions
      };
@@ -1126,10 +1394,49 @@ index af1ceed91e3edfce4ffd56b150de8b40088d61e8..a9fd56c5a8b5c093e7e96fb522d292f5
      return {
        supportedVersions: context.supportedVersions,
        capabilities,
-@@ -592,6 +601,40 @@ export const makeHandlers = (core, _lifecycle, context) => {
+@@ -554,6 +604,10 @@ export const makeHandlers = (core, _lifecycle, context) => {
+         yield* validateInputRequestCapabilities(outcome, invocation.protocol.clientCapabilities);
+         return yield* projectCallToolOutcome(outcome, context.serverInfo);
+       }
++      if (outcome._tag === "Task") {
++        if (!declaresTasks(invocation.protocol.clientCapabilities)) return yield* missingTasksCapability;
++        return yield* projectCallToolOutcome(outcome, context.serverInfo);
++      }
+       const toolResult = outcome.value;
+       const content = toolResult.content.map(projectContent);
+       return yield* projectCallToolOutcome(McpCore.OperationOutcome.Complete({
+@@ -592,6 +646,68 @@ export const makeHandlers = (core, _lifecycle, context) => {
        }, context.serverInfo);
        return yield* decodeReadResourceDirectoryResult(result);
      }, Effect.mapError(projectError)),
++    "tasks/get": Effect.fnUntraced(function* (request) {
++      const {
++        handler,
++        invocation
++      } = yield* taskInvocation;
++      const task = yield* handler.get(request.taskId, invocation);
++      const result = yield* projectCompleteResult(omitUndefined(task), context.serverInfo);
++      return yield* decodeGetTaskResult(result);
++    }, Effect.mapError(projectError)),
++    "tasks/update": Effect.fnUntraced(function* (request) {
++      const {
++        handler,
++        invocation
++      } = yield* taskInvocation;
++      const inputResponses = yield* decodeInputResponses(request.inputResponses).pipe(Effect.orDie);
++      yield* handler.update(request.taskId, inputResponses, invocation);
++      const result = yield* projectCompleteResult({}, context.serverInfo);
++      return yield* decodeTaskAcknowledgedResult(result);
++    }, Effect.mapError(projectError)),
++    "tasks/cancel": Effect.fnUntraced(function* (request) {
++      const {
++        handler,
++        invocation
++      } = yield* taskInvocation;
++      yield* handler.cancel(request.taskId, invocation);
++      const result = yield* projectCompleteResult({}, context.serverInfo);
++      return yield* decodeTaskAcknowledgedResult(result);
++    }, Effect.mapError(projectError)),
 +    "events/list": Effect.fnUntraced(function* (request) {
 +      const handler = yield* eventsHandler;
 +      const invocation = yield* getInvocation;
@@ -1168,7 +1475,7 @@ index af1ceed91e3edfce4ffd56b150de8b40088d61e8..a9fd56c5a8b5c093e7e96fb522d292f5
        return yield* Effect.void;
      })
 diff --git a/dist/ai/internal/mcpRuntime.js b/dist/ai/internal/mcpRuntime.js
-index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3aabfbaa4d 100644
+index 88238ffacc4206a0e2958d067d0c4f337469cbdf..b4ba5c96440e6602879250d3f20507c457ca397a 100644
 --- a/dist/ai/internal/mcpRuntime.js
 +++ b/dist/ai/internal/mcpRuntime.js
 @@ -8,6 +8,8 @@ import * as HttpServerResponse from "../../http/HttpServerResponse.js";
@@ -1180,7 +1487,18 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
  import * as RpcGroup from "../../rpc/RpcGroup.js";
  import * as PublicMcpSchema from "../McpSchema.js";
  import * as McpProtocol from "./mcpProtocol.js";
-@@ -73,9 +75,56 @@ export const selectStatefulProtocol = (protocols, offeredVersion) => protocols.f
+@@ -42,6 +44,10 @@ const routingNameKey = method => {
+       return "name";
+     case "resources/read":
+       return "uri";
++    case "tasks/get":
++    case "tasks/update":
++    case "tasks/cancel":
++      return "taskId";
+     default:
+       return undefined;
+   }
+@@ -73,9 +79,56 @@ export const selectStatefulProtocol = (protocols, offeredVersion) => protocols.f
  /**
   * @internal
   */
@@ -1239,7 +1557,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
    const protocolVersions = protocols.map(protocol => protocol.protocolVersion);
    let statelessDescriptor;
    let statelessProtocol;
-@@ -91,9 +140,11 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -91,9 +144,11 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
    }
    const registry = yield* McpProtocolRegistry.make(protocols);
    const sessionTerminationListeners = new Set();
@@ -1252,7 +1570,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
      data: {
        supported: protocolVersions,
        requested
-@@ -103,10 +154,15 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -103,10 +158,15 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
      const protocolVersion = headers[MCP_PROTOCOL_VERSION_HEADER];
      const sessionId = headers[MCP_SESSION_ID_HEADER];
      const binding = sessionId === undefined ? undefined : stateful?.resolveSessionId(sessionId);
@@ -1269,7 +1587,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
        };
      }
      if (!isInitialize && protocolVersion !== undefined) {
-@@ -261,7 +317,9 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -261,7 +321,9 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
        };
      }),
      resolveRequest: (clientId, headers) => stateful?.resolve(clientId, headers),
@@ -1280,7 +1598,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
        const reject = (status, error, id = null) => ({
          _tag: "Rejected",
          response: error === undefined ? HttpServerResponse.empty({
-@@ -280,8 +338,8 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -280,8 +342,8 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
            return reject(400, unsupportedProtocolVersion(version));
          }
          const admission = selectHttpProtocol(headers, undefined);
@@ -1291,7 +1609,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
            message: "Parse error"
          }));
        }
-@@ -293,8 +351,13 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -293,8 +355,13 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
            }));
          }
          const admission = selectHttpProtocol(headers, input);
@@ -1307,7 +1625,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
          }
          return {
            _tag: "Accepted",
-@@ -324,12 +387,12 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -324,12 +391,12 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
        const hasSession = headers[MCP_SESSION_ID_HEADER] !== undefined;
        if (isInitialize && hasSession) {
          return reject(400, new PublicMcpSchema.InvalidRequest({
@@ -1322,7 +1640,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
          }), id);
        }
        if (isRequest && admission.protocol?.runtime._tag === "Stateless" && !(admission.protocol.handlerRpcs?.requests.has(input.method) ?? admission.protocol.clientRpcs.requests.has(input.method))) {
-@@ -337,11 +400,41 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -337,11 +404,41 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
            message: `Method not found: ${input.method}`
          }), id);
        }
@@ -1365,7 +1683,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
      },
      effectLogLevel: (clientId, headers, fallback) => stateful?.effectLogLevel(clientId, headers, fallback) ?? fallback,
      disconnect: clientId => stateful?.disconnect(clientId),
-@@ -374,6 +467,8 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -374,6 +471,8 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
      deliveryClientIds: () => stateful?.initializedClientIds() ?? [],
      canDeliver: (clientId, headers, notification, fallback, listChangeRevision) => stateful?.canDeliver(clientId, headers, notification, fallback, listChangeRevision) ?? true,
      installHandlers: Effect.fnUntraced(function* (options) {
@@ -1374,7 +1692,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
        const contextMap = new Map();
        const installationContext = {
          subscribeServerNotifications: options.subscribeServerNotifications,
-@@ -445,9 +540,19 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -445,9 +544,19 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
                  logLevel: options.defaultLogLevel,
                  listChangeRevision: options.getListChangeRevision?.() ?? 0
                };
@@ -1395,7 +1713,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
                  appendPreResponseHandlerUnsafe(fiber.context, (_request, response) => Effect.succeed(HttpServerResponse.setHeaders(response, {
                    [MCP_SESSION_ID_HEADER]: sessionId,
                    [MCP_PROTOCOL_VERSION_HEADER]: protocol.protocolVersion
-@@ -455,7 +560,7 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -455,7 +564,7 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
                } else {
                  stateful.registerConnection(clientId, registration);
                }
@@ -1404,7 +1722,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
                  capabilities,
                  instructions: options.serverInfo.instructions,
                  serverInfo: PublicMcpSchema.Implementation.make({
-@@ -468,7 +573,11 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -468,7 +577,11 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
                });
              });
            }),
@@ -1417,7 +1735,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
            subscribe: stateful.subscribe,
            unsubscribe: stateful.unsubscribe,
            clientNotification: Effect.fnUntraced(function* (notification, clientId) {
-@@ -486,5 +595,5 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
+@@ -486,5 +599,5 @@ export const make = /*#__PURE__*/Effect.fnUntraced(function* (protocols) {
  /**
   * @internal
   */
@@ -1426,7 +1744,7 @@ index 88238ffacc4206a0e2958d067d0c4f337469cbdf..a164dee8996cbef0609368ffafd98f3a
  //# sourceMappingURL=mcpRuntime.js.map
 \ No newline at end of file
 diff --git a/dist/ai/internal/mcpSchema/v2026_07_28.js b/dist/ai/internal/mcpSchema/v2026_07_28.js
-index 9d4be684f731bae339b3f9c9b52d80c1c4a1d0e9..7d6d1139fcb7776b50149062defda72c16e82897 100644
+index 9d4be684f731bae339b3f9c9b52d80c1c4a1d0e9..a2cfafedbbf6a66d9299acbed50e81a0396ca581 100644
 --- a/dist/ai/internal/mcpSchema/v2026_07_28.js
 +++ b/dist/ai/internal/mcpSchema/v2026_07_28.js
 @@ -66,6 +66,9 @@ export const ServerCapabilities = /*#__PURE__*/Schema.StructWithRest(/*#__PURE__
@@ -1439,7 +1757,85 @@ index 9d4be684f731bae339b3f9c9b52d80c1c4a1d0e9..7d6d1139fcb7776b50149062defda72c
    extensions: /*#__PURE__*/optional(/*#__PURE__*/Schema.Record(Schema.String, UnknownObject))
  }), [UnknownObject]);
  /**
-@@ -723,7 +726,88 @@ export class SubscriptionsAcknowledgedNotification extends /*#__PURE__*/Rpc.make
+@@ -568,11 +571,76 @@ export const CallToolResult = /*#__PURE__*/Schema.StructWithRest(/*#__PURE__*/Sc
+   structuredContent: /*#__PURE__*/optional(Schema.Unknown),
+   isError: /*#__PURE__*/optional(Schema.Boolean)
+ }), [UnknownObject]);
++const TaskFields = {
++  taskId: Schema.String,
++  status: /*#__PURE__*/Schema.Literals(["working", "input_required", "completed", "failed", "cancelled"]),
++  statusMessage: /*#__PURE__*/optional(Schema.String),
++  createdAt: Schema.String,
++  lastUpdatedAt: Schema.String,
++  ttlMs: /*#__PURE__*/Schema.NullOr(Schema.Finite),
++  pollIntervalMs: /*#__PURE__*/optional(Schema.Finite)
++};
++/**
++ * @internal
++ */
++export const CreateTaskResult = /*#__PURE__*/Schema.StructWithRest(/*#__PURE__*/Schema.Struct({
++  _meta: /*#__PURE__*/optional(ResultMetaObject),
++  resultType: /*#__PURE__*/Schema.Literal("task"),
++  ...TaskFields
++}), [UnknownObject]);
++/**
++ * @internal
++ */
++export const GetTaskResult = /*#__PURE__*/Schema.StructWithRest(/*#__PURE__*/Schema.Struct({
++  ...ResultMeta,
++  ...TaskFields,
++  inputRequests: /*#__PURE__*/optional(InputRequests),
++  result: /*#__PURE__*/optional(UnknownObject),
++  error: /*#__PURE__*/optional(McpError)
++}), [UnknownObject]);
++/**
++ * @internal
++ */
++export const TaskAcknowledgedResult = /*#__PURE__*/Schema.StructWithRest(/*#__PURE__*/Schema.Struct(ResultMeta), [UnknownObject]);
++/**
++ * @internal
++ */
++export class GetTask extends /*#__PURE__*/Rpc.make("tasks/get", {
++  success: GetTaskResult,
++  error: McpError,
++  payload: {
++    ...RequestParams.fields,
++    taskId: Schema.String
++  }
++}) {}
++/**
++ * @internal
++ */
++export class UpdateTask extends /*#__PURE__*/Rpc.make("tasks/update", {
++  success: TaskAcknowledgedResult,
++  error: McpError,
++  payload: {
++    ...RequestParams.fields,
++    taskId: Schema.String,
++    inputResponses: InputResponses
++  }
++}) {}
++/**
++ * @internal
++ */
++export class CancelTask extends /*#__PURE__*/Rpc.make("tasks/cancel", {
++  success: TaskAcknowledgedResult,
++  error: McpError,
++  payload: {
++    ...RequestParams.fields,
++    taskId: Schema.String
++  }
++}) {}
+ /**
+  * @internal
+  */
+ export class CallTool extends /*#__PURE__*/Rpc.make("tools/call", {
+-  success: /*#__PURE__*/Schema.Union([CallToolResult, InputRequiredResult]),
++  success: /*#__PURE__*/Schema.Union([CallToolResult, InputRequiredResult, CreateTaskResult]),
+   error: McpError,
+   payload: {
+     ...InputResponseRequestParams,
+@@ -723,7 +791,88 @@ export class SubscriptionsAcknowledgedNotification extends /*#__PURE__*/Rpc.make
  /**
   * @internal
   */
@@ -1525,7 +1921,7 @@ index 9d4be684f731bae339b3f9c9b52d80c1c4a1d0e9..7d6d1139fcb7776b50149062defda72c
 +/**
 + * @internal
 + */
-+export class ClientRequestRpcs extends /*#__PURE__*/RpcGroup.make(Discover, Complete, GetPrompt, ListPrompts, ListResources, ListResourceTemplates, ReadResource, SubscriptionsListen, CallTool, ListTools, ListEvents, SubscribeEvent, UnsubscribeEvent) {}
++export class ClientRequestRpcs extends /*#__PURE__*/RpcGroup.make(Discover, Complete, GetPrompt, ListPrompts, ListResources, ListResourceTemplates, ReadResource, SubscriptionsListen, CallTool, ListTools, ListEvents, SubscribeEvent, UnsubscribeEvent, GetTask, UpdateTask, CancelTask) {}
  /**
   * @internal
   */
@@ -1921,10 +2317,74 @@ index c1b6bd5b027cffcc2c8045b2008873193e2c128f..2821cb4192327d2d70d933104e1a6ca8
            waiter.resume = undefined
            resume?.(internal.void)
 diff --git a/src/ai/McpSchema.ts b/src/ai/McpSchema.ts
-index ba6c8308c32c069d47aee10daf8361a244c4d9e6..49e207340576873874653ce5ecc88efedad1ee54 100644
+index ba6c8308c32c069d47aee10daf8361a244c4d9e6..881379fc1315e23867687ce19eff337017bd74c1 100644
 --- a/src/ai/McpSchema.ts
 +++ b/src/ai/McpSchema.ts
-@@ -3624,3 +3624,213 @@ export class EnabledWhen extends Context.Service<
+@@ -3087,6 +3087,63 @@ export class InputRequired extends Data.TaggedClass("InputRequired")<{
+   }
+ }
+ 
++/**
++ * The state of an MCP task in the tasks extension (`io.modelcontextprotocol/tasks`).
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export type McpTaskStatus = "working" | "input_required" | "completed" | "failed" | "cancelled"
++
++/**
++ * An MCP task as the tasks extension reports it. Times are ISO 8601 strings.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export interface McpTask {
++  readonly taskId: string
++  readonly status: McpTaskStatus
++  readonly statusMessage?: string | undefined
++  readonly createdAt: string
++  readonly lastUpdatedAt: string
++  readonly ttlMs: number | null
++  readonly pollIntervalMs?: number | undefined
++}
++
++/**
++ * An MCP task with what its status carries: the input it waits for, the
++ * wire-encoded result of the request that started it, or its JSON-RPC error.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export interface McpDetailedTask extends McpTask {
++  readonly inputRequests?: Readonly<Record<string, McpInputRequest>> | undefined
++  readonly result?: Readonly<Record<string, unknown>> | undefined
++  readonly error?: {
++    readonly code: number
++    readonly message: string
++    readonly data?: unknown
++  } | undefined
++}
++
++/**
++ * Answers a tool call with an MCP task instead of its result. The client then
++ * polls the task with `tasks/get`. Only a client that declared the tasks
++ * extension receives it; any other client gets a missing-capability error.
++ *
++ * @stability unstable
++ * @category models
++ * @since 4.0.0
++ */
++export class TaskCreated extends Data.TaggedClass("TaskCreated")<{
++  readonly task: McpTask
++}> {}
++
+ /**
+  * Sent from the server asking the client to collect structured input from the
+  * user.
+@@ -3624,3 +3681,213 @@ export class EnabledWhen extends Context.Service<
  >()(
    "effect/ai/McpSchema/EnabledWhen"
  ) {}
@@ -2139,10 +2599,41 @@ index ba6c8308c32c069d47aee10daf8361a244c4d9e6..49e207340576873874653ce5ecc88efe
 + */
 +export type UnsubscribeEventParams = typeof UnsubscribeEventParams.Type
 diff --git a/src/ai/McpServer.ts b/src/ai/McpServer.ts
-index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c4c1cb10c 100644
+index b544b6f138b5550bc4fbb465f879d1d04e6443c2..667f183c2b16b07c67daaf5dee35a3791b18b184 100644
 --- a/src/ai/McpServer.ts
 +++ b/src/ai/McpServer.ts
-@@ -1533,36 +1533,17 @@ const requestSpanOptions = (
+@@ -994,7 +994,7 @@ export class McpServer extends Context.Service<McpServer, {
+     readonly handle: (
+       payload: any
+     ) => Effect.Effect<
+-      CallToolResult | McpSchema.InputRequired,
++      CallToolResult | McpSchema.InputRequired | McpSchema.TaskCreated,
+       InternalError | InvalidParams,
+       McpRequestContext
+     >
+@@ -1267,9 +1267,11 @@ export class McpServer extends Context.Service<McpServer, {
+                     })
+                   )
+               }),
+-              Effect.map((result) =>
++              Effect.map((result): McpCore.ToolOutcome<CallToolResult> =>
+                 Predicate.isTagged(result, "InputRequired")
+                   ? McpCore.OperationOutcome.InputRequired(result)
++                  : Predicate.isTagged(result, "TaskCreated")
++                  ? McpCore.OperationOutcome.Task(result.task)
+                   : McpCore.OperationOutcome.Complete(result)
+               )
+             )
+@@ -1292,7 +1294,7 @@ export class McpServer extends Context.Service<McpServer, {
+             )
+           )
+         )
+-        if (result._tag === "InputRequired") {
++        if (result._tag !== "Complete") {
+           return yield* new InvalidParams({ message: "Client input is not supported by this MCP protocol" })
+         }
+         return result.value
+@@ -1533,36 +1535,17 @@ const requestSpanOptions = (
    if (request.isNotification !== true) attributes["jsonrpc.request.id"] = String(request.id)
    if (options.sessionId !== undefined) attributes["mcp.session.id"] = options.sessionId
    if (options.networkTransport !== undefined) attributes["network.transport"] = options.networkTransport
@@ -2187,7 +2678,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
      kind: "server",
      attributes,
      parent: remoteParentSpan(params)
-@@ -1706,8 +1687,8 @@ const normalizeCacheHints = (
+@@ -1706,8 +1689,8 @@ const normalizeCacheHints = (
   *
   * Each request handled by the server runs in a server span that follows the
   * OpenTelemetry MCP semantic conventions. Spans are named after the JSON-RPC
@@ -2198,7 +2689,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
   * `params._meta` becomes the span's parent, and the transport span (such as
   * the HTTP server span) is linked. Tool arguments are recorded only when
   * `Toolkit.RecordToolArguments` is `true`.
-@@ -2740,6 +2721,41 @@ const mcpStdioSerialization = (
+@@ -2740,6 +2723,41 @@ const mcpStdioSerialization = (
    })
  }
  
@@ -2240,7 +2731,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
  /**
   * Registers a Streamable HTTP MCP endpoint at `options.path`.
   *
-@@ -2821,6 +2837,22 @@ export const layerHttp = <
+@@ -2821,6 +2839,22 @@ export const layerHttp = <
    readonly allowSessionTermination?: boolean | undefined
    readonly allowSubscriptions?: boolean | undefined
    readonly registrations?: Layer.Layer<RA, RE, RR> | undefined
@@ -2263,7 +2754,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
  }): Layer.Layer<
    McpServer | McpRequest.From<"Requires", ProvidedServices<Protocols, true>>,
    Cause.IllegalArgumentError | RE,
-@@ -2828,7 +2860,10 @@ export const layerHttp = <
+@@ -2828,7 +2862,10 @@ export const layerHttp = <
    | RegistrationServices<RR>
    | HttpRouter.Request.From<"Requires", RemainingRequestServices<RR, ProvidedServices<Protocols, true>>>
  > => {
@@ -2275,7 +2766,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
    return layerWithRuntime(options, "http").pipe(
      Layer.provide(layerMcpProtocolHttp(options)),
      Layer.provide(runtime),
-@@ -2987,12 +3022,11 @@ const addMcpHttpRoutes = Effect.fnUntraced(function*(
+@@ -2987,12 +3024,11 @@ const addMcpHttpRoutes = Effect.fnUntraced(function*(
    const router = yield* HttpRouter.HttpRouter
    const allowSessionTermination = options.allowSessionTermination === true &&
      runtime.protocols.some((protocol) => protocol.runtime._tag === "Stateful")
@@ -2289,7 +2780,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
    const methodNotAllowedResponse = Effect.succeed(HttpServerResponse.empty({
      status: 405,
      headers: { allow: allowSessionTermination ? "POST, DELETE" : "POST" }
-@@ -3010,46 +3044,76 @@ const addMcpHttpRoutes = Effect.fnUntraced(function*(
+@@ -3010,46 +3046,76 @@ const addMcpHttpRoutes = Effect.fnUntraced(function*(
    )
    yield* router.add("POST", options.path, (request) => {
      if (!isAllowedMcpOrigin(request, options.allowedOrigins)) {
@@ -2357,12 +2848,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
 +          return admission.isSubscription || response.body._tag === "Stream" || hasMultipleMessages
 +            ? toServerSentEvents(response, admission.isSubscription)
 +            : response
-         }
--        // Only fully cancelled request POSTs may return an empty SSE response.
--        // https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server
--        return httpPostResponses.get(request)?.expected === 0
--          ? Effect.succeed(HttpServerResponse.stream(Stream.empty, { contentType: "text/event-stream" }))
--          : Effect.die(new Error("MCP request ended without writing its response"))
++        }
 +        const answered = admission.acknowledge
 +          ? Effect.catchCause(
 +            Effect.map(httpEffect, toResponse),
@@ -2383,7 +2869,12 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
 +          // that ends without opening it gives the place back.
 +          const release = admission.release
 +          return release === undefined ? restore(answered) : Effect.ensuring(restore(answered), Effect.sync(release))
-+        }
+         }
+-        // Only fully cancelled request POSTs may return an empty SSE response.
+-        // https://modelcontextprotocol.io/specification/2025-11-25/basic/transports#sending-messages-to-the-server
+-        return httpPostResponses.get(request)?.expected === 0
+-          ? Effect.succeed(HttpServerResponse.stream(Stream.empty, { contentType: "text/event-stream" }))
+-          : Effect.die(new Error("MCP request ended without writing its response"))
 +        // Executor: the session is kept until this request's response has been sent, so a reply,
 +        // cancellation or answer that belongs to it can still reach it when newer sessions pass the
 +        // bound. The hold belongs to the request's scope, which closes once the response has been
@@ -2395,7 +2886,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
        })
      })
    })
-@@ -3175,6 +3239,18 @@ const isAllowedMcpOrigin = (
+@@ -3175,6 +3241,18 @@ const isAllowedMcpOrigin = (
    return origin === undefined || (allowedOrigins ?? []).includes(origin)
  }
  
@@ -2414,7 +2905,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
  const mcpMediaTypes = (header: string | undefined): ReadonlyArray<string> =>
    header === undefined
      ? []
-@@ -3221,6 +3297,22 @@ const toolErrorResult = (message: string): CallToolResult =>
+@@ -3221,6 +3299,22 @@ const toolErrorResult = (message: string): CallToolResult =>
  const toolResultContent = (encoded: unknown): CallToolResult["content"] =>
    encoded === undefined ? [] : [{ type: "text", text: JSON.stringify(encoded) }]
  
@@ -2437,7 +2928,7 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
  /**
   * The requirements of a toolkit registration.
   *
-@@ -3309,6 +3401,7 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+@@ -3309,6 +3403,7 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
      }
      const annotations = tool.annotations
      const toolMeta = Context.getOrUndefined(annotations, Tool.Meta)
@@ -2445,17 +2936,20 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
      const isDeclaredFailure = Schema.is(tool.failureSchema)
      // MCP content is JSON. Failures raised in "error" mode skip the Toolkit's encoding, so they use the JSON codec here.
      const encodeFailureJson = Schema.encodeUnknownEffect(Schema.toCodecJson(tool.failureSchema)) as (
-@@ -3345,6 +3438,9 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+@@ -3345,6 +3440,12 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
          if (origin === "parameters" && isParameterValidationError(error)) {
            return Effect.fail(new InvalidParams({ message: error.reason.message }))
          }
-+        if (origin === "handler" && error instanceof McpSchema.InputRequired) {
++        if (
++          origin === "handler" &&
++          (error instanceof McpSchema.InputRequired || error instanceof McpSchema.TaskCreated)
++        ) {
 +          return Effect.succeed(error)
 +        }
          if (origin === "handler" && isDeclaredFailure(error)) {
            return Effect.catchCause(declaredFailureResult(error), internalToolError)
          }
-@@ -3399,6 +3495,10 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+@@ -3399,6 +3500,10 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
            > => {
              // The Toolkit encodes successes and "return"-mode failures with their JSON codec.
              if (!result.isFailure) {
@@ -2466,16 +2960,16 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
                // An absent result, such as `Schema.Void`, has no structured form.
                return Effect.succeed(
                  result.result === undefined
-@@ -3415,7 +3515,7 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
+@@ -3415,7 +3520,7 @@ export const registerToolkit: <Tools extends Record<string, Tool.Any>>(
                ))
            }),
            Effect.catchCause(handleCause)
 -        ) as Effect.Effect<CallToolResult, InvalidParams, never>
-+        ) as Effect.Effect<CallToolResult | McpSchema.InputRequired, InvalidParams, never>
++        ) as Effect.Effect<CallToolResult | McpSchema.InputRequired | McpSchema.TaskCreated, InvalidParams, never>
        },
        services
      })
-@@ -3464,6 +3564,71 @@ export const toolkit = <Tools extends Record<string, Tool.Any>>(
+@@ -3464,6 +3569,132 @@ export const toolkit = <Tools extends Record<string, Tool.Any>>(
    toolkit: Toolkit.Toolkit<Tools>
  ): Layer.Layer<never, never, ToolkitRequirements<Tools>> => Layer.effectDiscard(registerToolkit(toolkit))
  
@@ -2544,10 +3038,71 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
 +  handler: EventsHandler<R>
 +): Layer.Layer<never, never, McpServer | Exclude<R, McpRequestContext>> => Layer.effectDiscard(registerEvents(handler))
 +
++/**
++ * Handlers for the MCP tasks extension (`io.modelcontextprotocol/tasks`). Each runs with the
++ * request's `McpRequestContext`, so it can authorize the principal that sent it. Failures are
++ * MCP errors and reach the client unchanged, such as invalid params for an unknown task.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export interface TasksHandler<R = never> {
++  readonly get: (taskId: string) => Effect.Effect<McpSchema.McpDetailedTask, McpSchema.McpError, R>
++  readonly update: (
++    taskId: string,
++    inputResponses: Readonly<Record<string, McpSchema.McpInputResponse>>
++  ) => Effect.Effect<void, McpSchema.McpError, R>
++  readonly cancel: (taskId: string) => Effect.Effect<void, McpSchema.McpError, R>
++}
++
++/**
++ * Registers the server's MCP tasks handlers. The server then declares the tasks extension
++ * (`io.modelcontextprotocol/tasks`) and serves `tasks/get`, `tasks/update` and `tasks/cancel`
++ * to clients that declared it. A tool handler creates a task by failing with
++ * `McpSchema.TaskCreated`. The services the handlers need are taken when they are registered.
++ *
++ * Only protocols that define tasks serve these methods; currently `2026-07-28`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export const registerTasks = <R>(
++  handler: TasksHandler<R>
++): Effect.Effect<void, never, McpServer | Exclude<R, McpRequestContext>> =>
++  Effect.gen(function*() {
++    const server = yield* McpServer
++    const services = omitRequestServices(yield* Effect.context<Exclude<R, McpRequestContext>>())
++    const run = <A>(
++      effect: Effect.Effect<A, McpSchema.McpError, R>,
++      invocation: McpCore.McpInvocation
++    ): Effect.Effect<A, McpSchema.McpError> =>
++      provideInvocationContext(effect, invocation).pipe(
++        Effect.provideContext(services as Context.Context<Exclude<R, McpRequestContext>>)
++      )
++    yield* internalState.get(server)!.core.tasks.register({
++      get: (taskId, invocation) => run(handler.get(taskId), invocation),
++      update: (taskId, inputResponses, invocation) => run(handler.update(taskId, inputResponses), invocation),
++      cancel: (taskId, invocation) => run(handler.cancel(taskId), invocation)
++    })
++  })
++
++/**
++ * Registers MCP tasks handlers as a layer. Pass it to a transport's `registrations`.
++ *
++ * @stability unstable
++ * @category tasks
++ * @since 4.0.0
++ */
++export const tasks = <R>(
++  handler: TasksHandler<R>
++): Layer.Layer<never, never, McpServer | Exclude<R, McpRequestContext>> => Layer.effectDiscard(registerTasks(handler))
++
  /**
   * Utility type that validates a completion-handler record against the allowed
   * parameter keys.
-@@ -3968,6 +4133,62 @@ export const registerSkill: (options: SkillOptions) => Effect.Effect<void, Cause
+@@ -3968,6 +4199,62 @@ export const registerSkill: (options: SkillOptions) => Effect.Effect<void, Cause
      }
    })
  
@@ -2611,10 +3166,52 @@ index b544b6f138b5550bc4fbb465f879d1d04e6443c2..2798bd943de4970d24ae1d7ece5c8e6c
   * Creates a layer that registers an Agent Skill under the MCP Skills extension
   * (SEP-2640).
 diff --git a/src/ai/internal/mcpCore.ts b/src/ai/internal/mcpCore.ts
-index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860f44b7c49 100644
+index 643982d6121f953016735b150011c88142119050..8d0cff71b37194a3f0a36e8f0c58922c60aeefea 100644
 --- a/src/ai/internal/mcpCore.ts
 +++ b/src/ai/internal/mcpCore.ts
-@@ -330,10 +330,27 @@ export interface SkillRegistration {
+@@ -25,6 +25,13 @@ export type OperationOutcome<A> = Data.TaggedEnum<{
+   InputRequired: InputRequiredFields
+ }>
+ 
++/**
++ * A tool call's outcome: an operation outcome, or an MCP task the client polls for it.
++ *
++ * @internal
++ */
++export type ToolOutcome<A> = OperationOutcome<A> | { readonly _tag: "Task"; readonly task: McpSchema.McpTask }
++
+ /**
+  * @internal
+  */
+@@ -33,7 +40,8 @@ export const OperationOutcome = {
+   InputRequired: (fields: InputRequiredFields): OperationOutcome<never> => ({
+     _tag: "InputRequired",
+     ...fields
+-  })
++  }),
++  Task: (task: McpSchema.McpTask): ToolOutcome<never> => ({ _tag: "Task", task })
+ }
+ 
+ /**
+@@ -187,7 +195,7 @@ export interface ToolRegistration {
+     // Runs after request-level visibility accepts the tool, and before its handler.
+     beforeHandle: Effect.Effect<void, RequestRejected>
+   ) => Effect.Effect<
+-    OperationOutcome<McpSchema.CallToolResult>,
++    ToolOutcome<McpSchema.CallToolResult>,
+     ToolNotFound | InvalidToolInput | InvalidToolContinuation | ToolExecutionError | RequestRejected,
+     never
+   >
+@@ -207,7 +215,7 @@ export interface Tools {
+     call: typeof McpSchema.CallTool.payloadSchema.Type,
+     invocation: McpInvocation,
+     beforeHandle?: ((tool: McpSchema.Tool) => Effect.Effect<void, RequestRejected>) | undefined
+-  ) => Effect.Effect<OperationOutcome<McpSchema.CallToolResult>, ToolError>
++  ) => Effect.Effect<ToolOutcome<McpSchema.CallToolResult>, ToolError>
+ }
+ 
+ /**
+@@ -330,10 +338,27 @@ export interface SkillRegistration {
    readonly directory: (uri: string) => ReadonlyArray<DirectoryChild> | undefined
  }
  
@@ -2642,7 +3239,7 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
    // Fails when the skill's directory overlaps another skill's, or one of its
    // files is already registered as a resource.
    readonly register: (registration: SkillRegistration) => Effect.Effect<void, Cause.IllegalArgumentError>
-@@ -498,6 +515,35 @@ export type ServerNotification = Data.TaggedEnum<{
+@@ -498,6 +523,62 @@ export type ServerNotification = Data.TaggedEnum<{
   */
  export const ServerNotification = Data.taggedEnum<ServerNotification>()
  
@@ -2675,24 +3272,53 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
 +  readonly current: Effect.Effect<EventsHandler | undefined>
 +}
 +
++/**
++ * One server's MCP tasks: reading, answering and cancelling the tasks its tool calls created.
++ * Handlers fail with an MCP error, such as invalid params for an unknown task.
++ *
++ * @internal
++ */
++export interface TasksHandler {
++  readonly get: (
++    taskId: string,
++    invocation: McpInvocation
++  ) => Effect.Effect<McpSchema.McpDetailedTask, McpSchema.McpError>
++  readonly update: (
++    taskId: string,
++    inputResponses: Readonly<Record<string, McpSchema.McpInputResponse>>,
++    invocation: McpInvocation
++  ) => Effect.Effect<void, McpSchema.McpError>
++  readonly cancel: (taskId: string, invocation: McpInvocation) => Effect.Effect<void, McpSchema.McpError>
++}
++
++/**
++ * @internal
++ */
++export interface Tasks {
++  readonly register: (handler: TasksHandler) => Effect.Effect<void>
++  readonly current: Effect.Effect<TasksHandler | undefined>
++}
++
  /**
   * @internal
   */
-@@ -507,11 +553,13 @@ export interface McpCore {
+@@ -507,11 +588,15 @@ export interface McpCore {
    readonly prompts: Prompts
    readonly completions: Completions
    readonly skills: Skills
 +  readonly events: Events
++  readonly tasks: Tasks
    readonly registrationPresence: Effect.Effect<{
      readonly tools: boolean
      readonly resources: boolean
      readonly prompts: boolean
      readonly skills: boolean
 +    readonly events: boolean
++    readonly tasks: boolean
    }>
  }
  
-@@ -540,6 +588,7 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -540,6 +625,7 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
    const promptRegistrations = new Map<string, PromptRegistration>()
    const skillRegistrations = new Map<string, SkillRegistration>()
    const skillFiles = new Set<string>()
@@ -2700,7 +3326,16 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
    const completionRegistrations = new Map<
      string,
      (
-@@ -620,6 +669,10 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -571,7 +657,7 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+       }),
+     list: (invocation) => filterList(registrations.values(), invocation),
+     call: (call, invocation, beforeHandle) =>
+-      Effect.suspend((): Effect.Effect<OperationOutcome<McpSchema.CallToolResult>, ToolError> => {
++      Effect.suspend((): Effect.Effect<ToolOutcome<McpSchema.CallToolResult>, ToolError> => {
+         const registration = registrations.get(call.name)
+         if (registration === undefined) {
+           return new ToolNotFound({ name: call.name })
+@@ -620,6 +706,10 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
            return yield* template.read(uri, params, invocation)
          }
        }
@@ -2711,7 +3346,7 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
        return yield* new ResourceNotFound({ uri })
      })
    }
-@@ -663,6 +716,10 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -663,6 +753,10 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
    }
  
    const skills: Skills = {
@@ -2722,7 +3357,7 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
      register: (registration) =>
        Effect.suspend(() => {
          const { uri, resources } = registration.entry
-@@ -689,13 +746,23 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -689,13 +783,23 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
            visible: registration.visible
          })),
          invocation
@@ -2749,7 +3384,7 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
        }),
      readDirectory: Effect.fnUntraced(function*(uri, invocation) {
        const children = new Map<string, DirectoryChild>()
-@@ -710,6 +777,13 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -710,6 +814,13 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
          found = true
          for (const child of own) children.set(child.uri, child)
        }
@@ -2763,7 +3398,7 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
        if (!found) {
          return yield* new DirectoryNotFound({ uri })
        }
-@@ -717,12 +791,23 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
+@@ -717,12 +828,33 @@ export const make: Effect.Effect<McpCore> = Effect.sync(() => {
      })
    }
  
@@ -2776,6 +3411,15 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
 +    current: Effect.sync(() => eventsHandler)
 +  }
 +
++  let tasksHandler: TasksHandler | undefined
++  const tasks: Tasks = {
++    register: (handler) =>
++      Effect.sync(() => {
++        tasksHandler = handler
++      }),
++    current: Effect.sync(() => tasksHandler)
++  }
++
    const registrationPresence = Effect.sync(() => ({
      tools: registrations.size > 0,
 -    resources: resourceRegistrations.length > 0 || resourceTemplateRegistrations.length > 0,
@@ -2784,17 +3428,55 @@ index 643982d6121f953016735b150011c88142119050..15c8edb096d2e0f5979a23c3b7987860
      prompts: promptRegistrations.size > 0,
 -    skills: skillRegistrations.size > 0
 +    skills: skillRegistrations.size > 0 || skillSource !== undefined,
-+    events: eventsHandler !== undefined
++    events: eventsHandler !== undefined,
++    tasks: tasksHandler !== undefined
    }))
  
 -  return { tools, resources, prompts, completions, skills, registrationPresence }
-+  return { tools, resources, prompts, completions, skills, events, registrationPresence }
++  return { tools, resources, prompts, completions, skills, events, tasks, registrationPresence }
  })
 diff --git a/src/ai/internal/mcpProtocol/v2026_07_28.ts b/src/ai/internal/mcpProtocol/v2026_07_28.ts
-index a701ec874b4604680ca3163781aa70a6e3f906fe..7bb6f90b7796a3d38f104df18e8638ac1ef1a886 100644
+index a701ec874b4604680ca3163781aa70a6e3f906fe..f4bd842b121bc3e35a09a2e2b5ab398a081b39d4 100644
 --- a/src/ai/internal/mcpProtocol/v2026_07_28.ts
 +++ b/src/ai/internal/mcpProtocol/v2026_07_28.ts
-@@ -370,6 +370,20 @@ export const makeHandlers = (
+@@ -114,14 +114,20 @@ const projectInputRequired = (
+ 
+ const decodeCallToolOutcome = Schema.decodeUnknownEffect(Schema.Union([
+   McpSchema.CallToolResult,
+-  McpSchema.InputRequiredResult
++  McpSchema.InputRequiredResult,
++  McpSchema.CreateTaskResult
+ ]))
+ 
++const TASKS_EXTENSION_ID = "io.modelcontextprotocol/tasks"
++
++const declaresTasks = (capabilities: McpCore.NegotiatedProtocolProfile["clientCapabilities"]) =>
++  capabilities.extensions?.[TASKS_EXTENSION_ID] !== undefined
++
+ /**
+  * @internal
+  */
+ export const projectCallToolOutcome = Effect.fnUntraced(function*(
+-  outcome: McpCore.OperationOutcome<ObjectWithUndefined>,
++  outcome: McpCore.ToolOutcome<ObjectWithUndefined>,
+   serverInfo: typeof McpSchema.Implementation.Type
+ ) {
+   const encodedServerInfo = yield* encodeImplementation(serverInfo)
+@@ -132,6 +138,13 @@ export const projectCallToolOutcome = Effect.fnUntraced(function*(
+       resultType: "complete"
+     })
+   }
++  if (outcome._tag === "Task") {
++    return yield* decodeCallToolOutcome(omitUndefined({
++      ...outcome.task,
++      _meta: { "io.modelcontextprotocol/serverInfo": encodedServerInfo },
++      resultType: "task"
++    }))
++  }
+   return yield* decodeCallToolOutcome(projectInputRequired(outcome, encodedServerInfo))
+ })
+ 
+@@ -370,6 +383,47 @@ export const makeHandlers = (
    const decodeListSkillsResult = Schema.decodeUnknownEffect(McpSkills.ListSkillsResult)
    const decodeGetSkillResult = Schema.decodeUnknownEffect(McpSkills.GetSkillResult)
    const decodeReadResourceDirectoryResult = Schema.decodeUnknownEffect(McpSkills.ReadResourceDirectoryResult)
@@ -2812,10 +3494,46 @@ index a701ec874b4604680ca3163781aa70a6e3f906fe..7bb6f90b7796a3d38f104df18e8638ac
 +        })
 +      )
 +      : Effect.succeed(handler))
++  // Tasks are reachable only once a handler is registered, and only by a client that declared them.
++  const tasksHandler = Effect.flatMap(core.tasks.current, (handler) =>
++    handler === undefined
++      ? failWithHttpStatus(
++        404,
++        new McpProtocol.ProtocolError({
++          code: PublicMcpSchema.METHOD_NOT_FOUND_ERROR_CODE,
++          message: "Method not found"
++        })
++      )
++      : Effect.succeed(handler))
++  const missingTasksCapability = failWithHttpStatus(
++    400,
++    new McpProtocol.ProtocolError({
++      code: McpSchema.MISSING_REQUIRED_CLIENT_CAPABILITY,
++      message: "The request requires client capabilities that were not declared",
++      data: { requiredCapabilities: { extensions: { [TASKS_EXTENSION_ID]: {} } } }
++    })
++  )
++  const decodeGetTaskResult = Schema.decodeUnknownEffect(McpSchema.GetTaskResult)
++  const decodeTaskAcknowledgedResult = Schema.decodeUnknownEffect(McpSchema.TaskAcknowledgedResult)
++  const taskInvocation = Effect.gen(function*() {
++    const handler = yield* tasksHandler
++    const invocation = yield* getInvocation
++    if (!declaresTasks(invocation.protocol.clientCapabilities)) return yield* missingTasksCapability
++    return { handler, invocation }
++  })
    const sendNotification = context.sendNotification
    const supportsSubscriptions = sendNotification !== undefined
    // Older adapters accept arbitrary JSON; this binding requires extension settings objects.
-@@ -391,6 +405,7 @@ export const makeHandlers = (
+@@ -384,13 +438,15 @@ export const makeHandlers = (
+   }
+   const getDiscovery = Effect.map(context.registrationPresence, (presence) => {
+     const capabilities: Types.Mutable<typeof McpSchema.ServerCapabilities.Type> = { completions: {}, logging: {} }
+-    const declared = McpSkills.declareExtension(extensions, presence.skills)
++    const skillsDeclared = McpSkills.declareExtension(extensions, presence.skills)
++    const declared = presence.tasks ? { ...skillsDeclared, [TASKS_EXTENSION_ID]: {} } : skillsDeclared
+     if (declared !== undefined) capabilities.extensions = declared
+     if (presence.tools) capabilities.tools = { listChanged: supportsSubscriptions }
+     if (presence.resources) {
        capabilities.resources = { listChanged: supportsSubscriptions, subscribe: supportsSubscriptions }
      }
      if (presence.prompts) capabilities.prompts = { listChanged: supportsSubscriptions }
@@ -2823,10 +3541,41 @@ index a701ec874b4604680ca3163781aa70a6e3f906fe..7bb6f90b7796a3d38f104df18e8638ac
      return { supportedVersions: context.supportedVersions, capabilities, serverInfo: context.serverInfo }
    })
    const requireSkills = (method: string) =>
-@@ -728,6 +743,42 @@ export const makeHandlers = (
+@@ -694,6 +750,10 @@ export const makeHandlers = (
+         yield* validateInputRequestCapabilities(outcome, invocation.protocol.clientCapabilities)
+         return yield* projectCallToolOutcome(outcome, context.serverInfo)
+       }
++      if (outcome._tag === "Task") {
++        if (!declaresTasks(invocation.protocol.clientCapabilities)) return yield* missingTasksCapability
++        return yield* projectCallToolOutcome(outcome, context.serverInfo)
++      }
+       const toolResult = outcome.value
+       const content = toolResult.content.map(projectContent)
+       return yield* projectCallToolOutcome(
+@@ -728,6 +788,62 @@ export const makeHandlers = (
        const result = yield* projectCompleteResult({ ...cacheHint("skills"), resources }, context.serverInfo)
        return yield* decodeReadResourceDirectoryResult(result)
      }, Effect.mapError(projectError)),
++    "tasks/get": Effect.fnUntraced(function*(request: typeof McpSchema.GetTask.payloadSchema.Type) {
++      const { handler, invocation } = yield* taskInvocation
++      const task = yield* handler.get(request.taskId, invocation)
++      const result = yield* projectCompleteResult(omitUndefined(task), context.serverInfo)
++      return yield* decodeGetTaskResult(result)
++    }, Effect.mapError(projectError)),
++    "tasks/update": Effect.fnUntraced(function*(request: typeof McpSchema.UpdateTask.payloadSchema.Type) {
++      const { handler, invocation } = yield* taskInvocation
++      // The RPC payload already validated the dated response union; this decode only erases it into canonical JSON.
++      const inputResponses = yield* decodeInputResponses(request.inputResponses).pipe(Effect.orDie)
++      yield* handler.update(request.taskId, inputResponses, invocation)
++      const result = yield* projectCompleteResult({}, context.serverInfo)
++      return yield* decodeTaskAcknowledgedResult(result)
++    }, Effect.mapError(projectError)),
++    "tasks/cancel": Effect.fnUntraced(function*(request: typeof McpSchema.CancelTask.payloadSchema.Type) {
++      const { handler, invocation } = yield* taskInvocation
++      yield* handler.cancel(request.taskId, invocation)
++      const result = yield* projectCompleteResult({}, context.serverInfo)
++      return yield* decodeTaskAcknowledgedResult(result)
++    }, Effect.mapError(projectError)),
 +    "events/list": Effect.fnUntraced(function*(request: typeof McpSchema.ListEvents.payloadSchema.Type) {
 +      const handler = yield* eventsHandler
 +      const invocation = yield* getInvocation
@@ -2867,19 +3616,29 @@ index a701ec874b4604680ca3163781aa70a6e3f906fe..7bb6f90b7796a3d38f104df18e8638ac
        _request: typeof McpSchema.CancelledNotification.payloadSchema.Type
      ) {
 diff --git a/src/ai/internal/mcpProtocol.ts b/src/ai/internal/mcpProtocol.ts
-index 53936511ec4561717111d825115b4310488d18b5..f40915ba2b66184a08d9e52c2f413fa9deebb5ef 100644
+index 53936511ec4561717111d825115b4310488d18b5..fc735f008b2cfa75612695dc0a69fcc63b1256d1 100644
 --- a/src/ai/internal/mcpProtocol.ts
 +++ b/src/ai/internal/mcpProtocol.ts
-@@ -484,6 +484,7 @@ export interface HandlerInstallationContext {
+@@ -133,7 +133,7 @@ export const invocationFromRequestContext = (
+  */
+ export const requireCompleteOperation = <A>(
+   protocolVersion: PublicMcpProtocol.ProtocolVersion,
+-  outcome: McpCore.OperationOutcome<A>
++  outcome: McpCore.ToolOutcome<A>
+ ): Effect.Effect<A, McpCore.UnsupportedByProtocol> =>
+   outcome._tag === "Complete"
+     ? Effect.succeed(outcome.value)
+@@ -484,6 +484,8 @@ export interface HandlerInstallationContext {
      readonly resources: boolean
      readonly prompts: boolean
      readonly skills: boolean
 +    readonly events: boolean
++    readonly tasks: boolean
    }>
  }
  
 diff --git a/src/ai/internal/mcpRuntime.ts b/src/ai/internal/mcpRuntime.ts
-index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69914a9491 100644
+index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..185bb9c1661ed0a13e7cd35ef5ea5aff17702c9c 100644
 --- a/src/ai/internal/mcpRuntime.ts
 +++ b/src/ai/internal/mcpRuntime.ts
 @@ -14,6 +14,8 @@ import * as Layer from "../../Layer.ts"
@@ -2891,7 +3650,26 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
  import * as RpcGroup from "../../rpc/RpcGroup.ts"
  import type * as RpcMessage from "../../rpc/RpcMessage.ts"
  import type * as Scope from "../../Scope.ts"
-@@ -97,11 +99,11 @@ type HttpProtocolSelection =
+@@ -49,13 +51,17 @@ const protocolVersionClaim = (input: unknown): { readonly present: boolean; read
+ export const hasRequestProtocolVersion = (input: unknown): boolean =>
+   protocolVersionClaim(asRecord(asRecord(input)?.params)?._meta).present
+ 
+-const routingNameKey = (method: string): "name" | "uri" | undefined => {
++const routingNameKey = (method: string): "name" | "uri" | "taskId" | undefined => {
+   switch (method) {
+     case "tools/call":
+     case "prompts/get":
+       return "name"
+     case "resources/read":
+       return "uri"
++    case "tasks/get":
++    case "tasks/update":
++    case "tasks/cancel":
++      return "taskId"
+     default:
+       return undefined
+   }
+@@ -97,11 +103,11 @@ type HttpProtocolSelection =
    | {
      readonly _tag: "Rejected"
      readonly status: 400 | 404
@@ -2905,7 +3683,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
    }
  
  /**
-@@ -112,6 +114,11 @@ export type HttpAdmission =
+@@ -112,6 +118,11 @@ export type HttpAdmission =
      readonly _tag: "Accepted"
      readonly acknowledge: boolean
      readonly isSubscription: boolean
@@ -2917,7 +3695,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
    }
    | {
      readonly _tag: "Rejected"
-@@ -173,7 +180,18 @@ export interface ServerRuntimeShape {
+@@ -173,7 +184,18 @@ export interface ServerRuntimeShape {
      request: RpcMessage.RequestEncoded
    ) => Effect.Effect<PreparedRequest, unknown>
    readonly resolveRequest: (clientId: number, headers: Headers.Headers) => RequestBinding | undefined
@@ -2937,7 +3715,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
    readonly effectLogLevel: (
      clientId: number,
      headers: Headers.Headers,
-@@ -218,10 +236,61 @@ export const selectStatefulProtocol = <Protocol extends PublicMcpProtocol.AnyPro
+@@ -218,10 +240,61 @@ export const selectStatefulProtocol = <Protocol extends PublicMcpProtocol.AnyPro
   * @internal
   */
  export const make = Effect.fnUntraced(function*(
@@ -3001,7 +3779,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
    const protocolVersions = protocols.map((protocol) => protocol.protocolVersion)
    let statelessDescriptor: PublicMcpProtocol.StatelessRuntimeDescriptor | undefined
    let statelessProtocol: PublicMcpProtocol.AnyProtocolAdapter | undefined
-@@ -239,17 +308,28 @@ export const make = Effect.fnUntraced(function*(
+@@ -239,17 +312,28 @@ export const make = Effect.fnUntraced(function*(
    }
    const registry = yield* McpProtocolRegistry.make(protocols)
    const sessionTerminationListeners = new Set<(binding: RequestBinding) => Effect.Effect<void>>()
@@ -3032,7 +3810,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
      }
      if (!isInitialize && protocolVersion !== undefined) {
        if (!protocolVersions.includes(protocolVersion)) {
-@@ -390,7 +470,9 @@ export const make = Effect.fnUntraced(function*(
+@@ -390,7 +474,9 @@ export const make = Effect.fnUntraced(function*(
        return { protocol, profile, requestContext }
      }),
      resolveRequest: (clientId, headers) => stateful?.resolve(clientId, headers),
@@ -3043,7 +3821,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
        const reject = (status: number, error?: unknown, id: string | number | null = null): HttpAdmission => ({
          _tag: "Rejected",
          response: error === undefined
-@@ -403,9 +485,9 @@ export const make = Effect.fnUntraced(function*(
+@@ -403,9 +489,9 @@ export const make = Effect.fnUntraced(function*(
            return reject(400, unsupportedProtocolVersion(version))
          }
          const admission = selectHttpProtocol(headers, undefined)
@@ -3055,7 +3833,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
            ? reject(admission.status, admission.error)
            : reject(200, new PublicMcpSchema.ParseError({ message: "Parse error" }))
        }
-@@ -415,13 +497,20 @@ export const make = Effect.fnUntraced(function*(
+@@ -415,13 +501,20 @@ export const make = Effect.fnUntraced(function*(
            return reject(400, new PublicMcpSchema.InvalidRequest({ message: "Invalid Request" }))
          }
          const admission = selectHttpProtocol(headers, input)
@@ -3078,7 +3856,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
          }
          return {
            _tag: "Accepted",
-@@ -454,7 +543,9 @@ export const make = Effect.fnUntraced(function*(
+@@ -454,7 +547,9 @@ export const make = Effect.fnUntraced(function*(
        if (isInitialize && hasSession) {
          return reject(
            400,
@@ -3089,7 +3867,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
            id
          )
        }
-@@ -462,7 +553,8 @@ export const make = Effect.fnUntraced(function*(
+@@ -462,7 +557,8 @@ export const make = Effect.fnUntraced(function*(
          return reject(
            400,
            stateful === undefined ? undefined : new PublicMcpSchema.InvalidRequest({
@@ -3099,7 +3877,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
            }),
            id
          )
-@@ -476,11 +568,34 @@ export const make = Effect.fnUntraced(function*(
+@@ -476,11 +572,34 @@ export const make = Effect.fnUntraced(function*(
        ) {
          return reject(404, new PublicMcpSchema.MethodNotFound({ message: `Method not found: ${input.method}` }), id)
        }
@@ -3136,7 +3914,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
      },
      effectLogLevel: (clientId, headers, fallback) => stateful?.effectLogLevel(clientId, headers, fallback) ?? fallback,
      disconnect: (clientId) => stateful?.disconnect(clientId),
-@@ -515,6 +630,8 @@ export const make = Effect.fnUntraced(function*(
+@@ -515,6 +634,8 @@ export const make = Effect.fnUntraced(function*(
      canDeliver: (clientId, headers, notification, fallback, listChangeRevision) =>
        stateful?.canDeliver(clientId, headers, notification, fallback, listChangeRevision) ?? true,
      installHandlers: Effect.fnUntraced(function*(options) {
@@ -3145,7 +3923,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
        const contextMap = new Map<string, unknown>()
        const installationContext: McpProtocol.HandlerInstallationContext = {
          subscribeServerNotifications: options.subscribeServerNotifications,
-@@ -572,9 +689,19 @@ export const make = Effect.fnUntraced(function*(
+@@ -572,9 +693,19 @@ export const make = Effect.fnUntraced(function*(
                  logLevel: options.defaultLogLevel,
                  listChangeRevision: options.getListChangeRevision?.() ?? 0
                }
@@ -3166,7 +3944,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
                  appendPreResponseHandlerUnsafe(
                    fiber.context,
                    (_request, response) =>
-@@ -586,7 +713,7 @@ export const make = Effect.fnUntraced(function*(
+@@ -586,7 +717,7 @@ export const make = Effect.fnUntraced(function*(
                } else {
                  stateful.registerConnection(clientId, registration)
                }
@@ -3175,7 +3953,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
                  capabilities,
                  instructions: options.serverInfo.instructions,
                  serverInfo: PublicMcpSchema.Implementation.make({
-@@ -599,7 +726,14 @@ export const make = Effect.fnUntraced(function*(
+@@ -599,7 +730,14 @@ export const make = Effect.fnUntraced(function*(
                })
              })
            }),
@@ -3191,7 +3969,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
            subscribe: stateful.subscribe,
            unsubscribe: stateful.unsubscribe,
            clientNotification: Effect.fnUntraced(function*(notification, clientId) {
-@@ -619,5 +753,8 @@ export const make = Effect.fnUntraced(function*(
+@@ -619,5 +757,8 @@ export const make = Effect.fnUntraced(function*(
   * @internal
   */
  export const layer = (
@@ -3203,7 +3981,7 @@ index 9d4c96e01ef3b898db9ae388a1805af8fef5efff..499250711fcdc07fae1215119b83fa69
 +): Layer.Layer<ServerRuntime, Cause.IllegalArgumentError> =>
 +  Layer.effect(ServerRuntime)(make(protocols, sessions, options))
 diff --git a/src/ai/internal/mcpSchema/v2026_07_28.ts b/src/ai/internal/mcpSchema/v2026_07_28.ts
-index 866afa476803a6f7a3ab5674dea53ab613b6d61e..2ebad31fe424f9ad16029aff7e5aa2560155ee3b 100644
+index 866afa476803a6f7a3ab5674dea53ab613b6d61e..8e2aa97b3e48bee2ff9831cc3f581998ccbb4290 100644
 --- a/src/ai/internal/mcpSchema/v2026_07_28.ts
 +++ b/src/ai/internal/mcpSchema/v2026_07_28.ts
 @@ -73,6 +73,7 @@ export const ServerCapabilities = Schema.StructWithRest(
@@ -3214,7 +3992,81 @@ index 866afa476803a6f7a3ab5674dea53ab613b6d61e..2ebad31fe424f9ad16029aff7e5aa256
      extensions: optional(Schema.Record(Schema.String, UnknownObject))
    }),
    [UnknownObject]
-@@ -810,6 +811,101 @@ export class SubscriptionsAcknowledgedNotification extends Rpc.make(
+@@ -656,11 +657,72 @@ export const CallToolResult = Schema.StructWithRest(
+   }),
+   [UnknownObject]
+ )
++const TaskFields = {
++  taskId: Schema.String,
++  status: Schema.Literals(["working", "input_required", "completed", "failed", "cancelled"]),
++  statusMessage: optional(Schema.String),
++  createdAt: Schema.String,
++  lastUpdatedAt: Schema.String,
++  ttlMs: Schema.NullOr(Schema.Finite),
++  pollIntervalMs: optional(Schema.Finite)
++}
++/**
++ * @internal
++ */
++export const CreateTaskResult = Schema.StructWithRest(
++  Schema.Struct({
++    _meta: optional(ResultMetaObject),
++    resultType: Schema.Literal("task"),
++    ...TaskFields
++  }),
++  [UnknownObject]
++)
++/**
++ * @internal
++ */
++export const GetTaskResult = Schema.StructWithRest(
++  Schema.Struct({
++    ...ResultMeta,
++    ...TaskFields,
++    inputRequests: optional(InputRequests),
++    result: optional(UnknownObject),
++    error: optional(McpError)
++  }),
++  [UnknownObject]
++)
++/**
++ * @internal
++ */
++export const TaskAcknowledgedResult = Schema.StructWithRest(Schema.Struct(ResultMeta), [UnknownObject])
++/**
++ * @internal
++ */
++export class GetTask extends Rpc.make("tasks/get", {
++  success: GetTaskResult,
++  error: McpError,
++  payload: { ...RequestParams.fields, taskId: Schema.String }
++}) {}
++/**
++ * @internal
++ */
++export class UpdateTask extends Rpc.make("tasks/update", {
++  success: TaskAcknowledgedResult,
++  error: McpError,
++  payload: { ...RequestParams.fields, taskId: Schema.String, inputResponses: InputResponses }
++}) {}
++/**
++ * @internal
++ */
++export class CancelTask extends Rpc.make("tasks/cancel", {
++  success: TaskAcknowledgedResult,
++  error: McpError,
++  payload: { ...RequestParams.fields, taskId: Schema.String }
++}) {}
+ /**
+  * @internal
+  */
+ export class CallTool extends Rpc.make("tools/call", {
+-  success: Schema.Union([CallToolResult, InputRequiredResult]),
++  success: Schema.Union([CallToolResult, InputRequiredResult, CreateTaskResult]),
+   error: McpError,
+   payload: {
+     ...InputResponseRequestParams,
+@@ -810,6 +872,101 @@ export class SubscriptionsAcknowledgedNotification extends Rpc.make(
    { payload: { ...NotificationParams.fields, notifications: SubscriptionFilter } }
  ) {}
  
@@ -3316,7 +4168,7 @@ index 866afa476803a6f7a3ab5674dea53ab613b6d61e..2ebad31fe424f9ad16029aff7e5aa256
  /**
   * @internal
   */
-@@ -823,7 +919,10 @@ export class ClientRequestRpcs extends RpcGroup.make(
+@@ -823,7 +980,13 @@ export class ClientRequestRpcs extends RpcGroup.make(
    ReadResource,
    SubscriptionsListen,
    CallTool,
@@ -3324,7 +4176,10 @@ index 866afa476803a6f7a3ab5674dea53ab613b6d61e..2ebad31fe424f9ad16029aff7e5aa256
 +  ListTools,
 +  ListEvents,
 +  SubscribeEvent,
-+  UnsubscribeEvent
++  UnsubscribeEvent,
++  GetTask,
++  UpdateTask,
++  CancelTask
  ) {}
  
  /**

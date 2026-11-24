@@ -106,6 +106,12 @@ belongs. Ownership does not grant access to another resource.
 An operation exposed by a live app evaluation. Availability can depend on the
 configured app's accounts and the service's current capabilities.
 
+**MCP task**:
+One MCP tool call that Executor answers later. When a native call runs past a few seconds for a
+client that declared the MCP tasks extension, Executor answers with a task ID; the call goes on,
+and the client asks after it by that ID until it waits for input, completes, fails or is cancelled.
+_Avoid_: Task alone, which is Muster's task; job.
+
 ## Hosted access
 
 **Group**:

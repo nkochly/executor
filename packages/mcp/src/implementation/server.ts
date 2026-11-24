@@ -16,6 +16,7 @@ import { McpProtocol, McpServer } from "effect/ai";
 import { HttpBody, HttpRouter, HttpServerRequest, HttpServerResponse } from "effect/http";
 import { ElicitationMode } from "../contracts/elicitation.ts";
 import { appSkillSource } from "./skill-source.ts";
+import { makeMcpTasks, type McpTasks } from "./mcp-tasks.ts";
 import {
   McpToolkit,
   NativeMcpToolkit,
@@ -156,6 +157,13 @@ const withLink = (
         .pipe(Effect.map((approvalUrl) => ({ ...result, approvalUrl })))
     : Effect.succeed(result);
 
+const tasksHandler = (tasks: McpTasks, caller: Effect.Effect<string>): McpServer.TasksHandler => ({
+  get: (taskId) => Effect.flatMap(caller, (id) => tasks.get(id, taskId)),
+  update: (taskId, inputResponses) =>
+    Effect.flatMap(caller, (id) => tasks.update(id, taskId, inputResponses)),
+  cancel: (taskId) => Effect.flatMap(caller, (id) => tasks.cancel(id, taskId)),
+});
+
 /** Build protocol state and its browser accessors together. Hosts authorize browser calls separately from MCP. */
 export const makeMcp = (options: McpOptions) =>
   Effect.gen(function* () {
@@ -164,6 +172,7 @@ export const makeMcp = (options: McpOptions) =>
       options.beforeExecute,
       options.interactions,
     );
+    const mcpTasks = yield* makeMcpTasks(executions);
     const program = options.program ?? executeProgram;
     const handler = (mode: ElicitationMode) =>
       Effect.gen(function* () {
@@ -220,7 +229,14 @@ export const makeMcp = (options: McpOptions) =>
                     execute: ({ code }) =>
                       caller.pipe(
                         Effect.flatMap(({ id }) =>
-                          executeNative(executions, id, options.backend, program(code)),
+                          executeNative(
+                            executions,
+                            id,
+                            options.backend,
+                            program(code),
+                            "ask",
+                            mcpTasks,
+                          ),
                         ),
                         observeExecution("mcp.execute"),
                       ),
@@ -233,6 +249,7 @@ export const makeMcp = (options: McpOptions) =>
                             options.backend,
                             callTools(input),
                             "client",
+                            mcpTasks,
                           ),
                         ),
                         observeExecution("mcp.call"),
@@ -340,10 +357,14 @@ export const makeMcp = (options: McpOptions) =>
                     }),
                   ),
                 );
+        const nativeCaller = options.caller.pipe(
+          Effect.map((product) => callerIdentity(product, "native")),
+        );
         return yield* Layer.mergeAll(
           toolkit,
           McpServer.events(eventsHandler(options.backend)),
           Layer.effectDiscard(McpServer.registerSkillSource(appSkillSource(options.backend))),
+          mode === "native" ? McpServer.tasks(tasksHandler(mcpTasks, nativeCaller)) : Layer.empty,
         ).pipe(
           Layer.provide(
             McpServer.layerHttp({

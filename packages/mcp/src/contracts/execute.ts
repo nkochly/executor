@@ -541,6 +541,7 @@ export const NativeExecuteTool = McpTool.make("execute", {
     ElicitationResponseInvalid,
     ExecutionRejected,
     Schema.instanceOf(McpSchema.InputRequired),
+    Schema.instanceOf(McpSchema.TaskCreated),
   ]),
 })
   .annotate(McpTool.Meta, ExecutionResultMeta)
@@ -600,6 +601,7 @@ export const NativeCallTool = McpTool.make("call", {
     ElicitationResponseInvalid,
     ExecutionRejected,
     Schema.instanceOf(McpSchema.InputRequired),
+    Schema.instanceOf(McpSchema.TaskCreated),
   ]),
 })
   .annotate(McpTool.Meta, ExecutionResultMeta)

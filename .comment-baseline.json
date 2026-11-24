@@ -87,6 +87,7 @@
     "packages/hosted-cloudflare/src/product-location.ts",
     "packages/mcp-auth/src/implementation/sqlite-database.ts",
     "packages/mcp/src/implementation/caller-label.ts",
+    "packages/mcp/src/implementation/mcp-tasks.ts",
     "packages/mcp/src/implementation/skill-source.ts",
     "packages/sdk/src/implementation/caller-label.ts",
     "packages/sdk/src/implementation/error-class.ts",
