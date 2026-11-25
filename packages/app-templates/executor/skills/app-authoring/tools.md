@@ -34,7 +34,7 @@ The schema helpers are `object`, `string`, `number`, `boolean`, `array`,
 `.default(value)` for defaults. `string`, `number` and `boolean` take an
 optional `title` and `description`, such as
 `string({ description: "An ISO 8601 date" })`, which agents see in the tool's
-input schema. `Infer<typeof Input>` gives the parsed input type. `object`
+input schema; both need `apps` 0.0.1-beta.125 or later. `Infer<typeof Input>` gives the parsed input type. `object`
 strips undeclared properties. `decodeJson(response, schema)` checks HTTP status
 and parses a JSON response.
 
