@@ -656,8 +656,9 @@ link, use of the account. The same account may be linked in both scopes. An
 account linked to an app for everyone cannot be deleted until it is unlinked
 (`AccountLinkedToApp`).
 
-An app whose requirement has no linked account exposes no tools. Connect or
-link the account, then start a new execution to discover or call its tools.
+An app whose plain requirement has no linked account exposes no tools. A
+`.many()` requirement with none linked does not hide them. Connect or link the
+account, then start a new execution to discover or call its tools.
 
 An account has `id`, `method`, and typed `fields` inside app code. It exists
 independently of the app and can be linked to several apps with the same
@@ -684,7 +685,11 @@ To use fewer, unlink some. Two apps come from `apps.copy`: each is independent, 
 its own source, Git history, links and an empty database.
 
 Requirements apply to the whole app. A plain provider requires exactly one
-account; optional single-account requirements are not implemented.
+account; there is no optional single-account requirement. For an account the
+app can work without, such as a model that only adds scoring, declare it
+`.many()` and use the first linked one, or none:
+`const scorer = ctx.app.accounts.scorer[0]`, where `scorer` is
+`provider.many()` under `app`. The tools stay visible before anyone links it.
 
 `defineApp(requirements, definition)` accepts a plain object for static declarations.
 Each handler receives fresh accounts, traced fetch and cancellation in `ctx`.
