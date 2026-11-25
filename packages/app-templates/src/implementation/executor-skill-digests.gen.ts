@@ -3,7 +3,7 @@
 /** SHA-256 of each file the Executor app publishes as a skill, keyed by `<skill>/<file>`. */
 export const executorSkillDigests: Readonly<Record<string, string>> = {
   "app-authoring/SKILL.md": "09694ffe3aa62cbaec0ea9fead118392107440267dd3b6f4676595e45e1eba6e",
-  "app-authoring/accounts.md": "0e2ea2733abc2a5f261328b79c73d1884c33ec2afbce8da8796f50b041d659fd",
+  "app-authoring/accounts.md": "e4c40fecbabd3aca0b6223e42328606abb96b6bc415a50549c8ffa067d7020f6",
   "app-authoring/deploy.md": "7826b21142fc7b769425b51cc14b86a952f430f663f5b02bfcd5ebe10907b8f9",
   "app-authoring/events.md": "8f7465e35c6c94b06978b89680181df60c741225de3ba8158f22f76ee7e91a5a",
   "app-authoring/integrations.md": "033a62e45ec32e51a67558e4a8e3e42c9a3a1bdf8f800ad84bef8dbd86d243e9",
