@@ -442,15 +442,18 @@ that the expected text exists before applying a text replacement. Do not print
 the entire app and retype it to change one style or operation.
 
 The `code-mode` skill's 65,536-character program limit counts source written
-into the program, not source it reads with `appManagement.source`. When new
-files do not fit in one program, add them over several executions: each reads
-the working source, adds some files and commits the complete list.
+into the program, not source it reads with `appManagement.source`. The `call`
+tool has no such limit: send new files that do not fit in a program as one
+`call` to `appManagement.create` or `appManagement.commit`, with the whole
+`files` array as its input. Never split an app over several commits to fit a
+program.
 
 If you have a shell and the CLI, use the local CLI path above instead of
 serializing files into tool calls. Otherwise, for locally authored files,
 generate the `{ path, content }` array with a local
-script and JSON serialization. Insert that serialized value as JavaScript data
-in the `execute` payload; keep it out of shell interpolation. JSON handles
+script and JSON serialization. Pass that value as the `files` of a `call`
+input, or insert it as JavaScript data in an `execute` payload; keep it out of
+shell interpolation. JSON handles
 quotes, backticks, newlines and literal `${...}` without changing the source.
 Do not wrap arbitrary source in a manually constructed template literal.
 The local script can prepare the payload, but remote `execute` cannot read a

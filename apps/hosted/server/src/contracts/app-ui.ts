@@ -86,7 +86,7 @@ export const AppUiLocation = Schema.Union([
     url: Schema.Null,
     reason: Schema.Literals(["no_ui", "no_app_domain"]).annotate({
       description:
-        "no_ui: the active version has no UI (no index.html), as for tool-only apps. no_app_domain: this Executor has no app domain configured, so no app UI has an address.",
+        "no_ui: the active version has no UI (no index.html), as for tool-only apps. no_app_domain: this Executor has no app domain configured, so no app UI has an address until its operator sets one (EXECUTOR_APP_UI_BASE_URL on self-host).",
     }),
   }),
   Schema.Struct({ status: Schema.Literals(["pending", "failed"]), url: Schema.Null }),

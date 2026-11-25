@@ -346,6 +346,10 @@ identity or disconnect accounts; it only makes earlier results outdated.
 
 ## Tell users where to get credentials
 
+Field `title` and `description`, a `secrets` method's `guide` and an OAuth
+method's `clientGuide` need `apps` 0.0.1-beta.125 or later in `package.json`.
+Earlier releases, such as 0.0.1-beta.120, reject them at type check.
+
 The connect form shows what you write about each field and method. Give every
 field a `description` first: where in the service the value is, and what it
 looks like. The form shows it under the input. `title` replaces the field's
