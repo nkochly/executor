@@ -47,6 +47,9 @@ against `REVIEW.md`.
 - **Live app builds take `apps` from npm,** not from this checkout. App source the fork
   generates or edits may import only what a published `apps` release exports; a fork-only
   framework export passes the e2e suite and fails the live build (decision record 0015).
+  A port that adds framework surface leaves `packages/apps` at the host's version, so the
+  skills under `packages/app-templates/executor/skills/` name the first published release
+  that has it, as `accounts.md` does for field help.
 - **The MCP `call` tool takes `calls: [...]`,** so an upstream test that calls
   one tool needs adapting when it is ported.
 - **Deploy:** wiki_mcp `ci.yml`, mode `deploy`, packages `executor-v2`, one
