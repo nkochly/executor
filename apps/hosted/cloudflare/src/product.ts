@@ -35,6 +35,7 @@ import {
   type McpSessionHost,
 } from "@executor-js/hosted-self-host/product";
 import { agentReportsFeedback } from "./agent-reports.ts";
+import { accountsToReconnect } from "./account-reconnects.ts";
 import skills from "executor:skills";
 import dashboard from "executor:dashboard";
 import { WorkerConfigurationInvalid, workerConfiguration } from "./configuration.ts";
@@ -141,6 +142,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
         Effect.provideService(Layer.CurrentMemoMap, yield* Layer.makeMemoMap),
       );
       const workflow = Context.get(services, SelfHostWorkflowRequests);
+      const sql = yield* SqlClient.SqlClient;
       const context = yield* Effect.context<never>();
       const addressed = addressedRequest(http);
       return {
@@ -154,6 +156,7 @@ const prepare = (state: DurableObjectState, env: Environment) =>
           sessions === undefined
             ? Promise.resolve({ ok: false, defect: "MCP sessions are off" })
             : sessions.backend(request, call),
+        accountsToReconnect: () => Effect.runPromiseWith(context)(accountsToReconnect(sql)),
       };
     }).pipe(Effect.provideContext(common));
   });

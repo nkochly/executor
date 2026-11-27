@@ -4,6 +4,7 @@ import type { DurableObjectState, Fetcher } from "@cloudflare/workers-types";
 import type { McpBackendCall, WireExit } from "@executor-js/hosted-server";
 import type { PlatformBindings } from "./platform.ts";
 import type { AgentReportsBinding } from "./agent-reports.ts";
+import type { AccountToReconnect } from "./account-reconnects.ts";
 import {
   exportStoragePage,
   isRetiredProduct,
@@ -35,6 +36,7 @@ export interface ProductStub {
   fetch(request: Request): Promise<Response>;
   workflow(request: Request): Promise<Response>;
   mcpBackend(request: Request, call: McpBackendCall): Promise<WireExit>;
+  accountsToReconnect(): Promise<readonly AccountToReconnect[]>;
 }
 interface RestoreTestStub {
   testRestore(stamp: string): Promise<RestoreTest>;
@@ -110,6 +112,10 @@ export class ExecutorProduct
     if (this.#retired || this.#restoreTest) return this.#successor().mcpBackend(request, call);
     return (await this.#product()).mcpBackend(request, call);
   }
+  async accountsToReconnect(): Promise<readonly AccountToReconnect[]> {
+    if (this.#retired || this.#restoreTest) return this.#successor().accountsToReconnect();
+    return (await this.#product()).accountsToReconnect();
+  }
   async exportPage(cursor: StorageCursor | null): Promise<StoragePage> {
     if (!this.#retired) throw new Error("Only a retired product exports its storage");
     return exportStoragePage(this.#state, cursor);
@@ -184,6 +190,12 @@ export class SelfOrigin extends WorkerEntrypoint<Environment> {
     const internal = new Request(request);
     internal.headers.set("x-executor-client-ip", "127.0.0.1");
     return productStub(this.env.PRODUCT, this.env).fetch(internal);
+  }
+}
+
+export class AccountReconnects extends WorkerEntrypoint<Environment> {
+  async list(): Promise<readonly AccountToReconnect[]> {
+    return productStub(this.env.PRODUCT, this.env).accountsToReconnect();
   }
 }
 

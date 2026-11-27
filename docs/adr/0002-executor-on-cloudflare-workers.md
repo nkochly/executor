@@ -41,6 +41,14 @@ Requests and addresses (`worker.ts`, `product-request.ts`):
 - Requests to the instance's own dashboard origin, from app isolates or host egress, go through the
   `SelfOrigin` entrypoint (`SELF`). They never cross the network and carry a fixed internal source.
 - App host workflow callbacks reach the product only through the `WorkflowCallbacks` entrypoint.
+- The `AccountReconnects` entrypoint (`account-reconnects.ts`) lists every account whose OAuth
+  grant the service ended, so it must be connected again: its id, label, owner and provider name,
+  never a credential. It has no route; only a Worker bound to it can call it, and the Trifecta stack
+  binds it to the lookout alone, which raises an alert for each account listed. Executor itself
+  learns a grant has ended only when a renewal is refused, so an account is listed within one use
+  of it after its grant runs out. The shared sign-in's Access grant lasts a fixed seven days and
+  renewals never extend it (2026-11-27: a grant signed in 2026-11-20 03:04Z was refused from
+  03:10Z a week later, and nothing warned for 15 hours).
 - The dashboard's browser files are static assets (`ASSETS`). The Worker runs first, so only the
   asset manifest is served.
 

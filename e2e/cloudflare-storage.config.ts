@@ -11,6 +11,7 @@ export default defineConfig({
       "e2e/tests/cloudflare-isolated-program.spec.ts",
       "e2e/tests/cloudflare-product-reset.spec.ts",
       "e2e/tests/cloudflare-build-reads.spec.ts",
+      "e2e/tests/cloudflare-account-reconnects.spec.ts",
     ],
     fileParallelism: false,
     testTimeout: 90_000,
