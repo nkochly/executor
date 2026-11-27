@@ -591,8 +591,11 @@ return await executor.appAccounts.userConnect({
 });
 ```
 
-Give the returned URL to the user. Executor renders the provider's credential
-form or OAuth sign-in. Never ask users to paste secrets into chat, inspect their
+Give the returned URL to the user. A connection link lasts thirty minutes, so
+request it only when the person is ready to fill it in: tell them first what
+the form asks for and where to get it, then send the link. If they come back
+to a link older than thirty minutes, request a fresh one instead of resending
+it. Executor renders the provider's credential form or OAuth sign-in. Never ask users to paste secrets into chat, inspect their
 files for tokens, or put credentials in app source or execute code.
 After the user finishes, check the request in a new execute call:
 
@@ -630,7 +633,7 @@ return await tools.executor.appAccounts.userConnect({
 });
 ```
 
-Requests expire after thirty minutes. Cancelled or expired requests need a new link. Do not wait or busy-poll
+Cancelled or expired requests need a new link. Do not wait or busy-poll
 inside execute.
 
 Use `accounts.list({ query: { owner: "local", provider } })` to find compatible
