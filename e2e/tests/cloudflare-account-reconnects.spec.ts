@@ -43,7 +43,7 @@ layer(accountReconnectsHost, { excludeTestServices: true })(
   "Cloudflare product accounts to reconnect",
   (it) => {
     it.effect(
-      "lists only the accounts whose grant the service ended, with the provider's name",
+      "lists the accounts whose sign-in must be connected again, with the provider's name",
       () =>
         Effect.gen(function* () {
           const { origin } = yield* AccountReconnectsHost;
@@ -56,6 +56,12 @@ layer(accountReconnectsHost, { excludeTestServices: true })(
             {
               account: "acc_ended",
               label: "Default",
+              owner: "organization:org_reconnects",
+              provider: "Presidio West",
+            },
+            {
+              account: "acc_missing",
+              label: "Never signed in",
               owner: "organization:org_reconnects",
               provider: "Presidio West",
             },

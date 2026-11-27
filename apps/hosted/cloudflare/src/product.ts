@@ -17,6 +17,7 @@ import {
 } from "effect/http";
 import {
   FirstPartyOAuthClientsInvalid,
+  HostedExecutor,
   McpAccess,
   fromWire,
   toWire,
@@ -156,7 +157,12 @@ const prepare = (state: DurableObjectState, env: Environment) =>
           sessions === undefined
             ? Promise.resolve({ ok: false, defect: "MCP sessions are off" })
             : sessions.backend(request, call),
-        accountsToReconnect: () => Effect.runPromiseWith(context)(accountsToReconnect(sql)),
+        accountsToReconnect: () =>
+          Effect.runPromiseWith(context)(
+            Context.get(services, HostedExecutor).pipe(
+              Effect.flatMap((executor) => accountsToReconnect(sql, executor.accounts.signIn)),
+            ),
+          ),
       };
     }).pipe(Effect.provideContext(common));
   });

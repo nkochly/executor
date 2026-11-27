@@ -1,8 +1,19 @@
 import { DurableObject } from "cloudflare:workers";
-import { Effect, Layer, Schema } from "effect";
+import { Effect, Layer, Redacted, Schema } from "effect";
+import { Digest, SecureRandom } from "effect/crypto";
 import { SqlClient } from "effect/sql";
 import { sqliteLayer } from "fumadb-effect/sqlite";
-import { AccountId, OwnerId, ProviderId, makeExecutorStorage } from "@executor-js/sdk/core";
+import {
+  AccountId,
+  OwnerId,
+  ProviderId,
+  createExecutor,
+  makeExecutorStorage,
+  runtimeAdapter,
+} from "@executor-js/sdk/core";
+import { memoryBlobStore } from "@executor-js/sdk/blobs";
+import { markdownRefusals } from "@executor-js/sdk/markdown";
+import { memoryRepositories } from "@executor-js/sdk/testing";
 import { accountsToReconnect, type AccountToReconnect } from "../src/account-reconnects.ts";
 
 interface Environment {
@@ -13,14 +24,21 @@ interface ProductStub {
   list(): Promise<readonly AccountToReconnect[]>;
 }
 
+const secret = Redacted.make("0".repeat(64));
 const organization = Schema.decodeSync(OwnerId)("organization:org_reconnects");
 const provider = Schema.decodeSync(ProviderId)("prv_presidio_west");
-const definition = { name: "Presidio West", auth: { oauth: { type: "oauth2" } } };
+const definition = {
+  name: "Presidio West",
+  auth: {
+    oauth: { type: "oauth2", discover: "https://muster.test/mcp", response: {} },
+    key: { type: "secrets", label: "Key", fields: { token: { type: "string" } } },
+  },
+};
 const accounts = [
   { id: "acc_ended", method: "oauth", label: "Default", grant: "reconnect" },
-  { id: "acc_ready", method: "oauth", label: "Team", grant: "ready_1" },
+  { id: "acc_missing", method: "oauth", label: "Never signed in", grant: undefined },
   { id: "acc_renewing", method: "oauth", label: "Renewing", grant: "refresh_1" },
-  { id: "acc_secrets", method: "secrets", label: "Key", grant: undefined },
+  { id: "acc_secrets", method: "key", label: "Key", grant: undefined },
 ] as const;
 
 export class Product extends DurableObject<Environment> {
@@ -49,10 +67,25 @@ export class Product extends DurableObject<Environment> {
             updatedAt: new Date(0),
           });
       }
-      return yield* accountsToReconnect(yield* SqlClient.SqlClient);
+      const executor = yield* createExecutor({
+        database: storage,
+        git: memoryRepositories(),
+        markdown: markdownRefusals,
+        blobs: memoryBlobStore(),
+        runtime: runtimeAdapter({} as Parameters<typeof runtimeAdapter>[0]),
+        secret,
+      });
+      return yield* accountsToReconnect(yield* SqlClient.SqlClient, executor.accounts.signIn);
     });
     return Effect.runPromise(
-      run.pipe(Effect.provide(Layer.fresh(sqliteLayer(this.ctx.storage))), Effect.orDie),
+      run.pipe(
+        Effect.provide([
+          Layer.fresh(sqliteLayer(this.ctx.storage)),
+          SecureRandom.layerWebCrypto,
+          Digest.layerWebCrypto,
+        ]),
+        Effect.orDie,
+      ),
     );
   }
 }

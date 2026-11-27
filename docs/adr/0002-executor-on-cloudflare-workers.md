@@ -41,14 +41,18 @@ Requests and addresses (`worker.ts`, `product-request.ts`):
 - Requests to the instance's own dashboard origin, from app isolates or host egress, go through the
   `SelfOrigin` entrypoint (`SELF`). They never cross the network and carry a fixed internal source.
 - App host workflow callbacks reach the product only through the `WorkflowCallbacks` entrypoint.
-- The `AccountReconnects` entrypoint (`account-reconnects.ts`) lists every account whose OAuth
-  grant the service ended, so it must be connected again: its id, label, owner and provider name,
-  never a credential. It has no route; only a Worker bound to it can call it, and the Trifecta stack
-  binds it to the lookout alone, which raises an alert for each account listed. Executor itself
-  learns a grant has ended only when a renewal is refused, so an account is listed within one use
-  of it after its grant runs out. The shared sign-in's Access grant lasts a fixed seven days and
+- The `AccountReconnects` entrypoint (`account-reconnects.ts`) lists every account the SDK's
+  `accounts.signIn` says must be connected again: an OAuth account with no grant, a grant the
+  service ended, or an expired grant that cannot renew. It gives the id, label, owner and provider
+  name, never a credential, and asks `signIn` rather than reading grant rows so the dashboard and
+  the list agree. It has no route; only a Worker bound to it can call it, and the Trifecta stack
+  binds it to the lookout alone, which raises an alert for each account listed. Executor learns a
+  grant has ended only when a renewal is refused, so an account is listed within one use of it
+  after its grant runs out. The shared sign-in's Access grant lasts a fixed seven days and
   renewals never extend it (2026-11-27: a grant signed in 2026-11-20 03:04Z was refused from
-  03:10Z a week later, and nothing warned for 15 hours).
+  03:10Z a week later, and nothing warned for 15 hours). The product object runs the previous
+  version for minutes after a deploy, so the stack binds the lookout to this entrypoint only in a
+  deploy after the one that ships it.
 - The dashboard's browser files are static assets (`ASSETS`). The Worker runs first, so only the
   asset manifest is served.
 
