@@ -30,6 +30,7 @@ build through `execute`; source then travels as data inside tool calls.
 | Store, query or modify app data                              | [storage.md](storage.md)                               |
 | Connect provider accounts and check they work                | [accounts.md](accounts.md)                             |
 | Add a service: MCP, OpenAPI, GraphQL or another API          | [integrations.md](integrations.md)                     |
+| Ask Jev, a decision model, through the AI Gateway            | [jev.md](jev.md)                                       |
 | Handle webhooks                                              | [webhooks.md](webhooks.md)                             |
 | Emit events that MCP clients such as ChatGPT subscribe to    | [events.md](events.md)                                 |
 | Run workflows or scheduled mutations                         | [workflows.md](workflows.md)                           |
