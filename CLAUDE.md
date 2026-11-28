@@ -90,7 +90,8 @@ copy. This repo's own rules sit outside this block.
 - **Small rulings are the thread's.** Decide these without asking Nathan,
   take the option you would recommend, and say what you chose in your reply:
   a glossary edit that only makes an entry match code already shipped (a
-  Code line, a missed case); deleting or archiving a file git tracks; an
+  Code line, a missed case); deleting or archiving a file git tracks; a line
+  in a repo's own `CLAUDE.md`, outside this block (Nathan, 2026-11-28); an
   A-or-B choice inside a task he already approved. Still ask him for a new
   glossary term or a changed meaning, a delete of live data, accounts or
   resources, creating a token or secret, a CVE override, a reviewed-push
